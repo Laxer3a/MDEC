@@ -51,7 +51,7 @@ Then do it in verilog.
 # Comment and specification concerning timing.
 
 The original PSX has to decode theoretically 320x240 frame @30 fps (we can lower down to 29.97 fps but...), and specs says you need 6x 8x8 IDCT block (2 Chroma, 4 Luma) to generate a single 16x16 RGB block decoded.
-Which means that per frame, you have 20*15*6 IDCT block to perform, which raise to 54000 IDCT block per second (or 9000 16x16 RGB blocks if you prefer).
+Which means that per frame, you have 20x15x6 IDCT block to perform, which raise to 54000 IDCT block per second (or 9000 16x16 RGB blocks if you prefer).
 - For a single iteration, 2D brute force implementation, that would mean 54000 x 4096 cycle per second = 221.18 Mhz chip
 - For a single iteration, using 1D pass x 2 = 54000 x 2x8x8x8 = 54000 x 1024 = 55.3 Mhz chip to do the job.
 
