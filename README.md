@@ -21,19 +21,20 @@ http://board.psxdev.ru/topic/9/
 
 Do not plan to follow EXACT implementation (pointless to re-implement slower multiplier when you have one inside the FPGA).
 
-Then of cource, all the litterature about the IDCT and possible fast transform.
+Then of course, all the literature about the IDCT and possible fast transform.
 
 # Comment on implementation.
 
 IDCT is the core computation of the MDEC.
-The most brute force algorithm is the 2D IDCT convolution. It requires 4096 multiply (and nearly of additions if I am correct).
-But, if done properyl, IDCT is a seperable filter. 
+The most brute force algorithm is the 2D IDCT convolution. It requires 4096 multiply (and nearly half of additions if I am correct).
+But, if done properly, IDCT is a separable filter. 
 Which means that a 1D filter applied horizontally, then 1D applied vertically gives the same result
 (at the condition of keeping all the bits during the computation)
-In this case we go from a 8x8x8x8 iteration to 2x8x8x8 iteration, even using brute force.
+In this case we go from a 8x8x8x8 iterations to 2x8x8x8 iterations, even using brute force.
 
 Then for 1D convolution, there are some smarter algorithm ( ex, Yukihiro Arai &  Masayuki Nakajima 1988 : 'A Fast DCT-SQ Scheme for Images', behind paywall.
-Ex Found also : https://jiaats.com/ojs31/index.php/eee/article/download/411/358/ 
+Ex Found also : https://jiaats.com/ojs31/index.php/eee/article/download/411/358/ )
+But then COS table do not exist anymore.
 
 PCSXR does have an implementation using a hardcoded sin convolution using Arai's algorithm.
 The problem is then, that it is incompatible with MDEC spec, which authorize uploading the convolution tables. (the COS wave table)
