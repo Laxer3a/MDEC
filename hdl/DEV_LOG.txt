@@ -1,0 +1,161 @@
+27/01/2019 :	Started to think about feasibility of PS1 on MiSTer.
+
+				Problem : need a lot of stuff, don't feel like starting that huge work alone without data.
+				CPU already exist anway.
+				Better to focus on custom chip.
+				Everybody like CPU / GPU.
+				Is there something that can be done, a single module, 'closed' independent thing ?
+				
+				--> MDEC.
+				
+				Look up specs, found JPSXDEC and PlayStation1_STR_format.txt
+				
+				Looked at the different stage.
+				
+28/01/2019 :	- Install JPSXDEC, download FF7 movie STR file from the internet, export .mdec stream from JPSXDEC.
+				- Wrote a small parser of the U16 stream to parse the stream, nothing fancy.
+					BASE IDEA : Get a full C implementation that is working like the HW module will.
+				- Second Idea : get a MDEC implementation from an emulator ! And compare my implementation output/computations/error etc...
+					PCSXR Emulator seems ok.
+					(Found out later with this article from JPSXDEC dev, that indeed it was ok : http://jpsxdec.blogspot.com/ )
+				
+				-> Problem : I do not know how to call the MDEC Implementation from PCSXR.
+				-> Problem : Realize that game has to upload the table, empty by default.
+				
+				- Get more indepth information about IDCT, look at how MDEC is working, how different it is from possible standards.
+				- Look at different implementation.
+				
+				In its brute force version, IDCT need basically  1 MUL * 8 * 8 * 8 * 8 = 4096 MUL.
+				Considering we read some kind of RAM Block, it is 4096 cycle for a basic implementation for a 8x8 block.
+				
+				Hypothesis 1 : Do not know the clock of the MDEC in the real HW. I consider it to be the same as the CPU CLOCK for now.
+								33.8 Mhz
+								
+				Hypothesis 2 : Specs says that the MDEC can not process more than 9000 16x16 block per second (300 per frame (30 fps max))
+								made of 6x 8x8 IDCT decompression.
+				
+				Which means that the PS1 need to complete the job in 33.8 Mhz / 9000 = 3755.5 cycle.
+				Let's say we must decode a block in less than 3700 cycles as a work estimate.
+				
+				Basic implementation would then have the following : 4096x6 = 24576 cycles to decode a block.
+				
+				(Of course, I consider that latency is hidden, that architecture is well made to hide that we can load the next stream while finishing decoding of the previous one,
+				as there are multiple stages...)
+				
+30/01/2019 :	Spent the evening looking at more efficient implementation in more detail.
+				Problem : it exist very very efficient implementation. Highly pipelined, but are huge in resources (27 addition in 32 bit or may be more, 5 MUL).
+				Do not want to eat 'half of the FPGA' for that :-).
+				
+				Found some "resource" friendly parallel brute force but it divide the workload by 2/4. Not enough.
+				(I did not realize at the time, that I had 6 block to decode through the IDCT, I just focused on designing the IDCT itself, reduce its cost from 4096 cycles
+				to 2048 or 1024 but forgot that we ALSO have to do it 6x)
+				
+				But at least now, I have a very clean design on paper, that can cope with the loading, and output of RGB values, hidding all the latency to have consistent
+				throughput even with consistent non stop input stream.
+				
+31/01/2019 :	Realized that I need those x6. Need to go back to the drawing board.
+
+				Then also decided THE PLAN :
+				- First, drawing board again to fit within cycle budget.
+				- Create now my own C stupid implementation first, with computing path close to my HW (accumulator, multiply -> bit cut, rounding).
+				- Compare to reference PCSXR, make it work fine first.
+				- Then I can go through my C implementation and reduce the bit size of various stages and see how it goes in term of quality in signal.
+				- Then go for hardware implementation.
+				
+				No coding today, may be read a Verilog tutorial.
+				
+02/02/2019 :	Go back to the drawing board.
+				Can not do brute force 2D. Need 1D + 1D step.
+				Try to write implementation, fails miserably.
+				Lazily try to find already working code : miserably failed.
+				Too many pitfall when taking the code of someone else : index and order of tables, precision rounding places.
+				Call it a day.
+				
+03/02/2019 :	Finally got a working implementation after a stupid TODO I wrote for later "inverse x,y in this to test if works" justed worked.
+				Now I have a clean 2D Brute force as a reference.
+				And as DCT/IDCT is a separable filter, I now have 1D + 1D brute force pass to optimize and play with.
+				The 1D is not "smart" in itself using butterfly computation and the like.
+				Anyway, now cost is reduce from [1 stage x 8x8x8x8] to [2 stage x 8x8x8] cycles. Down from 4096 to 1024 cycles.
+				
+				PROBLEM A : our budget is 625 cycle per block. (6 per 16x16 Block MDEC stream, 9000 MDEC block / sec @ 33.8 Mhz)
+				Possible techniques :
+				T1 - Make two pass FASTER. (process two computation in // )
+				T2 - Make each pass serial to each other, and each can work on independant data.
+				
+				BOTH SOLUTION PROVIDE a 1024 -> 512 cycle computation time => TIMING REQUIREMENT MET.
+				
+				PROBLEM B : The choice of T1 or T2 depends on PSX MDEC DMA transfer timing and how the BUSY bit are used.
+							Need to understand the specs, IF SUCH THING EXIST !
+							Would be very nice to see a movie streamed under oscilloscope.
+							Uuuhhhh, don't know mips, don't know DMA or any other thing on PSX HW. Feeling alone again.
+							
+				Study Verilog a bit.
+
+04/02/2019 :	Took a bit of work at the C reference implementation of the computation to be sure.
+				In //, OPTIMIZATION C must be clearly defined (Comment from my C implementation) :
+				
+				POSSIBLE PARAMETERS / BIT SIZE :
+				--------------------------------
+				Optimization A,B,C Orthogonal :
+				
+				[Signed INPUT is 10 bit] x [Unsigned Scale 6 bit] x [Quantize Matrix (7 bit)] >> 3 => 23-3 = 20 LSB.
+				We div by 8 to have signal at proper size.
+				
+				C1 - Trunc / 8 as define by original code to have data at correct range.
+				   OR
+				C2 - Keep precision further down the line and do that /8 later...
+				
+				A - Size of Sin table. (Full = 16 signed bit)
+				
+				B1 - Round when accumulating.
+				  OR
+				B2 - Round partially when accumulating, round remaining in second 1D IDCT.
+				  OR
+				B3 - Round when writing into table, full precision accumulator.
+				  OR
+				B4 - Full accumulation in writing for first 1D IDCT, rounding at the end.
+				
+				1/ [C2-Full A-B4] should be considered as reference, should debug a lot of video stream and see if there are any glitch at all.
+					Mame implementation was C1-Trunc A (2D cos table with bit loss)-B4
+				2/ From there on, C1 was standard in emulator, so we consider this variation to be within specs.
+					Check the difference in matrices.
+				3/ Further go down with the all research space (16->8 Bit Sin), degrading from B4 to B2,B3, then B1 (B1 showed signed of bad result with FULL reduction)
+					Check the difference in matrices.
+
+
+05/02/2019 :
+				C Implementation
+				Found out that if scale = 0, then it is possible to stream an uncompressed (non RLE block).
+				Started to write Stream state machine block in Verilog.
+				Started to write Coefficient multiplier/setup when receiving coefficients from the stream.
+				Started to write IDCT unit in Verilog.
+				
+06/02/2019 :	??? Don't remember ????
+
+07/02/2019 :	C Implementation behave like HW like system (full IDCT in 512 cycles)
+
+08/02/2019 :	First write of stream input part in Verilog.
+
+09/02/2019 :	First write of coefficient computation part in Verilog.
+				Documentation work again...
+				Install tool chain and build the verilog source in Quartus.
+
+10/02/2019 :	Burnt by ModelSim, my testbench simulation had Flipflop acting like wire. Probably my mistake, but super confused.
+				Screw that, screw tool chain, let's try verilator.
+				Install WSL, Verilator, bla, bla, bla, Unix, install, command line...
+				No code done or written really for the project itself. But lot of hours sinked in. (5h ?)
+
+12/02/2019 :	Debugged Stream input Verilog part. First time using Verilator.
+				Verilator looks very nice.
+
+13/02/2019 :	Debugged coef computation Verilog part.
+				Learned the hard way signed multiplication issue in Verilog.
+
+15/02/2019 :	Completed IDCT implementation. Started the YUV->RGB conversion verilog.
+				Burnt by Verilator, found out that I was not using correctly the signal propagation 
+				(I had straight output = input signal wire that were not propagated within the same cycle, but behaved like a register due to C code)
+				
+16/02/2019 :	Completed debug of IDCT Module.
+				(Burnt also by signed multiplication of COS table again & 3 small stupid bugs)
+				Found a few stupid bugs but nothing really hard.
+				Found a bug in stream input when having non consecutive write + wrong logic (forget write signal usage for end of matrix signal).
