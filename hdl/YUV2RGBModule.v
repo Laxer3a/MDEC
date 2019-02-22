@@ -1,3 +1,19 @@
+/*
+	Playstation YUV -> RGB Hardware conversion.
+
+	Computation Specs :
+	
+	Values from Cr/Cb/Y are already clamped -128..+127
+	Values from RGB are also clamped out 0..255
+	
+	------------------------------------
+	G=(-88/256 * B)+(-183/256 * R)
+	R=(359/256 * R)
+	B=(454/256 * B)
+	------------------------------------
+
+
+ */
 module YUV2RGBCompute (
 	// System
 	input					clk,

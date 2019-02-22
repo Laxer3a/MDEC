@@ -38,6 +38,9 @@ Outputs:
 - o_blockComplete : the previous element (o_dataWrt = 0) or this current element (o_dataWrt = 1) is the last one.
   (Reason : signal is issue when encounter EOB on standard block, or issued at the same time of last element when FULL LINEAR type).
   
+  TODO : 
+  - o_blockComplete must only be sent when IDCT says it is NOT busy (idct work = 0), it is the signal that START the computation.
+  
 */
 
 module streamInput(
@@ -45,9 +48,12 @@ module streamInput(
 	input			i_nrst,
 	input			i_dataWrite,
 	input [15:0]	i_dataIn,
+	output 			o_allowLoad,
 
 	input 			i_YOnly,
 	
+	input			i_idctBusy,
+	input			i_canLoadMatrix,
 	output			o_dataWrt,
 	output[9:0]		o_dataOut,
 	output[5:0]		o_scale,
@@ -93,6 +99,16 @@ module streamInput(
 	// if OEB input or full uncompressed block with last item (no EOB is possible)
 	// Generated only ONCE.
 	wire		isBlockComplete	= ((isEOB) || (rIsFullBlock && (currIdx == 63))) && i_dataWrite;
+	
+	// if (i_idctBusy && isBlockComplete) then
+	//	waitUntil i_idctBusy = 0;
+	//	assign blockComplete = 1;
+	// end
+	assign	o_blockComplete	= isBlockComplete && !i_idctBusy;
+	
+	//
+	//
+	assign o_allowLoad = i_canLoadMatrix && notWaiting;
 	
 	// --------------------------------------------------------
 	//   Block handling the U,V,Y0,Y1,Y2,Y3 counter.
@@ -249,5 +265,4 @@ module streamInput(
 	assign  o_blockNum		= i_YOnly ?  3'b111 : rBlockCounter;
 	assign	o_index			= rIsFullBlock ? currIdx : z; // Index order depends on block type 
 	assign	o_zagIndex		= currIdx;
-	assign	o_blockComplete	= isBlockComplete;
 endmodule

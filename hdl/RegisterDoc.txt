@@ -1,0 +1,177 @@
+HW YUV Conv
+
+G=(-88/256 * B)+(-183/256 * R)
+R=(359/256 * R)
+B=(454/256 * B)
+
+
+
+MDEC
+Reg0 Write : Send Table / RLE Stream
+	[4 bit Command][28 bit param]
+	0
+	1
+	2
+	3 Input RLE Stream
+		Variable size param, stop at FE00 or 64 element if uncompressed.
+	4 Init Quantization Table   Bit 0 : Set to 1[Update both table ?]
+		
+	5
+	6 Init Cos Table
+		Then linear, non zigzag data write (64x16 bit) -> 32x32 bit
+		[A+0:16 bit][A+2:16 bit]
+		...
+	7
+	8
+	9
+	A
+	B
+	C
+	D
+	E
+	F
+	
+Reg0 Read : Get RGB / Y Output
+
+	1F801820h.Read - MDEC Data/Response Register (R)
+	31-0  Macroblock Data (or Garbage if there's no data available)
+	
+	15bit Direct Display (default) (works with polygons, lines, rectangles)
+	0-4   Red       (0..31)
+	5-9   Green     (0..31)
+	10-14 Blue      (0..31)
+	15    Mask flag (0=Normal, 1=Do not allow to overwrite this pixel)
+	24bit Direct Display (works ONLY with direct vram transfers)
+	0-7    Red      (0..255)
+	8-15   Green    (0..255)
+	16-23  Blue     (0..255)
+	8bit Texture (256 Color Palette)         ;(One 256x256 page = 64Kbytes)
+	0-7   Palette index for 1st pixel (left)
+	8-15  Palette index for 2nd pixel (right)
+	4bit Texture (16 Color Palette)          ;(One 256x256 page = 32Kbytes)
+	0-3   Palette index for 1st pixel (left)
+	4-7   Palette index for 2nd pixel (middle/left)
+	8-11  Palette index for 3rd pixel (middle/right)
+	12-15 Palette index for 4th pixel (right)	
+  
+1F801820h - MDEC0 - MDEC Command/Parameter Register (W)
+
+	31-0  Command or Parameters
+  
+	MDEC(1) - Decode Macroblock(s)
+
+	  31-29 Command (1=decode_macroblock)
+	  28-27 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;STAT.26-25
+	  26    Data Output Signed (0=Unsigned, 1=Signed)                  ;STAT.24
+	  25    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;STAT.23
+	  24-16 Not used (should be zero)
+	  15-0  Number of Parameter Words (size of compressed data)
+
+	This command is followed by one or more Macroblock parameters (usually, all macroblocks for the whole image are sent at once).
+
+	MDEC(2) - Set Quant Table(s)
+
+	  31-29 Command (2=set_iqtab)
+	  28-1  Not used (should be zero)  ;Bit25-28 are copied to STAT.23-26 though
+	  0     Color   (0=Luminance only, 1=Luminance and Color)
+
+	The command word is followed by 64 unsigned parameter bytes for the Luminance Quant Table (used for Y1..Y4), and if Command.Bit0 was set, by another 64 unsigned parameter bytes for the Color Quant Table (used for Cb and Cr).
+
+	MDEC(3) - Set Scale Table
+
+	  31-29 Command (3=set_scale)
+	  28-0  Not used (should be zero)  ;Bit25-28 are copied to STAT.23-26 though
+  
+	Only things that i can add is that in case of command 2 and 3 Number of Parameter Words (биты 0-15) forcely set to value 64. In case of others commands data readed from bits 0-15.
+	Bit 0 from command 2 (Color) setted from databus only in case of command 2. For all other commands it is set to 1 and ignore bit 0. (I think it is not used though).
+
+	Also phrase "should be zero" not nessesary.. Bit's 0-15 or 1-15 can has any value. It will be ignored anyway.
+
+	MDEC(0) - No function
+	This command has no function. Command bits 25-28 are reflected to Status bits 23-26 as usually. Command bits 0-15 are reflected to Status bits 0-15 (similar as the "number of parameter words" for MDEC(1), but without the "minus 1" effect, and without actually expecting any parameters).
+
+	MDEC(4..7) - Invalid
+	These commands act identical as MDEC(0).
+
+
+Used to send command word, followed by parameter words to the MDEC (usually, only the command word is written to this register, and the parameter words are transferred via DMA0).
+
+Reg 1 READ :
+
+1F801824h - MDEC1 - MDEC Status Register (R)
+
+  31    Data-Out Fifo Empty (0=No, 1=Empty)
+  30    Data-In Fifo Full   (0=No, 1=Full, or Last word received)
+  29    Command Busy  (0=Ready, 1=Busy receiving or processing parameters)
+  28    Data-In Request  (set when DMA0 enabled and ready to receive data)
+  27    Data-Out Request (set when DMA1 enabled and ready to send data)
+  26-25 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;CMD.28-27
+  24    Data Output Signed (0=Unsigned, 1=Signed)                  ;CMD.26
+  23    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;CMD.25
+  22-19 Not used (seems to be always zero)
+  18-16 Current Block (0..3=Y1..Y4, 4=Cr, 5=Cb) (or for mono: always 4=Y)
+  15-0  Number of Parameter Words remaining minus 1  (FFFFh=None)  ;CMD.Bit0-15
+
+If there's data in the output fifo, then the Current Block bits are always set to the current output block number (ie. Y1..Y4; or Y for mono) 
+(this information is apparently passed to the DMA1 controller, so that it knows if and how it must re-order the data in RAM). 
+If the output fifo is empty, then the bits indicate the currently processsed incoming block (ie. Cr,Cb,Y1..Y4; or Y for mono).
+
+Reg 1 WRITE :
+
+1F801824h - MDEC1 - MDEC Control/Reset Register (W)
+
+  31    Reset MDEC (0=No change, 1=Abort any command, and set status=80040000h)
+  30    Enable Data-In Request  (0=Disable, 1=Enable DMA0 and Status.bit28)
+  29    Enable Data-Out Request (0=Disable, 1=Enable DMA1 and Status.bit27)
+  28-0  Unknown/Not used - usually zero
+
+The data requests are required to be enabled for using DMA (and for reading the request status flags by software). The Data-Out request acts a bit strange: It gets set when a block is available, but, it gets cleared after reading the first some words of that block (nethertheless, one can keep reading the whole block, until the fifo-empty flag gets set).
+
+DMA
+MDEC decompression uses a lot of DMA channels,
+
+  1) DMA3 (CDROM)    to send compressed data from CDROM to RAM
+  2) DMA0 (MDEC.In)  to send compressed data from RAM to MDEC
+  3) DMA1 (MDEC.Out) to send uncompressed macroblocks from MDEC to RAM
+  4) DMA2 (GPU)      to send uncompressed macroblocks from RAM to GPU
+
+DMA0 and DMA1 should be usually used with a blocksize of 20h words. If necessary, the parameters for the MDEC(1) command should be padded with FE00h halfwords to match the 20h words (40h halfwords) DMA blocksize.
+
+	
+;use r28=1F80.0000h for below stuff
+;------------------
+nondma_mdec_init:
+ mov  r1,8000.0000h              ;#mdec reset and disable dma
+ mov  [r28+1824h],r1            ;/
+ ret
+;------------------
+nondma_mdec_xmit:   ;in: r3=src(cmd+data), r4=src.len, r5=dst, r6=dst.len
+ mov  r1,[r3]  ;src             ;#
+ add  r3,4     ;src             ; send command (mdec.in)
+ mov  [r28+1820h],r1            ;/
+@@xmit_lop:
+@@xmit_in_wait:                 ;#
+  @@try_rx_lop:                 ;  ;#
+   mov  r1,[r28+1824h]          ;  ;
+   mov  r2,1 shl 31 ;dta.out.empty ;
+   and  r2,r1   ;1=empty        ;  ;
+   jnz  r2,@@skip_rx            ;  ;
+   mov  r1,[r28+1820h]          ;  ; recv data (if any) (mdec.out)
+   add  r6,4    ;dst.len        ;  ;
+   mov  [r5],r1 ;dst            ;  ;
+   add  r5,4    ;dst            ;  ;
+   jmp  @@try_rx_lop            ;  ;
+  @@skip_rx:                    ;  ;/
+ mov  r1,[r28+1824h]            ;
+ mov  r2,1 shl 30 ;dta.in.full  ; wait if mdec.in is full
+ and  r2,r1   ;1=full           ; (and alongsides: recv data, if any)
+ jnz  r2,@@xmit_in_wait         ;/
+ mov  r1,[r3]  ;src             ;#
+ add  r3,4     ;src             ; send data (mdec.in)
+ mov  [r28+1820h],r1            ;
+ sub  r4,4     ;len             ;/
+ jnz  r4,@@xmit_lop
+ ret
+;------------------
+EDIT: The forum editor treats backslashes as "delete following linebreak"? 
+      I've replaced them by "#" to avoid that effect.

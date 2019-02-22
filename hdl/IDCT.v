@@ -9,6 +9,7 @@ module IDCT (
 	input	[2:0]	i_blockNum,
 	input	[19:0]	i_coefValue,
 	input			i_matrixComplete,
+	output			o_canLoadMatrix,
 
 	// Loading of COS Table (Linear, no zigzag)
 	input			i_cosWrite,
@@ -21,6 +22,10 @@ module IDCT (
 	output			o_busyIDCT,
 	output	 [5:0]	o_writeIndex
 );
+	// Allow to load matrix when IDCT is not busy OR that we are in the second pass.
+	// No need to worry, about internal 64 bit flag reset on pass 0->1, stream input will take >= 1 cycle to send the next data in any case.
+	assign o_canLoadMatrix = (!idctBusy | (pass == 1));
+	
 	//----------------------------------------------
 	//  COS TABLE ACCESS AND SETUP
 	//  -> DUAL TABLE for ODD and EVEN 'X' lines.
@@ -88,8 +93,6 @@ module IDCT (
 	
 	reg signed	[19:0]	coefTable[63:0];
 	reg			 [5:0]	coefTableAdr_reg;
-	// TODO : clean all ZERO on reset
-	// TODO : clean all ZERO on phase 2 complete.
 	
 	// [Direct READ 0 Cycle for Bit 0..63 with demultiplexer]
 	always @ (*)
@@ -164,8 +167,10 @@ module IDCT (
 	
 	always @ (posedge clk)
 	begin
-		if (i_nrst==0)	// TODO Condition to reset the matrix of loaded coefficients when IDCT complete before next load.
+		if (i_nrst==0 || (pass=1 && pPass=0))	// Reset the loaded flag of coefficients, allow next matrix loading when we enter the second pass IDCT.
+		begin
 			isLoadedBits = 64'd0;
+		end
 		else
 		begin
 			if (i_write)
