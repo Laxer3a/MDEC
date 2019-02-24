@@ -13,8 +13,8 @@ module IDCT (
 
 	// Loading of COS Table (Linear, no zigzag)
 	input			i_cosWrite,
-	input	[ 5:0]	i_cosIndex,
-	input	[15:0]	i_cosVal,
+	input	[ 4:0]	i_cosIndex,
+	input	[25:0]	i_cosVal,
 	
 	// Output in order value out
 	output	[22:0]	o_value,
@@ -35,14 +35,14 @@ module IDCT (
 	// Public READ Address for COS tables.
 	wire [ 4:0]	addrCos;
 	// Public RETURN Values for cos tables.
-	wire signed [15:0] cosA;
-	wire signed [15:0] cosB;
+	wire signed [12:0] cosA;
+	wire signed [12:0] cosB;
 	
 	// --- Internal ---
 	
 	// LUT Table
-	reg signed [15:0] COSTBLA[31:0];
-	reg signed [15:0] COSTBLB[31:0];
+	reg signed [12:0] COSTBLA[31:0];
+	reg signed [12:0] COSTBLB[31:0];
 
 	// Internal Address buffering
 	reg  [4:0] cosAdr_reg;
@@ -53,10 +53,8 @@ module IDCT (
 		// Write
 		if (i_cosWrite)
 		begin
-			if (i_cosIndex[0]==0)
-				COSTBLA[cosSubW] <= i_cosVal;
-			if (i_cosIndex[0]==1)
-				COSTBLB[cosSubW] <= i_cosVal;
+			COSTBLA[cosSubW] <= i_cosVal[12: 0];
+			COSTBLB[cosSubW] <= i_cosVal[25:13];
 		end
 		// Read
 		cosAdr_reg <= addrCos;
@@ -348,16 +346,16 @@ module IDCT (
 	// Read 23 bit directly         for pass 1 values.
 	wire signed [22:0] coef0 = pPass ? readCoefTable2Value : { {3{readCoefTableValue[19]}}, readCoefTableValue[19:0] };
 	
-	wire signed [38:0] mul0  = (coef0 * cosA); // 23x16 bit = 39 bit.
-	wire signed [38:0] mul1  = (coef0 * cosB); 
+	wire signed [35:0] mul0  = (coef0 * cosA); // 23x16 bit = 39 bit.
+	wire signed [35:0] mul1  = (coef0 * cosB); 
 
 	// Sign extend the result of multiplication.
-	wire signed [41:0] ext_mul0 = { {3{mul0[38]}}, mul0[38:0] };
-	wire signed [41:0] ext_mul1 = { {3{mul1[38]}}, mul1[38:0] };
+	wire signed [38:0] ext_mul0 = { {3{mul0[35]}}, mul0[35:0] };
+	wire signed [38:0] ext_mul1 = { {3{mul1[35]}}, mul1[35:0] };
 	
 	// Accumulators
-	reg signed  [41:0] acc0;
-	reg signed  [41:0] acc1;
+	reg signed  [38:0] acc0;
+	reg signed  [38:0] acc1;
 
 	// 1 piped signal.
 	reg          [2:0] pYCnt,pKCnt, ppYCnt;
@@ -387,8 +385,8 @@ module IDCT (
 
 	// (Cycle 2)
 	// Divide by 65536.0 fixed point value.
-	wire signed [22:0] v0 = acc0[38:16];
-	wire signed [22:0] v1 = acc1[38:16];
+	wire signed [22:0] v0 = acc0[35:13];
+	wire signed [22:0] v1 = acc1[35:13];
 
 	// Write Accumulator result when At beginning of next line. For last line, wait for beginning of first line of next pass.
 	wire   writeOut             = ppLast && ppPass;		// When arrived to last element done in pass 1

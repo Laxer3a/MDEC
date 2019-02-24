@@ -35,8 +35,8 @@ module computeCoef (
 
 	// Quant Table Loading
 	input					i_quantWrt,
-	input	[6:0]			i_quantValue,
-	input	[5:0]			i_quantAdr,
+	input	[27:0]			i_quantValue,
+	input	[3:0]			i_quantAdr,
 	input					i_quantTblSelect,
 	
 	// Write output (2 cycle latency from loading)
@@ -118,10 +118,10 @@ module computeCoef (
 	// -----------------------------------------
 	//   Embedded Quantization Table RAM
 	// -----------------------------------------
-	reg  [6:0] QuantTbl[127:0];
+	reg  [27:0] QuantTbl[31:0];
 	// Internal Address buffering
-	reg  [6:0] quantAdr_reg;
-	wire [6:0] writeAdr = {i_quantTblSelect,i_quantAdr};
+	reg  [4:0] quantAdr_reg;
+	wire [4:0] writeAdr = {i_quantTblSelect,i_quantAdr};
 	always @ (posedge i_clk)
 	begin
 		// Write
@@ -131,10 +131,20 @@ module computeCoef (
 		end
 
 		// Read
-		quantAdr_reg <= {selectTable,quantReadIdx};
+		quantAdr_reg <= {selectTable,quantReadIdx[5:2]};
+		// Read
+		pipeQuantReadIdx <= quantReadIdx[1:0];
 	end
-	// Continuous assignment implies read returns NEW data.
-	// This is the natural behavior of the TriMatrix memory
-	// blocks in Single Port mode.
-	wire [6:0] valueQuant = QuantTbl[quantAdr_reg];
+	
+	wire [27:0] fullValueQuant = QuantTbl[quantAdr_reg]; 
+	wire [ 6:0] valueQuant;
+	always @ (*)
+	begin
+		case pipeQuantReadIdx
+		0       : valueQuant = fullValueQuant[ 6: 0];
+		1       : valueQuant = fullValueQuant[13: 7];
+		2       : valueQuant = fullValueQuant[20:14];
+		default : valueQuant = fullValueQuant[27:21];
+		endcase
+	end
 endmodule
