@@ -179,119 +179,25 @@
 20/02/2019 :	Modified loader in C code to export PNG and run huge batch test.
 				May be not good enough for HW simulation comparison. But at least check all video animation data.
 				Spent time to understand registers. Now, I got fully the HW specs of the I/O and setup.
+
+22/02/2019 :	Implemented computation of YUV2RGB Module.
+
+23/02/2019 :	Fixed Verilog error & warning in YUV2RGB Module.
+				Created C Model -> Checked output image with simulator.
+				Then Created a full test coverage of the unit.
+				Seperated computation and pipelining logic in YUV2RGB.
 				
-				TODO : - Implement YUV complete
-				TODO : - Implement precision enabled IDCT / ComputeCoef
-				TODO : - Register system
-				TODO : - Stream full/handle
+24/02/2019 :	Implemented Registers and logic. Changed the way IDCT and Coefficient compute unit load now '32 bit word' (unused bit are actually thrown away) and does reading sub word internally. (COS table, Quant Luma/Chroma table)
+					-> Remain FIFO and module instancing.
+					-> Remain FEEDING of input stream unit. (outside of unit)
+				
+				Precision changed in IDCT according to 13 bit COS specs.
+				
+				Implemented RGB to 32 Bit word conversion logic.
+
+				Remains to do :
+				TODO : - Implement spec precision enabled IDCT / ComputeCoef
+				TODO : - Handling of fifo, pipeline feeding and handshaking
 				TODO : - Add FIFO in/out
-				
-				Here is the C version reference for precision :
-				
-				int MUL_OUTPUT    (int value)           { return (value>>6)<<6; }
-				int S16_SINPREC   (int sinv , int prec) { return sinv>>(16-prec); }
-				int FIX_BIT       (int value, int prec) { return ((value << (32-prec)) >> (32-prec)); }
-				int CLAMP_RLE_COEF(int coef) {
-					/*
-					1. res = clamp_to_15_bits(val * qt[k])
-					2. res = clamp_to_12_bits((res * qs) >> 2)
-					3. res = res == -1 ? -1 : round_to_even_number_closer_to_zero(res)
-					 */
-					// Divided by 4 ?
-					// Rounded toward zero, except -1.
-
-					if (coef < -2048) { coef = -2048; }
-					if (coef > 2047 ) { coef =  2047; }
-					return coef;
-				}
-				
-				for (int pass = 0; pass < 2; pass++) {
-					printf("#### PASS %i ####\n",pass);
-
-					int CosPrecision = pass ? 12 : 13;
-					int OutPrecision = pass ? 14 :  0;
-					int step = 0;
-					for ( int y = 0 ; y < 8 ; y++ ) {
-						for ( int xc = 0 ; xc < 4 ; xc++ ) {
-							int x0 = (xc<<1);
-							int x1 = (xc<<1)+1;
-							INT32 t0 = 0;
-							INT32 t1 = 0;
-							for ( int k = 0 ; k < 8 ; k++ ) {
-								int    readI = pass ? ID(k,y) : ID(y,k);		// Pass1:Pass0
-								INT32* readB = pass ? tmp     : p_n_src;		// Pass1:Pass0
-
-								// TWO SEPERATE MEMORY READ SAME ADRESS AS SOURCE.
-								// AGAIN, CAN USE A SINGLE 8x8 module.
-								INT32  v = readB[ readI ];
-
-								// BUT SEPERATE COS TABLE for interlaced X axis (X0/X1) (1x8x8 -> 2x8x4)
-								int cosA = S16_SINPREC(m_p_n_mdec_cos1D[ ID(x0,k) ],CosPrecision); 
-								int cosB = S16_SINPREC(m_p_n_mdec_cos1D[ ID(x1,k) ],CosPrecision);
-
-								INT32  tmp0 = (v * cosA);	// Pass 0 : 12 (1.11) signed x 13 (1.12) signed = 25 (1.24) bit.
-								INT32  tmp1 = (v * cosB);   // Pass 1 : 13 signed x 12 signed = 25 bit.
-
-								tmp0 = FIX_BIT(tmp0,25);
-								tmp1 = FIX_BIT(tmp1,25);
-
-			//					t0 += tmp0; // 25 + 3 = 28 bit... --> 18 + 3 = 21 bit
-			//					t1 += tmp1;
-
-								// Smaller, truncated accumulation
-								// 1.24 -> 4.24 with accumulator
-								// But we cut, we take 2.17 only from multiplication
-								t0 += (tmp0<<1) >> (7+1); // 25 - (7+1) bit = 17 bit result, with an accumulator of 20 bit.
-								t1 += (tmp1<<1) >> (7+1);
-
-								// Keep only 28 bit just to make sure.
-								t0 = FIX_BIT(t0,28);
-								t1 = FIX_BIT(t1,28);
-								//printf("V:%llx CosX0:%x CosX1:%x Mul0:%llx Mul1:%llx\n",v,m_p_n_mdec_cos1D[ x0 + (k*8) ],m_p_n_mdec_cos1D[ x1 + (k*8) ],tmp0,tmp1);
-								//printf("T0:%llx T1:%llx ([%i,%i,%i]\n",t0,t1,y,xc,k);
-							}
-
-							INT32* writeB = pass ? p_n_dst   : tmp;			// Pass1:Pass0
-
-							int    writeI0 = pass ? ID(x0,y) : ID(y,x0);		// Pass1:Pass0
-							int    writeI1 = pass ? ID(x1,y) : ID(y,x1);		// Pass1:Pass0
-
-							// NOTE : TWO SEPERATE MEMORIES FOR TARGET
-							// -> 1 CYCLE PIPELINE TO DELAY WRITE FOR SINGLE MEMORY POSSIBLE. (63 cycle empty + 1 cycle WRITE --> 62 cycle empty + 2 cycle WRITE)
-							// 8x8 write still OK
-							// Cos Prec is 13 or 12
-			//				int    outV0 = (t0>>CosPrecision); // 12+3 = 15 bit first pass, 12 bit second pass.
-			//				int    outV1 = (t1>>CosPrecision);
-
-							// Pass 0 : Accumulator is 2.17 --> 2.11 (13 bit value) (loose 6 bit)
-							// Pass 1 : 
-							int    precLoss = pass ? 6 : 4; // Cancel the COS fixed in the end, but keep the accumulation.
-							int    outV0 = (t0>>precLoss); // Pass 1 : 20 bit acc - 6 bit loss output     -> 14 bit at output
-							int    outV1 = (t1>>precLoss); // Pass 0 : 20 bit acc - 4 bit loss at storage -> 16 bit
-
-							if (pass == 1) {
-								// Loose one more bit.
-								outV0 /= 2;
-								outV1 /= 2;
-								if (outV0 < -128) { outV0 = -128; }
-								if (outV0 >  127) { outV0 =  127; }
-								if (outV1 < -128) { outV1 = -128; }
-								if (outV1 >  127) { outV1 =  127; }
-							}
-
-							writeB[writeI0] = outV0;
-							writeB[writeI1] = outV1;
-
-							if (pass == 0) {
-								step++;
-							} else {
-								if (outV0 > maxRange) { maxRange = outV0; }
-								if (outV0 < minRange) { minRange = outV0; }
-								if (outV1 > maxRange) { maxRange = outV1; }
-								if (outV1 < minRange) { minRange = outV1; }
-							}
-						}
-					}
-				}
-				
-				
+				TODO : - Instancing all components.
+				TODO : - Handling of coef stream not implemented.
