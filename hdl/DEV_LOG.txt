@@ -194,7 +194,9 @@
 				Precision changed in IDCT according to 13 bit COS specs.
 				
 				Implemented RGB to 32 Bit word conversion logic.
-
+				TODO : - RGB order and byte order need to be checked/fixed.
+						--> Look at emulator source code and get the definitive answer, like 42.
+						
 				Remains to do :
 				TODO : - Implement spec precision enabled IDCT / ComputeCoef
 				TODO : - Handling of fifo, pipeline feeding and handshaking

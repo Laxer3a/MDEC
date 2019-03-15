@@ -18,7 +18,7 @@
 */
 module YUV2RGBCompute (
 	input					i_YOnly,
-	input 					i_unsigned,
+	input 					i_signed,
 
 	input	signed 	[7:0]	i_valueY,
 	input	signed 	[7:0]	i_valueCr,
@@ -98,7 +98,8 @@ module YUV2RGBCompute (
 	// ---------------------------------------
 
 	// Conversion signed/unsigned
-	assign o_r = {sumR[10] ^ i_unsigned,lowR}; // -128..127 -> 0..255 if unsigned enabled
-	assign o_g = {sumG[11] ^ i_unsigned,lowG}; // -128..127 -> 0..255
-	assign o_b = {sumB[10] ^ i_unsigned,lowB}; // -128..127 -> 0..255
+	wire sigUnsigned = !i_signed;
+	assign o_r = {sumR[10] ^ sigUnsigned,lowR}; // -128..127 -> 0..255 if unsigned enabled
+	assign o_g = {sumG[11] ^ sigUnsigned,lowG}; // -128..127 -> 0..255
+	assign o_b = {sumB[10] ^ sigUnsigned,lowB}; // -128..127 -> 0..255
 endmodule

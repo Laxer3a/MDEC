@@ -1,38 +1,30 @@
-module MDEC(
+module MDECore (
 	// System
 	input			clk,
 	input			i_nrst,
 
 	// Setup
-	input [3:0]		i_bitSetupDepth, // [Bit 1..0 = (0=4bit, 1=8bit, 2=24bit, 3=15bit), Bit 2=(0=Unsigned, 1=Signed) , Bit 3= (0=Clear, 1=Set) (for 15bit depth only)
-	input			i_bit15Set,
+	input [1:0]		i_bitSetupDepth, // [Bit 1..0 = (0=4bit, 1=8bit, 2=24bit, 3=15bit)
 	input			i_bitSigned,
 	
 	// RLE Stream
 	input			i_dataWrite,
 	input [15:0]	i_dataIn,
+	output			o_allowLoad,
 	
 	// Loading of COS Table (Linear, no zigzag)
 	input			i_cosWrite,
-	input	[ 5:0]	i_cosIndex,
-	input	[15:0]	i_cosVal,
+	input	[ 4:0]	i_cosIndex,
+	input	[25:0]	i_cosVal,
 	
 	// Loading of quant Matrix
 	input			i_quantWrt,
-	input	[6:0]	i_quantValue,
-	input	[5:0]	i_quantAdr,
+	input	[27:0]	i_quantValue,
+	input	 [3:0]	i_quantAdr,
 	input			i_quantTblSelect,
 
-	output			o_stillLoading,
 	output			o_stillIDCT,
 	output			o_stillPushingPixel,
-	
-	output			db_coefWrt,
-	output	[9:0]	db_coefValue,
-	output			db_coefDC,
-	output	[5:0]	db_coefIdx,
-	output	[2:0]	db_coefBlk,
-	output			db_coefComplete,
 	
 	output  [1:0]	o_depth,
 	output			o_pixelOut,
@@ -58,7 +50,10 @@ module MDEC(
 		.i_dataWrite	(i_dataWrite),
 		.i_dataIn		(i_dataIn),
 		.i_YOnly		(YOnly),
+		.o_allowLoad	(o_allowLoad),
 		
+		.i_idctBusy		(busyIDCT),
+		.i_canLoadMatrix(canLoadMatrix),
 		.o_dataWrt		(dataWrt_b),
 		.o_dataOut		(dataOut_b),
 		.o_scale		(scale_b),
@@ -80,13 +75,6 @@ module MDEC(
 	wire [2:0]		blockNum_b;		
 	wire			blockComplete_b;
 
-	assign			db_coefWrt   	=dataWrt_b;
-	assign			db_coefValue 	=dataOut_b;
-	assign			db_coefDC		=isDC_b;
-	assign			db_coefIdx		=zagIndex_b;
-	assign			db_coefBlk		= blockNum_b;
-	assign			db_coefComplete	= blockComplete_b;
-	
 	// Instance Coef Multiplier
 	computeCoef ComputeCoef_inst (
 		.i_clk			(clk),
@@ -116,10 +104,11 @@ module MDEC(
 		.o_matrixComplete	(matrixComplete_c)
 	);
 
+	wire		canLoadMatrix;
 	wire		write_c;
 	wire [5:0]	writeIdx_c;
 	wire [2:0]	blockNum_c;
-	wire [19:0]	coefValue_c;
+	wire [11:0]	coefValue_c;
 	wire		matrixComplete_c;
 	
 	reg  [2:0]  rBlockNum; // [TODO] store block num of first load (DC).
@@ -136,6 +125,7 @@ module MDEC(
 		.i_blockNum			(blockNum_c),
 		.i_coefValue		(coefValue_c),
 		.i_matrixComplete	(matrixComplete_c),
+		.o_canLoadMatrix	(canLoadMatrix),
 
 		// Loading of COS Table (Linear, no zigzag)
 		.i_cosWrite			(i_cosWrite),
@@ -149,7 +139,7 @@ module MDEC(
 		.o_writeIndex		(writeIndex_d)
 	);
 	
-	wire	[22:0]	value_d;
+	wire	 [7:0]	value_d;
 	wire 			writeValue_d;
 	wire	 [5:0]	writeIndex_d;
 
@@ -176,11 +166,11 @@ module MDEC(
 	wire		 [5:0]	readAdrCrCbTable;
 	//
 	// Public READ Value
-	wire		[22:0]	readCrValue;
-	wire		[22:0]	readCbValue;
+	wire		 [7:0]	readCrValue;
+	wire		 [7:0]	readCbValue;
 	// Public WRITE VALUE
-	reg signed	[22:0]	CrTable[63:0];
-	reg signed	[22:0]	CbTable[63:0];
+	reg signed	 [7:0]	CrTable[63:0];
+	reg signed	 [7:0]	CbTable[63:0];
 	reg			 [5:0]	readAdrCrCbTable_reg;
 	
 	always @ (posedge clk)
@@ -199,32 +189,32 @@ module MDEC(
 	assign readCbValue = CbTable[readAdrCrCbTable_reg];
 	//--------------------------------------------------------
 	
-/*
-	// Instance YUV Converter
-	YUV2RGBCompute YUV2RGBCompute_instance (
+	YUV2RGBModule YUV2RGBInstance (
 		// System
-		.clk		(clk),
-		.i_nrst		(i_nrst),
-
-		// Input
-		.i_wrt		(writeY),
-		.i_YOnly	(YOnly),
-		.i_writeIdx	(writeIndex_d),
-		.i_valueY	(value_d),
-		.i_YBlockNum(YBlockNum),
+		.i_clk				(clk),
+		.i_nrst				(i_nrst),
+		.i_wrt				(writeY),	// Write to YUV2RGB only the Luminance.
+		.i_YOnly			(YOnly),
+		.i_signed			(i_bitSigned),
+		
+		.i_writeIdx			(writeIndex_d),
+		.i_valueY			(value_d),
+		.i_YBlockNum		(YBlockNum),
 
 		// Read Cr
 		// Read Cb
-		.o_readAdr	(readAdrCrCbTable),
-		.i_valueCr	(readCrValue),
-		.i_valueCb	(readCbValue),
+		// No need for Read Signal, always. Write higher priority, and values ignore when invalid address.
+		.o_readAdr			(readAdrCrCbTable),
+		.i_valueCr			(readCrValue),
+		.i_valueCb			(readCbValue),
 		
 		// Output in order value out
-		.o_wPix		(o_pixelOut),
-		.o_pix		(o_pixelAddress),
-		.o_r		(o_rComp),
-		.o_g		(o_gComp),
-		.o_b		(o_bComp)
+		.o_wPix				(o_pixelOut),
+		.o_pix				(o_pixelAddress),
+		.o_r				(o_rComp),
+		.o_g				(o_gComp),
+		.o_b				(o_bComp)
 	);
-*/
+	
+	
 endmodule

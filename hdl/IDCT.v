@@ -7,7 +7,7 @@ module IDCT (
 	input			i_write,
 	input	[5:0]	i_writeIdx,
 	input	[2:0]	i_blockNum,
-	input	[19:0]	i_coefValue,
+	input	[11:0]	i_coefValue,
 	input			i_matrixComplete,
 	output			o_canLoadMatrix,
 
@@ -17,7 +17,7 @@ module IDCT (
 	input	[25:0]	i_cosVal,
 	
 	// Output in order value out
-	output	[22:0]	o_value,
+	output	 [7:0]	o_value,
 	output			o_writeValue,
 	output			o_busyIDCT,
 	output	 [5:0]	o_writeIndex
@@ -46,15 +46,14 @@ module IDCT (
 
 	// Internal Address buffering
 	reg  [4:0] cosAdr_reg;
-	wire [4:0] cosSubW = i_cosIndex[5:1];
 	
 	always @ (posedge clk)
 	begin
 		// Write
 		if (i_cosWrite)
 		begin
-			COSTBLA[cosSubW] <= i_cosVal[12: 0];
-			COSTBLB[cosSubW] <= i_cosVal[25:13];
+			COSTBLA[i_cosIndex] <= i_cosVal[12: 0];
+			COSTBLB[i_cosIndex] <= i_cosVal[25:13];
 		end
 		// Read
 		cosAdr_reg <= addrCos;
@@ -77,7 +76,7 @@ module IDCT (
 	//  Including read trick for source.
 	//----------------------------------------------
 	// Public READ  : Value   for COEF tables pass 0
-	wire		[19:0]	readCoefTableValue;
+	wire		[11:0]	readCoefTableValue;
 	// Public READ  : Address 'readAdrCoefTable'
 	//
 	// Public WRITE : i_writeIdx, i_write, i_coefValue for input
@@ -89,7 +88,7 @@ module IDCT (
 	reg					isLoaded;
 	reg					isLoadedTmp;
 	
-	reg signed	[19:0]	coefTable[63:0];
+	reg signed	[11:0]	coefTable[63:0];
 	reg			 [5:0]	coefTableAdr_reg;
 	
 	// [Direct READ 0 Cycle for Bit 0..63 with demultiplexer]
@@ -165,7 +164,7 @@ module IDCT (
 	
 	always @ (posedge clk)
 	begin
-		if (i_nrst==0 || (pass=1 && pPass=0))	// Reset the loaded flag of coefficients, allow next matrix loading when we enter the second pass IDCT.
+		if (i_nrst==0 || (pass==1 && pPass==0))	// Reset the loaded flag of coefficients, allow next matrix loading when we enter the second pass IDCT.
 		begin
 			isLoadedBits = 64'd0;
 		end
@@ -247,7 +246,7 @@ module IDCT (
 		isLoaded         <= isLoadedTmp;
 	end
 	// [Internally, not loaded items return 0]
-	assign readCoefTableValue = isLoaded ? coefTable[coefTableAdr_reg] : 20'd0;
+	assign readCoefTableValue = isLoaded ? coefTable[coefTableAdr_reg] : 12'd0;
 	//----- END INTERNAL STUFF -----
 	
 	
@@ -260,18 +259,18 @@ module IDCT (
 	// wire		 [5:0]	readAdrCoefTable;
 	//
 	// Public READ Value   for COEF tables pass 0
-	wire		[22:0]	readCoefTable2Value;
+	wire		[12:0]	readCoefTable2Value;
 	//
 	// Public WRITE ENABLE
 	wire				writeCoefTable2;
 	// Public WRITE ADDRESS
 	wire		[ 4:0]	writeCoefTable2Index;
 	// Public WRITE VALUE
-	wire		[22:0]	writeValueA;
-	wire		[22:0]	writeValueB;
+	wire		[12:0]	writeValueA;
+	wire		[12:0]	writeValueB;
 	
-	reg signed	[22:0]	coefTable2A[31:0];
-	reg signed	[22:0]	coefTable2B[31:0];
+	reg signed	[12:0]	coefTable2A[31:0];
+	reg signed	[12:0]	coefTable2B[31:0];
 	reg			 [5:0]	coefTable2Adr_reg;
 	
 	
@@ -344,18 +343,22 @@ module IDCT (
 	// (Cycle 1 : Result Come back)
 	// Sign extend 20 bit to 23 bit for pass 0 values.
 	// Read 23 bit directly         for pass 1 values.
-	wire signed [22:0] coef0 = pPass ? readCoefTable2Value : { {3{readCoefTableValue[19]}}, readCoefTableValue[19:0] };
+	wire signed [12:0] coefV   = readCoefTable2Value;
+	wire signed [11:0] coef12A = pass ? cosA[12:1] : readCoefTableValue;
+	wire signed [11:0] coef12B = pass ? cosB[12:1] : readCoefTableValue;
+	wire signed [12:0] coef13A = pass ? coefV      : cosA;
+	wire signed [12:0] coef13B = pass ? coefV      : cosB;
 	
-	wire signed [35:0] mul0  = (coef0 * cosA); // 23x16 bit = 39 bit.
-	wire signed [35:0] mul1  = (coef0 * cosB); 
+	
+	wire signed [24:0] mul0  = (coef12A * coef13A); // 12x13 bit = 25 bit.
+	wire signed [24:0] mul1  = (coef12B * coef13B); 
 
-	// Sign extend the result of multiplication.
-	wire signed [38:0] ext_mul0 = { {3{mul0[35]}}, mul0[35:0] };
-	wire signed [38:0] ext_mul1 = { {3{mul1[35]}}, mul1[35:0] };
+	wire signed [19:0] ext_mul0 = {{3{mul0[23]}},mul0[23:7]};
+	wire signed [19:0] ext_mul1 = {{3{mul1[23]}},mul1[23:7]};
 	
 	// Accumulators
-	reg signed  [38:0] acc0;
-	reg signed  [38:0] acc1;
+	reg signed  [19:0] acc0;
+	reg signed  [19:0] acc1;
 
 	// 1 piped signal.
 	reg          [2:0] pYCnt,pKCnt, ppYCnt;
@@ -384,22 +387,22 @@ module IDCT (
 	end
 
 	// (Cycle 2)
-	// Divide by 65536.0 fixed point value.
-	wire signed [22:0] v0 = acc0[35:13];
-	wire signed [22:0] v1 = acc1[35:13];
+	wire signed [13:0] v0 = acc0[19:6];
+	wire signed [13:0] v1 = acc1[19:6];
 
 	// Write Accumulator result when At beginning of next line. For last line, wait for beginning of first line of next pass.
 	wire   writeOut             = ppLast && ppPass;		// When arrived to last element done in pass 1
 	assign writeCoefTable2		= ppLast && (!ppPass);	// When arrived to last element done in pass 0
 	assign writeCoefTable2Index = {ppXCnt,ppYCnt};
-	assign writeValueA			= v0;
-	assign writeValueB			= v1;
-
+	
+	assign writeValueA			= v0[12:0];
+	assign writeValueB			= v1[12:0];
+	
 	// ----------------------------------------------------------------------------------------------------------------------------------
 	// For external output, need to shift values (like a shift register) for both, and have o_writeValue maintained for multiple cycles.
 	// Cycle n = write v0, n+1 = write v1
 	// ----------------------------------------------------------------------------------------------------------------------------------
-	reg signed [22:0] pv1;
+	reg signed [13:0] pv1;
 	reg pWriteOut;
 	reg [1:0] pppXCnt;
 	reg [2:0] pppYCnt;
@@ -411,7 +414,22 @@ module IDCT (
 		pppYCnt   <= ppYCnt;
 	end
 	
-	assign o_value				= pWriteOut ? pv1     : v0;
+	wire  [13:0] vBeforeSDiv2   = pWriteOut ? pv1     : v0;
+	// ---------------------------------------
+	// Signed division by 2.
+	// ---------------------------------------
+	wire  [13:0] div2step1      = vBeforeSDiv2 + { 13'b0,vBeforeSDiv2[13] };
+	wire  [12:0] div2step2      = div2step1[12:0]; // result div 2 signed.
+	// ---------------------------------------
+	// Saturated Arithmetic [12:0]-4096..+4095 -> [7:0][-128..+127]
+	// ---------------------------------------
+	wire isNZero = |div2step2[11:8];
+	wire isOne   = &div2step2[11:8];
+	wire orR     = (!div2step2[12]) & (isNZero);				// [+ Value] and has non zero                    -> OR  1
+	wire andR    = ((div2step2[12]) & ( isOne)) | (!div2step2[12]);	// [- Value] and has all one   or positive value -> AND 1 
+	// Signed saturated arithmetic result.
+	assign o_value = (div2step2[7:0] | {8{orR}}) & {8{andR}};
+	
 	wire   [1:0] outX			= pWriteOut ? pppXCnt : ppXCnt;
 	wire   [2:0] outY			= pWriteOut ? pppYCnt : ppYCnt; // Probably could work with pppYCnt directly, but this multiplexer is cheap and does the proper job.
 	assign o_writeValue			= (!writeOut && pWriteOut) || writeOut;

@@ -38,9 +38,6 @@ Outputs:
 - o_blockComplete : the previous element (o_dataWrt = 0) or this current element (o_dataWrt = 1) is the last one.
   (Reason : signal is issue when encounter EOB on standard block, or issued at the same time of last element when FULL LINEAR type).
   
-  TODO : 
-  - o_blockComplete must only be sent when IDCT says it is NOT busy (idct work = 0), it is the signal that START the computation.
-  
 */
 
 module streamInput(
@@ -71,7 +68,7 @@ module streamInput(
 	
 	// Full Uncompressed block, when 1st input offset(scale) is ZERO.
 	// This value is valid only for one cycle, we save it in rIsFullBlock
-	wire		isFullBlock		= (offset   == 0);
+	wire		isFullBlock		= (offset == 0);
 	reg 		rIsFullBlock;
 
 	// Is current input is EndOfBlock marker ?
@@ -104,25 +101,33 @@ module streamInput(
 	//	waitUntil i_idctBusy = 0;
 	//	assign blockComplete = 1;
 	// end
-	assign	o_blockComplete	= isBlockComplete && !i_idctBusy;
-	
-	//
-	//
-	assign o_allowLoad = i_canLoadMatrix && notWaiting;
+	assign	o_blockComplete	= isBlockComplete && !i_idctBusy;	// TODO Can NOT load last item on block while pass2 is working --> Signal not generated !!!
+	assign  o_allowLoad     = i_canLoadMatrix && rLoading;		// TODO && notWaiting;
 	
 	// --------------------------------------------------------
 	//   Block handling the U,V,Y0,Y1,Y2,Y3 counter.
 	//   Handle special case when Y only mode is enabled.
 	reg[2:0]	rBlockCounter;
+	reg         rLoading;
 	always @(posedge clk) begin
-		if (i_nrst == 0 || i_YOnly)
+		if (i_nrst == 0 || i_YOnly) begin
 			rBlockCounter <= 0;
-		else
+			rLoading      <= 1;
+		end else begin
+			if (!rLoading && i_canLoadMatrix) begin
+				rLoading <= 1;
+			end else if (rLoading && isBlockComplete) begin
+				rLoading <= 0;
+			end
+			
 			if (i_dataWrite && isBlockComplete)
+			begin
 				if (rBlockCounter == 3'd5)
 					rBlockCounter <= 0;
 				else
 					rBlockCounter <= rBlockCounter + 3'b001;
+			end
+		end
 	end
 	// --------------------------------------------------------
 

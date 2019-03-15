@@ -20,7 +20,7 @@ module YUV2RGBModule (
 	// Input
 	input					i_wrt,
 	input					i_YOnly,
-	input 					i_unsigned,
+	input 					i_signed,
 	
 	input			[5:0]	i_writeIdx,
 	input	signed 	[7:0]	i_valueY,
@@ -58,7 +58,7 @@ module YUV2RGBModule (
 									: {tileY,adrY,tileX,adrX};
 
 	reg					p_YOnly;
-	reg					p_unsigned;
+	reg					p_signed;
 	reg	signed	[7:0]	p_valueY;
 	reg					p_Wrt;
 	reg			[7:0]	p_WrtIdx;
@@ -73,7 +73,7 @@ module YUV2RGBModule (
 		p_Wrt		<= i_wrt;
 		//
 		p_YOnly		<= i_YOnly;		// Could may be afford to do not use registers... But safer to embbed context.
-		p_unsigned	<= i_unsigned;	// Same here
+		p_signed	<= i_signed;	// Same here
 	end
 
 	// ---------------------------------
@@ -81,7 +81,7 @@ module YUV2RGBModule (
 	// ---------------------------------
 	YUV2RGBCompute YUV2RGBCompute_inst (
 		.i_YOnly   (p_YOnly   ),
-		.i_unsigned(p_unsigned),
+		.i_signed  (p_signed),
 
 		.i_valueY  (p_valueY ),
 		.i_valueCr (i_valueCr),

@@ -33,65 +33,73 @@ Reg0 Write : Send Table / RLE Stream
 	
 Reg0 Read : Get RGB / Y Output
 
+	########################################################################
 	1F801820h.Read - MDEC Data/Response Register (R)
+	########################################################################
 	31-0  Macroblock Data (or Garbage if there's no data available)
-	
+	------------------------------------------------------------------------
 	15bit Direct Display (default) (works with polygons, lines, rectangles)
 	0-4   Red       (0..31)
 	5-9   Green     (0..31)
 	10-14 Blue      (0..31)
 	15    Mask flag (0=Normal, 1=Do not allow to overwrite this pixel)
+	------------------------------------------------------------------------
 	24bit Direct Display (works ONLY with direct vram transfers)
 	0-7    Red      (0..255)
 	8-15   Green    (0..255)
 	16-23  Blue     (0..255)
+	------------------------------------------------------------------------
 	8bit Texture (256 Color Palette)         ;(One 256x256 page = 64Kbytes)
 	0-7   Palette index for 1st pixel (left)
 	8-15  Palette index for 2nd pixel (right)
+	------------------------------------------------------------------------
 	4bit Texture (16 Color Palette)          ;(One 256x256 page = 32Kbytes)
 	0-3   Palette index for 1st pixel (left)
 	4-7   Palette index for 2nd pixel (middle/left)
 	8-11  Palette index for 3rd pixel (middle/right)
-	12-15 Palette index for 4th pixel (right)	
+	12-15 Palette index for 4th pixel (right)
   
-1F801820h - MDEC0 - MDEC Command/Parameter Register (W)
-
-	31-0  Command or Parameters
-  
+	########################################################################
+	1F801820h.Write - MDEC0 - MDEC Command/Parameter Register (W)
+	########################################################################
+	[Bit 31-29 : 0..7  Command or Parameters]
+	
 	MDEC(1) - Decode Macroblock(s)
+	31-29 Command (1=decode_macroblock)
+	------------------------------------------------------------------------
+		28-27 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;STAT.26-25
+		26    Data Output Signed (0=Unsigned, 1=Signed)                  ;STAT.24
+		25    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;STAT.23
+		24-16 Not used (should be zero)
+		15-0  Number of Parameter Words (size of compressed data)
 
-	  31-29 Command (1=decode_macroblock)
-	  28-27 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;STAT.26-25
-	  26    Data Output Signed (0=Unsigned, 1=Signed)                  ;STAT.24
-	  25    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;STAT.23
-	  24-16 Not used (should be zero)
-	  15-0  Number of Parameter Words (size of compressed data)
-
-	This command is followed by one or more Macroblock parameters (usually, all macroblocks for the whole image are sent at once).
+		[!] This command is followed by one or more Macroblock parameters (usually, all macroblocks for the whole image are sent at once).
 
 	MDEC(2) - Set Quant Table(s)
+	31-29 Command (2=set_iqtab)
+	------------------------------------------------------------------------
+		28-1  Not used (should be zero)  ;Bit25-28 are copied to STAT.23-26 though
+		0     Color   (0=Luminance only, 1=Luminance and Color)
 
-	  31-29 Command (2=set_iqtab)
-	  28-1  Not used (should be zero)  ;Bit25-28 are copied to STAT.23-26 though
-	  0     Color   (0=Luminance only, 1=Luminance and Color)
-
-	The command word is followed by 64 unsigned parameter bytes for the Luminance Quant Table (used for Y1..Y4), and if Command.Bit0 was set, by another 64 unsigned parameter bytes for the Color Quant Table (used for Cb and Cr).
+		[!] The command word is followed by 64 unsigned parameter bytes for the Luminance Quant Table (used for Y1..Y4), and if Command.Bit0 was set, by another 64 unsigned parameter bytes for the Color Quant Table (used for Cb and Cr).
 
 	MDEC(3) - Set Scale Table
-
-	  31-29 Command (3=set_scale)
-	  28-0  Not used (should be zero)  ;Bit25-28 are copied to STAT.23-26 though
+	31-29 Command (3=set_scale)
+	------------------------------------------------------------------------
+		28-0  Not used (should be zero)  ;Bit25-28 are copied to STAT.23-26 though
   
-	Only things that i can add is that in case of command 2 and 3 Number of Parameter Words (биты 0-15) forcely set to value 64. In case of others commands data readed from bits 0-15.
-	Bit 0 from command 2 (Color) setted from databus only in case of command 2. For all other commands it is set to 1 and ignore bit 0. (I think it is not used though).
+		Only things that i can add is that in case of command 2 and 3 Number of Parameter Words (биты 0-15) forcely set to value 64. In case of others commands data readed from bits 0-15.
+		Bit 0 from command 2 (Color) setted from databus only in case of command 2. For all other commands it is set to 1 and ignore bit 0. (I think it is not used though).
 
-	Also phrase "should be zero" not nessesary.. Bit's 0-15 or 1-15 can has any value. It will be ignored anyway.
+		Also phrase "should be zero" not nessesary.. Bit's 0-15 or 1-15 can has any value. It will be ignored anyway.
 
 	MDEC(0) - No function
-	This command has no function. Command bits 25-28 are reflected to Status bits 23-26 as usually. Command bits 0-15 are reflected to Status bits 0-15 (similar as the "number of parameter words" for MDEC(1), but without the "minus 1" effect, and without actually expecting any parameters).
+	------------------------------------------------------------------------
+		This command has no function. Command bits 25-28 are reflected to Status bits 23-26 as usually. Command bits 0-15 are reflected to Status bits 0-15 (similar as the "number of parameter words" for MDEC(1), but without the "minus 1" effect, and without actually expecting any parameters).
 
 	MDEC(4..7) - Invalid
-	These commands act identical as MDEC(0).
+	------------------------------------------------------------------------
+		These commands act identical as MDEC(0).
 
 
 Used to send command word, followed by parameter words to the MDEC (usually, only the command word is written to this register, and the parameter words are transferred via DMA0).

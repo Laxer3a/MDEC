@@ -1,11 +1,11 @@
-module RGBFifo(
+module RGB2Fifo(
 	input	i_clk,
 	input	i_nrst,
 	
 	input			i_wrtPix,
 	input	[1:0]	format,
 	input			setBit15,
-	output  [7:0]	i_pixAdr,
+	input   [7:0]	i_pixAdr,
 	input	[7:0]	i_r,
 	input	[7:0]	i_g,
 	input	[7:0]	i_b,
@@ -15,22 +15,24 @@ module RGBFifo(
 	output	[31:0]	o_dataOut
 );
 
-	// [TODO] Can handle RGB or BGR order here too.
-	
+	// [TODO] Can handle RGB or BGR order here. (easiest)
 	wire [7:0]  R = i_r;
 	wire [7:0]  G = i_g;
 	wire [7:0]  B = i_b;
 	wire       Cl = setBit15;
 	
 	reg	[2:0] count;
+	reg pWrite;
 	always @(posedge i_clk)
 	begin
-		if (i_nrst == 0)
-			count = 3'b000;
-		else
-		begin
-			if (i_wrtPix)
+		if (i_nrst == 0) begin
+			count  = 3'b000;
+			pWrite = 0;
+		end else begin
+			pWrite = i_wrtPix;
+			if (i_wrtPix) begin
 				count = count + 1;
+			end
 		end
 	end
 
@@ -197,11 +199,42 @@ module RGBFifo(
 			reg1[15: 0] = v9;
 	end
 	
-	// [TODO] FIFO HERE
-
-	// for now, just debug :
-	assign o_fifoHasData = pushReg0 | pushReg1;
+	// In mode 3, write every 2 pixels.
+	// In mode 2, write every pixel (except 1st out of 4)
+	// In mode 1, write every 4 pixels.
+	// In mode 0, write every 8 pixels.
+	wire writeFifo	=  ((     count  [0]    && (format==2'd3)) ||
+						((count[1:0]!=2'd0) && (format==2'd2)) ||
+						((count[1:0]==2'd3) && (format==2'd1)) ||
+						((count[2:0]==3'd7) && (format==2'd0))   ) & pWrite;
+						
+	// Select Reg1 only in format 2, 3rd pixel write.
+	// else   Reg0 for ALL other cases.
+	wire selectReg  = ((format==2'd2) && (count[1:0]==2'd2));
+	wire [31:0] valueWrite = selectReg ? reg1 : reg0;
 	
-	// [TODO] can probably handle big/little endian if issue with wire routing here.
-	assign o_dataOut     = pushReg1 ? reg1 : reg0;
+	wire oppRst = !i_nrst;
+	wire emptyFifo;
+	wire unusedFullFifo;
+	Fifo
+	#(
+		.DEPTH_WIDTH	(5),
+		.DATA_WIDTH		(32)
+	)
+	Fifo_inst
+	(
+		.clk			(i_clk ),
+		.rst			(oppRst),
+
+		.wr_data_i		(valueWrite),
+		.wr_en_i		(pWrite),
+
+		.rd_data_o		(o_dataOut),
+		.rd_en_i		(i_readFifo),
+
+		.full_o			(unusedFullFifo),
+		.empty_o		(emptyFifo)
+	);
+	// [TODO] can handle byte order here (o_dataOut)
+	assign o_fifoHasData = !emptyFifo;
 endmodule

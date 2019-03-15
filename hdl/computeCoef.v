@@ -43,7 +43,7 @@ module computeCoef (
 	output					o_write,
 	output	[5:0]			o_writeIdx,
 	output	[2:0]			o_blockNum,
-	output	signed [19:0]	o_coefValue,
+	output	signed [11:0]	o_coefValue,
 	output          		o_matrixComplete
 );
 
@@ -89,12 +89,21 @@ module computeCoef (
 	//                  * 1.0 if fullblockType
 	//
 	wire signed [23:0] outCalc;
-	reg  signed [19:0] pOutCalc;
+	reg  signed [11:0] pOutCalc;
 	
 	wire signed [ 7:0] quant = pFullBlkType ? 8'd1 : { 1'b0, valueQuant };
 
 	assign outCalc = pMultF * quant; // 16x7 = 23 bit.	// Consider MUL to take 1 cycle, implement accordingly.
 
+	// [23:Sign][22:15 Overflow][14:3 Value][2:0 Not necessary (div 8)]
+	// /8 then Signed saturated arithmetic. 12 bit. (-2048..+2047)
+	// TODO : Signed div 8 ? --> add sign [23]
+	wire isNZero= |outCalc[22:15];
+	wire isOne  = &outCalc[22:15];
+	wire orSt   = (!outCalc[23]) & (isNZero);					// [+ Value] and has non zero                    -> OR  1
+	wire andSt  = ((outCalc[23]) & ( isOne)) | (!outCalc[23]);	// [- Value] and has all one   or positive value -> AND 1 
+	wire [11:0] clippedOutCalc = (outCalc[14:3] | {12{orSt}}) & {12{andSt}};
+	
 	reg       ppWrite;
 	reg [5:0] ppIndex;
 	reg [2:0] ppBlk;
@@ -106,12 +115,13 @@ module computeCoef (
 		ppIndex <= pIndex;
 		ppBlk   <= pBlk;
 		ppMatrixComplete <= pMatrixComplete;
-		pOutCalc<= outCalc[22:3]; // DIV 8 HERE.
+		pOutCalc<= clippedOutCalc;
 	end
 
 	assign o_write    		= ppWrite & i_nrst;
 	assign o_writeIdx 		= ppIndex;
 	assign o_blockNum 		= ppBlk;
+	// 12 bit : -2048..+2047
 	assign o_coefValue		= pOutCalc;
 	assign o_matrixComplete = ppMatrixComplete;
 	
@@ -122,6 +132,8 @@ module computeCoef (
 	// Internal Address buffering
 	reg  [4:0] quantAdr_reg;
 	wire [4:0] writeAdr = {i_quantTblSelect,i_quantAdr};
+	reg  [1:0] pipeQuantReadIdx;
+	
 	always @ (posedge i_clk)
 	begin
 		// Write
@@ -137,10 +149,10 @@ module computeCoef (
 	end
 	
 	wire [27:0] fullValueQuant = QuantTbl[quantAdr_reg]; 
-	wire [ 6:0] valueQuant;
+	reg  [ 6:0] valueQuant;
 	always @ (*)
 	begin
-		case pipeQuantReadIdx
+		case (pipeQuantReadIdx)
 		0       : valueQuant = fullValueQuant[ 6: 0];
 		1       : valueQuant = fullValueQuant[13: 7];
 		2       : valueQuant = fullValueQuant[20:14];
