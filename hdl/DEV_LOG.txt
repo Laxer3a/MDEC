@@ -203,3 +203,34 @@
 				TODO : - Add FIFO in/out
 				TODO : - Instancing all components.
 				TODO : - Handling of coef stream not implemented.
+				
+11/03/2019 : 	Worked on a tool for two weeks and been *very* busy at work. So progress stalled for a while.
+				Took a few hours to update IDCT block according to know precision specs.
+				
+12/03/2019 :	Modified stream coef computation also to be according to specs.
+
+15/03/2019 :	Embedded all blocks together... Many stuff are NOT complete yet. (Will update TODO)
+				TODO REGISTER BLOCK :
+				- Implement input FIFO.
+					- check proper handling of pushing 16 bit stream when FIFO is 32 bit data out.
+				- Counter issue (have two counter internally, seems stupid)
+					- Also, decrementing counter ? Incrementing counter ? (cf. status register) 
+				- State machine does not use counter yet for STREAM LOAD
+				- Default state of DMA transfer (disabled ? Enabled on reset ?)
+				
+				TODO CORE:
+				- Handling of pushing pixel busy bit not used in registers.
+				- General arbitration not clear yet.
+				- Does not OUTPUT the block type ID (0..5, 4 in YOnly mode)
+					INPUT STREAM:
+					- Allow load logic to complete.
+					COMPUTE COEF:
+					- Saturated arithmetic done, but NOT proper SIGNED DIVISION (add last bit) todo.
+					RGB2FIFO:
+					- Not sure about RGB/BGR order and byte order here.
+					- To debug and check. (all possible states)
+				
+				-----------------------------------------------------
+				Around 12 TODOs to complete before first valid tests.
+				Getting there !!!
+				-----------------------------------------------------

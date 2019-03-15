@@ -229,12 +229,6 @@ module MDECRegisters (
 		.o_bComp		(b)
 	);
 	
-	
-	// [TODO] A-Write Word output state machine.
-	// [TODO] B-reg0Out     = outFifoHasData ? FIFO_OUT : 32'd0;
-	// [TODO] B-Add MDEC Core, add FIFO IN and OUT.
-	// [TODO] C-Handshaking and arbitration
-	// [TODO] D-Fix computation size.
 	wire [2:0] currentBlock; // TODO
 	wire wrtPix;
 	wire [7:0] pixIdx,r,g,b;

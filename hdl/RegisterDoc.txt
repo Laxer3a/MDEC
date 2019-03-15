@@ -81,13 +81,16 @@ Reg0 Read : Get RGB / Y Output
 		28-1  Not used (should be zero)  ;Bit25-28 are copied to STAT.23-26 though
 		0     Color   (0=Luminance only, 1=Luminance and Color)
 
-		[!] The command word is followed by 64 unsigned parameter bytes for the Luminance Quant Table (used for Y1..Y4), and if Command.Bit0 was set, by another 64 unsigned parameter bytes for the Color Quant Table (used for Cb and Cr).
+		[!] The command word is followed by 64 unsigned parameter bytes for the Luminance Quant Table (used for Y1..Y4), 
+		    and if Command.Bit0 was set, by another 64 unsigned parameter bytes for the Color Quant Table (used for Cb and Cr).
 
 	MDEC(3) - Set Scale Table
 	31-29 Command (3=set_scale)
 	------------------------------------------------------------------------
 		28-0  Not used (should be zero)  ;Bit25-28 are copied to STAT.23-26 though
-  
+
+		[!]  Followed by 64x16 bit value => 32x 32bit word.
+		
 		Only things that i can add is that in case of command 2 and 3 Number of Parameter Words (биты 0-15) forcely set to value 64. In case of others commands data readed from bits 0-15.
 		Bit 0 from command 2 (Color) setted from databus only in case of command 2. For all other commands it is set to 1 and ignore bit 0. (I think it is not used though).
 
@@ -100,7 +103,6 @@ Reg0 Read : Get RGB / Y Output
 	MDEC(4..7) - Invalid
 	------------------------------------------------------------------------
 		These commands act identical as MDEC(0).
-
 
 Used to send command word, followed by parameter words to the MDEC (usually, only the command word is written to this register, and the parameter words are transferred via DMA0).
 
