@@ -9,7 +9,7 @@ module GTEEngine (
 	input  [31:0] i_dataIn,
 	output [31:0] i_dataOut,
 
-	input  [24:0] instruction,
+	input  [24:0] Instruction,
 	input         execute,
 	output        o_executing
 );
@@ -35,21 +35,21 @@ reg	[5:0] opcode = Instruction[ 5: 0];
 reg [1:0] instr_cv,instr_vec,instr_mx;
 reg       executing;
 
-wire [63:0] microCode;
+wire [58:0] microCode;
 reg  [ 8:0] PC;
 
-wire sf              = microCode[?] & instr_sf;
+wire sf              = microCode[58] & instr_sf;
 wire lm       		 = microCode[2] & instr_lm;											// MICROCODE:[Override LM Bit to ZERO (0:override,1:Normal)]
 wire resetStatus	 = microCode[0];													// MICROCODE:[First Microcode, reset status flags].
 wire lastInstruction = microCode[1];													// MICROCODE:[Last  Microcode]
 
 parameter	
-	INSTR_RTPS	=5'h01,	INSTR_NCLIP	=5'h06,	INSTR_OP	=5'h0C,	INSTR_DPCS	=5'h10,	INSTR_INTPL	=5'h11,	INSTR_MVMVA	=5'h12,
-	INSTR_NCDS	=5'h13,	INSTR_CDP	=5'h14,	INSTR_NCDT	=5'h16,	INSTR_NCCS	=5'h1B,	INSTR_CC 	=5'h1C,	INSTR_NCS 	=5'h1E,
-	INSTR_NCT 	=5'h20,	INSTR_SQR 	=5'h28,	INSTR_DCPL 	=5'h29,	INSTR_DPCT 	=5'h2A,	INSTR_AVSZ3	=5'h2D,	INSTR_AVSZ4 =5'h2E,
-	INSTR_RTPT	=5'h30,	INSTR_GPF	=5'h3D,	INSTR_GPL	=5'h3E,	INSTR_NCCT	=5'h3F;	
+	INSTR_RTPS	=6'h01,	INSTR_NCLIP	=6'h06,	INSTR_OP	=6'h0C,	INSTR_DPCS	=6'h10,	INSTR_INTPL	=6'h11,	INSTR_MVMVA	=6'h12,
+	INSTR_NCDS	=6'h13,	INSTR_CDP	=6'h14,	INSTR_NCDT	=6'h16,	INSTR_NCCS	=6'h1B,	INSTR_CC 	=6'h1C,	INSTR_NCS 	=6'h1E,
+	INSTR_NCT 	=6'h20,	INSTR_SQR 	=6'h28,	INSTR_DCPL 	=6'h29,	INSTR_DPCT 	=6'h2A,	INSTR_AVSZ3	=6'h2D,	INSTR_AVSZ4 =6'h2E,
+	INSTR_RTPT	=6'h30,	INSTR_GPF	=6'h3D,	INSTR_GPL	=6'h3E,	INSTR_NCCT	=6'h3F;	
 	
-wire [ 8:0] startMicroCodeAdr;
+reg [ 8:0] startMicroCodeAdr;
 always @(Instruction)
 begin
 	case (Instruction[5:0])
@@ -79,9 +79,9 @@ begin
 	endcase
 end
 
-GTEMicroCode GTEMicroCode_inst(
-	PC			(PC),
-	microCode	(microCode)
+GTEMicrocode GTEMicrocode_inst(
+	.PC			(PC),
+	.microCode	(microCode)
 );
 
 always @(posedge i_clk)
@@ -108,15 +108,18 @@ end
 reg signed [48:0] internalResult;
 reg [31:0] fullvalueOut = sf ? internalResult[43:12] : internalResult[31: 0];
 reg [15:0] lowValueOut	= fullvalueOut[15:0];
+wire [31:0] vDATA; // Result path to send to DATA register file.
+wire [15:0] dividendU16,divisorU16;
+wire [16:0] divResU17;
 
 // ----------------------------------------------------------------------------------------------
 //   Division Unit.
 // ----------------------------------------------------------------------------------------------
 GTEFastDiv GTEFastDiv_inst(
-	.h			(?),			// Dividend 16 bit
-	.z3			(?),			// Divisor  16 bit
-	.divRes		(?),			// Result   17 bit !
-	.overflow	(DivOvr)	// Overflow bit
+	.h			(dividendU16),			// Dividend 16 bit
+	.z3			(divisorU16 ),			// Divisor  16 bit
+	.divRes		(divResU17  ),			// Result   17 bit !
+	.overflow	(DivOvr     )			// Overflow bit
 );
 
 // ----------------------------------------------------------------------------------------------
@@ -228,66 +231,123 @@ FileReg instCTRL_B(
 // ----------------------------------------------------------------------------------------------
 //   CPU Side Register Read/Write
 // ----------------------------------------------------------------------------------------------
-	// Probably not optimal...
-	wire        accSXY0 = (i_regID == 6'd12);
-	wire        accSXY1 = (i_regID == 6'd13);
-	wire        accSXY2 = (i_regID == 6'd14);
-	wire        accCRGB0= (i_regID == 6'd20);
-	wire        accCRGB1= (i_regID == 6'd21);
-	wire        accCRGB2= (i_regID == 6'd22);
-	wire		accSZ0  = (i_regID == 6'd16);
-	wire		accSZ1  = (i_regID == 6'd17);
-	wire		accSZ2  = (i_regID == 6'd18);
-	wire		accSZ3  = (i_regID == 6'd19);
-	wire		accIR0  = (i_regID == 6'd8 );
-	wire		accIR1  = (i_regID == 6'd9 );
-	wire		accIR2  = (i_regID == 6'd10);
-	wire		accIR3  = (i_regID == 6'd11);
 
-// [CPU Write to Data And CTRL done]
-// - Direct mapping of write signal / adress / data bus to RegisterFile / Registers by instruction decoder.
-// - Read Values from 
-//		wire [31:0] outDataA;
-//		wire [31:0] outCTRLA;
-//		+ (readDataA & i_ReadReg) pipelined (answer at next cycle)
-//		+ (readCTRLA & i_ReadReg) pipelined (answer at next cycle)
-//		+ Depending on pipelined address -> other registers. + formatting.
-//		// Decode as input, pipeline the flag !
-	/*
-	---
-	CPU Write : All done.
-		-> writeSignal : writeData/writeCTRL/Proper register write (12/13/14 SXY*, 16/17/18/19 SZ*, 20/21/22 CRGB*) 
-		-> writeAdr    : writeAdrData/writeAdrCTRL
-		-> writeData   : inData/inCTRL
-	---
-	CPU Read  :
-		-> read Signal : readDataA/readCTRLA
-		-> read Adr    : readAdrDataA/readAdrCTRLA
-		-> readData    : outDataA vs outCTRLA vs Real Registers. 
-	*/
+// Probably not optimal...
+wire        accSXY0 = (i_regID == 6'd12);
+wire        accSXY1 = (i_regID == 6'd13);
+wire        accSXY2 = (i_regID == 6'd14);
+wire        accCRGB0= (i_regID == 6'd20);
+wire        accCRGB1= (i_regID == 6'd21);
+wire        accCRGB2= (i_regID == 6'd22);
+wire        accLZCR = (i_regID == 6'd30);
+wire		accSZ0  = (i_regID == 6'd16);
+wire		accSZ1  = (i_regID == 6'd17);
+wire		accSZ2  = (i_regID == 6'd18);
+wire		accSZ3  = (i_regID == 6'd19);
+wire		accIR0  = (i_regID == 6'd8 );
+wire		accIR1  = (i_regID == 6'd9 );
+wire		accIR2  = (i_regID == 6'd10);
+wire		accIR3  = (i_regID == 6'd11);
 
-	wire rDATA = i_ReadReg &   i_regID[5] ;
-	wire rCTRL = i_ReadReg & (!i_regID[5]);
-	
-	//	16 bit promotion:
-	//	Sign ext CTRL 4,12,20 	DATA 1,3,5,8~11
-	//	Sign   0 CTRL 26~30		DATA 7,16~19
-	wire rExt  = (i_regID[4:0]==CTRL_R33_) 
-	           | (i_regID[4:0]==CTRL_L33_)
-			   | (i_regID[4:0]==CTRL_LB3_) 
-			   | (i_regID[4:0]==DATA__VZ0)
-			   | (i_regID[4:0]==DATA__VZ1)
-			   | (i_regID[4:0]==DATA__VZ2)
-			   |((i_regID[4:0]>=DATA__IR0) && (i_regID[4:0]<=DATA__IR3))
-			   ;
-			   
-	wire rZero =((i_regID[4:0]>=CTRL__H__) && (i_regID[4:0]<=CTRL_ZSF4)) 
-	           |((i_regID[4:0]>=DATA__SZ0) && (i_regID[4:0]<=DATA__SZ3))
-			   | (i_regID[4:0]==DATA__OTZ)
-			   ;
-			   
-	// TODO pipeline those 4 flags, return value from REG file or register.
+wire rDATA = i_ReadReg &   i_regID[5] ;
+wire rCTRL = i_ReadReg & (!i_regID[5]);
+
+//	16 bit promotion:
+//	Sign ext CTRL 4,12,20 	DATA 1,3,5,8~11
+//	Sign   0 CTRL 26~30		DATA 7,16~19
+wire rExt  = (i_regID==CTRL_R33_) 
+		   | (i_regID==CTRL_L33_)
+		   | (i_regID==CTRL_LB3_)			   
+		   | (i_regID==DATA__VZ0)
+		   | (i_regID==DATA__VZ1)
+		   | (i_regID==DATA__VZ2)
+		   |((i_regID>=DATA__IR0) && (i_regID<=DATA__IR3))
+		   ; // Copy sign = 1
+		   
+wire rZero =((i_regID>=CTRL__H__) && (i_regID<=CTRL_ZSF4)) 
+		   |((i_regID>=DATA__SZ0) && (i_regID<=DATA__SZ3))
+		   | (i_regID==DATA__OTZ)
+		   ; // 1 = Reset to 0
+
+reg pExt,pNZero;
+reg [5:0] pRegID;
+always @(posedge i_clk)
+begin
+	if (i_ReadReg) begin
+		pExt   <= rExt;
+		pNZero <= !rZero;
+		pRegID <= i_regID;
+	end
+end
+
+wire lowP  = (pRegID[1:0]==2'b00);
+wire highP = (pRegID[1:0]==2'b11);
+wire bit31Status = (|regStatus[18:11]) | (|regStatus[6:1]); // Bit 13-18 (1:6) and Bit 23-30 (18:11) ORed together.
+
+reg [31:0] vOut;
+always @(*)
+begin
+	if (pRegID[5])
+	begin
+		if (pRegID[4:0]==5'd31)
+			vOut = { bit31Status, regStatus, 12'b0 };	// Status Register.
+		else
+			vOut = outCTRLA;
+	end else begin
+		if (lowP || highP) begin
+			if (highP && pRegID[2]) begin
+				case (pRegID[1:0])
+				2'd0   : vOut = {{17{1'b0}},ORGB_r};	// IRGB in read mode.
+				2'd1   : vOut = {{17{1'b0}},ORGB_r};	// ORGB in read mode. MIRROR.
+				2'd2   : vOut = outDataA;				// Stored in RegFile.
+				default: vOut = {{26{1'b0}},regCntLead10LZCS};
+				endcase
+			end else begin
+				vOut = outDataA;
+			end
+		end else begin
+			case (pRegID[3:0])
+			// SZ0 -> RES1
+			4'd0   : vOut = {{16{1'b0}}, SZ0};
+			4'd1   : vOut = {{16{1'b0}}, SZ1};
+			4'd2   : vOut = {{16{1'b0}}, SZ2};
+			4'd3   : vOut = {{16{1'b0}}, SZ3};
+			4'd4   : vOut = CRGB0;
+			4'd5   : vOut = CRGB1;
+			4'd6   : vOut = CRGB2;
+			4'd7   : vOut = outDataA; // RES1
+			// IR0 -> SXP
+			4'd8   : vOut = {{16{IR0[15]}} , IR0};
+			4'd9   : vOut = {{16{IR1[15]}} , IR1};
+			4'd10  : vOut = {{16{IR2[15]}} , IR2};
+			4'd11  : vOut = {{16{IR3[15]}} , IR3};
+			4'd12  : vOut = {SY0,SX0};
+			4'd13  : vOut = {SY1,SX1};
+			4'd14  : vOut = {SY2,SX2};
+			default: vOut = {SY2,SX2}; // SXP is a mirror. -> Read does not shift.
+			endcase
+		end
+	end
+end
+
+wire orB                = vOut[15] & pExt;
+wire andB               = orB | pNZero;
+wire [15:0] andStageOut = {16{andB}}; // Reset to zero when flag is ZERO.
+wire [15:0] orStageOut  = { 16{orB}};
+
+assign i_dataOut = { ((vOut[31:16] & andStageOut) | orStageOut) , vOut[15:0] };
+
+// TODO pipeline those 4 flags, return value from REG file or register.
 // ----------------------------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------------------------
+//   Combinatorial Logic for 0 and 1 lead count for numbers.
+// ----------------------------------------------------------------------------------------------
+wire [5:0] cntLeadInput; // 1..32 Value output
+LeadCountS32 instLeadCount(
+	.value	(i_dataIn    ),
+	.result	(cntLeadInput)
+);
 
 // ----------------------------------------------------------------------------------------------
 //   Special REGISTERS, not stored inside the REGISTER FILES.
@@ -297,6 +357,7 @@ reg [15:0] SY0  ,SY1  ,SY2;
 reg [15:0] SZ0  ,SZ1  ,SZ2  ,SZ3;
 reg [15:0] IR0  ,IR1  ,IR2  ,IR3;
 reg [31:0] CRGB0,CRGB1,CRGB2;
+reg [ 5:0] regCntLead10LZCS;
 
 // ---- FIFOs ------------------------------------------------------
 // From CPU write or internal GTE write.
@@ -311,7 +372,7 @@ wire [15:0] dataPath16  = i_WritReg ? i_dataIn[15: 0] : lowValueOut;
 /*re [15:0] sxInput		= i_WritReg ? i_dataIn[15: 0] : lowValueOut;
 wire [15:0] sIRInput	= i_WritReg ? i_dataIn[15: 0] : lowValueOut;
 wire [15:0] szInput		= i_WritReg ? i_dataIn[15: 0] : lowValueOut; */
-wire [15:0] syInput		= i_WritReg ? i_dataIn[31:15] : lowValueOut;
+wire [15:0] syInput		= i_WritReg ? i_dataIn[31:16] : lowValueOut;
 wire [31:0] sCRGBInput	= i_WritReg ? i_dataIn[31: 0] : fullvalueOut;
 
 // Use when CPU write only.
@@ -365,6 +426,7 @@ begin
 	if (writeIR[1]) IR1 = dataPath16;
 	if (writeIR[2]) IR2 = dataPath16;
 	if (writeIR[3]) IR3 = dataPath16;
+	if (i_WritReg & accLZCR) regCntLead10LZCS = cntLeadInput;
 end
 
 wire [15:0] IRGB_rw; // IRGB read is = ORGB_r
@@ -381,31 +443,5 @@ wire [14:0] ORGB_r = {oRGB_B , oRGB_G , oRGB_R};
 
 // Output
 assign o_executing = executing;
-
-/*	ORGB_r conversion is delicate :	Div 128. SIGNED + Saturate unsigned.
-	[15:0] -> [15:7]=[8:0] (-256..+255 -> 0..255)
-	bit[15] -> reset to 0.
-	IR1[14:10] && {5{!IR1[15]}}
-	
-	cop2r29 - ORGB - Color conversion Output (R)
-           (-32768..+32767)
-	[15:7] (  -256..255   )
-	
-
-Collapses 16:16:16 bit RGB (range 0000h..0F80h) to 5:5:5 bit RGB (range
-0..1Fh). Negative values (8000h..FFFFh/80h) are saturated to 00h, large
-positive values (1000h..7FFFh/80h) are saturated to 1Fh, there are no overflow
-or saturation flags set in cop2r63 though.
-  0-4    Red   (0..1Fh) (R)  ;IR1 divided by 80h, saturated to +00h..+1Fh
-  5-9    Green (0..1Fh) (R)  ;IR2 divided by 80h, saturated to +00h..+1Fh
-  10-14  Blue  (0..1Fh) (R)  ;IR3 divided by 80h, saturated to +00h..+1Fh
-  15-31  Not used (always zero) (Read only)
-Any changes to IR1,IR2,IR3 are reflected to this register (and, actually also
-to IRGB) (ie. ORGB is simply a read-only mirror of IRGB).
-*/
-
-//  0-4    Red   (0..1Fh) (R/W)  ;multiplied by 80h, and written to IR1
-//  5-9    Green (0..1Fh) (R/W)  ;multiplied by 80h, and written to IR2
-//  10-14  Blue  (0..1Fh) (R/W)  ;multiplied by 80h, and written to IR3
 
 endmodule

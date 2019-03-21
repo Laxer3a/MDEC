@@ -2,9 +2,9 @@
 parameter
 	// Bit 0 : Fist instruction -> Reset status bit.
 	// Bit 1 : Last instruction -> Allow to end state.
-	RSTFLG    = 2'b01,
-	___FLG    = 2'b00,
-	LAST__	  = 2'b10,
+	RSTFLG    = 59'b01,
+	___FLG    = 59'b00,
+	LAST__	  = 59'b10,
 	
 	// Bit 2 : Override and set to 0 the LM bit.
 	USE_LM    = 1'b1,

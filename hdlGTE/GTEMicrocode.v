@@ -1,13 +1,13 @@
-module GTEMicroCode(
+module GTEMicrocode (
 	input  [ 8:0] PC,
-	output [ 1:0] microCode
+	output [58:0] microCode
 );
 
 // Include Microcode constants.
 `include "GTEConsts.vh"
 
 // MicroCode ROM Table
-reg [1:0] v;
+reg [58:0] v;
 always @(PC) begin
 	case (PC)
 	/*  INSTR_RTPS	00*/ 9'd0  : v = { RSTFLG } ; // 15;
