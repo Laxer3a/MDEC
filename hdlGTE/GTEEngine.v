@@ -14,12 +14,6 @@ module GTEEngine (
 	output        o_executing
 );
 
-/*
-	TODO : MicroCode index for SF override. -> CHECK also emu source/doc.
-	TODO : Div unit plugged.
-	TODO : CPU Side READ.
- */
-
 // -----------------------------------------------------------
 //   Constants for feel good code.
 // -----------------------------------------------------------
@@ -38,7 +32,7 @@ reg       executing;
 wire [58:0] microCode;
 reg  [ 8:0] PC;
 
-wire sf              = microCode[58] & instr_sf;
+wire sf              = microCode[57] & instr_sf;
 wire lm       		 = microCode[2] & instr_lm;											// MICROCODE:[Override LM Bit to ZERO (0:override,1:Normal)]
 wire resetStatus	 = microCode[0];													// MICROCODE:[First Microcode, reset status flags].
 wire lastInstruction = microCode[1];													// MICROCODE:[Last  Microcode]
@@ -105,13 +99,138 @@ end
 // ----------------------------------------------------------------------------------------------
 //   Computation data path.
 // ----------------------------------------------------------------------------------------------
-reg signed [48:0] internalResult;
-reg [31:0] fullvalueOut = sf ? internalResult[43:12] : internalResult[31: 0];
-reg [15:0] lowValueOut	= fullvalueOut[15:0];
 wire [31:0] vDATA; // Result path to send to DATA register file.
 wire [15:0] dividendU16,divisorU16;
 wire [16:0] divResU17;
 
+// TODO : Signal for pushR,pushG,pushB (microCode) Note : pushC is done auto same as pushB.
+// TODO : Implement value clamping in flag unit and set colorWrValue with Lm_C1/2/3
+/*	TODO : regs  value on reset 
+	codeReg,
+	SX0  ,SX1  ,SX2;
+	SY0  ,SY1  ,SY2;
+	SZ0  ,SZ1  ,SZ2  ,SZ3;
+	IR0  ,IR1  ,IR2  ,IR3;
+	CRGB0,CRGB1,CRGB2;
+	regCntLead10LZCS;
+ */
+
+// TODO Select Register OR outDataA/B
+// TODO Select high/low 16 bit from outDataX or outCTRLx 
+// v = outA + neg ? outB : (~outB + 1)
+//  reg = v ? v + reg
+
+// [From Microcode]
+wire  [1:0] select16A,select16B;	// TODO
+wire        selAA    , selAB;		// TODO
+wire  [1:0] select32A,select32B;	// TODO
+wire        shft12A  , shft12B;		// TODO
+wire        negB_A   ,negB_A;		// TODO 
+wire        readHighA;				// TODO
+wire        readHighB;				// TODO
+
+
+wire [15:0] A16   = 16'd0/* TODO B Clamped out of unit*/;
+  
+reg [15:0] iD16A;	// Select L/H from Data A path or 16 bit registers.
+reg [15:0] i16B_A;	// Select L/H from CTRL A path or ????
+reg [15:0] iD16B;	// Select L/H from Data B path or 16 bit registers.
+reg [15:0] i16B_B;	// Select L/H from CTRL A path or ????
+
+/*	
+	- Select Register SX0/1/2/IR0/IR1/IR2/IR3
+	Microcode :
+	iD16A = ;
+	iD16B = ;
+ */
+always @(*)
+begin
+	case (microCode[ 7: 3])
+	DATA__IR0 : iD16A = IR0;
+	DATA__IR1 : iD16A = IR1;
+	DATA__IR2 : iD16A = IR2;
+	DATA__IR3 : iD16A = IR3;
+	/*
+	DATA__SX0 : iD16A = SX0;
+	DATA__SX1 : iD16A = SX1;
+	DATA__SX2 : iD16A = SX2;
+	DATA__SY0 : iD16A = SY0;
+	DATA__SY1 : iD16A = SY1;
+	DATA__SY2 : iD16A = SY2;
+	DATA__SZ0 : iD16A = SZ0;
+	DATA__SZ1 : iD16A = SZ1;
+	DATA__SZ2 : iD16A = SZ2;
+	DATA__SZ3 : iD16A = SZ3;
+	*/
+	default   : iD16A = readHighA ? outDataA[31:16]:outDataA[15:0];
+	endcase
+end
+
+always @(*)
+begin
+	case (microCode[12: 8])
+	DATA__IR0 : iD16B = IR0;
+	DATA__IR1 : iD16B = IR1;
+	DATA__IR2 : iD16B = IR2;
+	DATA__IR3 : iD16B = IR3;
+	/*
+	DATA__SX0 : iD16B = SX0;
+	DATA__SX1 : iD16B = SX1;
+	DATA__SX2 : iD16B = SX2;
+	DATA__SY0 : iD16B = SY0;
+	DATA__SY1 : iD16B = SY1;
+	DATA__SY2 : iD16B = SY2;
+	DATA__SZ0 : iD16B = SZ0;
+	DATA__SZ1 : iD16B = SZ1;
+	DATA__SZ2 : iD16B = SZ2;
+	DATA__SZ3 : iD16B = SZ3;
+	*/
+	default   : iD16B = readHighB ? outDataB[31:16]:outDataB[15:0];
+	endcase
+end
+
+GTEComputePath PathA (
+    .select16		(select16A	),   // 0:-1,1:0,2:+1,3:data16
+    .selA			(selAA		),   // 0:D16 or 1:A16
+    .select32		(select32A	),   // i32C,u8Shl16, u8Shl4, i16B
+	.negB			(negB_A		),
+    .shft12			(shft12A	),   // IMPORTANT : Authorized only for select16 -1/0/+1, else buggy output 
+	
+    .iD16			(iD16A		),
+    .A16			(A16		),
+    
+    .i32C			(outCTRLA	),
+    .i16B			(i16B_A),
+    .i8U			(?),
+    
+    .out			(outA		)
+);
+
+GTEComputePath PathB (
+    .select16		(select16B	),   // 0:-1,1:0,2:+1,3:data16
+    .selA			(selAB		),   // 0:D16 or 1:A16
+    .select32		(select32B	),   // i32C,u8Shl16, u8Shl4, i16B
+	.negB			(negB_B		),
+    .shft12			(shft12B	),   // IMPORTANT : Authorized only for select16 -1/0/+1, else buggy output 
+	
+    .iD16			(iD16B		),
+    .A16			(A16		),
+	
+    .i32C			(outCTRLB	),
+    .i16B			(i16B_B),
+    .i8U			(?),
+    
+    .out			(outB		)
+);
+
+wire signed [47:0] outA;
+wire signed [47:0] outB;
+wire signed [48:0] sumAB    = { outA[47], outA} + { outB[47], outB};
+wire signed [49:0] totalSum = {sumAB[48],sumAB} +       accumulator;
+reg  signed [49:0] accumulator;
+reg         [31:0] fullvalueOut = sf ? totalSum[43:12] : totalSum[31: 0];
+reg         [15:0] lowValueOut	= fullvalueOut[15:0];
+ 
 // ----------------------------------------------------------------------------------------------
 //   Division Unit.
 // ----------------------------------------------------------------------------------------------
@@ -205,8 +324,8 @@ wire  [4:0]	writeAdrCTRL = cpuWCTRL  ? i_regID[4:0] : microCode[38:34];					// M
 
 FileReg instDATA_A(
 	.clk	(i_clk			),
-	.read	(readDataA		), .readAdr (readAdrDataA	), .outData	(outDataA	),	// Read Side
-	.write	(writeData		), .writeAdr(writeAdrData	), .inData	(inData		)	// Write Side
+	.read	(readDataA		), .readAdr (readAdrDataA	), .outData(outDataA	),	// Read Side
+	.write	(writeData		), .writeAdr(writeAdrData	), .inData (inData		)	// Write Side
 );
 
 FileReg instDATA_B(
@@ -217,14 +336,14 @@ FileReg instDATA_B(
 
 FileReg instCTRL_A(
 	.clk	(i_clk			),
-	.read	(readCTRLA		), .readAdr (readAdrCTRLA	), .outData	(outCTRLA	),	// Read Side
-	.write	(writeCTRL		), .writeAdr(writeAdrCTRL	), .inData	(inCTRL		)	// Write Side
+	.read	(readCTRLA		), .readAdr (readAdrCTRLA	), .outData(outCTRLA	),	// Read Side
+	.write	(writeCTRL		), .writeAdr(writeAdrCTRL	), .inData (inCTRL		)	// Write Side
 );
 
 FileReg instCTRL_B(
 	.clk	(i_clk			),
 	.read	(readCTRLB		), .readAdr (readAdrCTRLB	), .outData(outCTRLB	),	// Read Side
-	.write	(writeCTRL		), .writeAdr(writeAdrCTRL	), .inData	(inCTRL		)	// Write Side
+	.write	(writeCTRL		), .writeAdr(writeAdrCTRL	), .inData (inCTRL		)	// Write Side
 );
 // ----------------------------------------------------------------------------------------------
 
@@ -233,21 +352,21 @@ FileReg instCTRL_B(
 // ----------------------------------------------------------------------------------------------
 
 // Probably not optimal...
-wire        accSXY0 = (i_regID == 6'd12);
-wire        accSXY1 = (i_regID == 6'd13);
-wire        accSXY2 = (i_regID == 6'd14);
-wire        accCRGB0= (i_regID == 6'd20);
-wire        accCRGB1= (i_regID == 6'd21);
-wire        accCRGB2= (i_regID == 6'd22);
-wire        accLZCR = (i_regID == 6'd30);
-wire		accSZ0  = (i_regID == 6'd16);
-wire		accSZ1  = (i_regID == 6'd17);
-wire		accSZ2  = (i_regID == 6'd18);
-wire		accSZ3  = (i_regID == 6'd19);
-wire		accIR0  = (i_regID == 6'd8 );
-wire		accIR1  = (i_regID == 6'd9 );
-wire		accIR2  = (i_regID == 6'd10);
-wire		accIR3  = (i_regID == 6'd11);
+wire        accSXY0 = (i_regID == DATA_SXY0);
+wire        accSXY1 = (i_regID == DATA_SXY1);
+wire        accSXY2 = (i_regID == DATA_SXY2);
+wire        accCRGB0= (i_regID == DATACRGB0);
+wire        accCRGB1= (i_regID == DATACRGB1);
+wire        accCRGB2= (i_regID == DATACRGB2);
+wire        accLZCR = (i_regID == DATA_LZCR);
+wire		accSZ0  = (i_regID == DATA__SZ0);
+wire		accSZ1  = (i_regID == DATA__SZ1);
+wire		accSZ2  = (i_regID == DATA__SZ2);
+wire		accSZ3  = (i_regID == DATA__SZ3);
+wire		accIR0  = (i_regID == DATA__IR0);
+wire		accIR1  = (i_regID == DATA__IR1);
+wire		accIR2  = (i_regID == DATA__IR2);
+wire		accIR3  = (i_regID == DATA__IR3);
 
 wire rDATA = i_ReadReg &   i_regID[5] ;
 wire rCTRL = i_ReadReg & (!i_regID[5]);
@@ -289,7 +408,7 @@ always @(*)
 begin
 	if (pRegID[5])
 	begin
-		if (pRegID[4:0]==5'd31)
+		if (pRegID[4:0]==DATA_STATUS)
 			vOut = { bit31Status, regStatus, 12'b0 };	// Status Register.
 		else
 			vOut = outCTRLA;
@@ -336,8 +455,6 @@ wire [15:0] andStageOut = {16{andB}}; // Reset to zero when flag is ZERO.
 wire [15:0] orStageOut  = { 16{orB}};
 
 assign i_dataOut = { ((vOut[31:16] & andStageOut) | orStageOut) , vOut[15:0] };
-
-// TODO pipeline those 4 flags, return value from REG file or register.
 // ----------------------------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------------------------
@@ -363,7 +480,7 @@ reg [ 5:0] regCntLead10LZCS;
 // From CPU write or internal GTE write.
 
 
-wire cpuWFifoSPXY = (i_WritReg && (i_regID == 6'd15));									// is CPU Writing to SPXY registers ?
+wire cpuWFifoSPXY = (i_WritReg && (i_regID == DATA_SXYP));								// is CPU Writing to SPXY registers ?
 wire        write_SPX	= cpuWFifoSPXY | microCode[26];									// MICROCODE:[Push to SPX FIFO]
 wire        write_SPY	= cpuWFifoSPXY | microCode[27];									// MICROCODE:[Push to SPY FIFO]
 
@@ -373,7 +490,6 @@ wire [15:0] dataPath16  = i_WritReg ? i_dataIn[15: 0] : lowValueOut;
 wire [15:0] sIRInput	= i_WritReg ? i_dataIn[15: 0] : lowValueOut;
 wire [15:0] szInput		= i_WritReg ? i_dataIn[15: 0] : lowValueOut; */
 wire [15:0] syInput		= i_WritReg ? i_dataIn[31:16] : lowValueOut;
-wire [31:0] sCRGBInput	= i_WritReg ? i_dataIn[31: 0] : fullvalueOut;
 
 // Use when CPU write only.
 wire  [2:0] writeSXY;
@@ -386,8 +502,13 @@ assign writeSXY[2]		= (i_WritReg && accSXY2);
 assign writeCRGB[0]		= (i_WritReg && accCRGB0);
 assign writeCRGB[1]		= (i_WritReg && accCRGB1);
 assign writeCRGB[2]		= (i_WritReg && accCRGB2);	/*TODO:CPU WRITE DOES FIFO OR NOT, ONLY GTE INTERNAL ?*/
-wire   write_FCRGB		= microCode[28];			/* TODO : | (i_WritReg && (i_regID == 6'd22))         */
-													// MICROCODE:[Push to CRGB FIFO]
+
+
+wire   pushR,pushG,pushB,pushC; 					//		= microCode[28];
+assign pushC = pushB;	// Trick : use same wire, codeReg register has value anyway !
+					
+wire   writeCode		= (i_WritReg && (i_regID == DATA_RGBC));
+reg [7:0] codeReg;
 
 wire  [3:0] writeSZ;
 assign writeSZ[0]		= (i_WritReg && accSZ0);
@@ -397,10 +518,10 @@ assign writeSZ[3]		= (i_WritReg && accSZ3);
 wire        write_FZ	= microCode[25] /* NEVER : | (i_WritReg && (i_regID == 6'd19))*/; /* CPU DOES NOT PUSH FIFO */
 																						// MICROCODE:[Push to Z FIFO]
 wire [3:0]  writeIR;
-assign writeIR[0]		= (i_WritReg && accIR0) | (writeAdrData == 5'd8 );
-assign writeIR[1]		= (i_WritReg && accIR1) | (writeAdrData == 5'd9 );
-assign writeIR[2]		= (i_WritReg && accIR2) | (writeAdrData == 5'd10);
-assign writeIR[3]		= (i_WritReg && accIR3) | (writeAdrData == 5'd11);
+assign writeIR[0]		= (i_WritReg && accIR0) | (writeAdrData == DATA_IR0_5b);
+assign writeIR[1]		= (i_WritReg && accIR1) | (writeAdrData == DATA_IR1_5b);
+assign writeIR[2]		= (i_WritReg && accIR2) | (writeAdrData == DATA_IR2_5b);
+assign writeIR[3]		= (i_WritReg && accIR3) | (writeAdrData == DATA_IR3_5b);
 
 always @(posedge i_clk)
 begin
@@ -417,15 +538,36 @@ begin
 	if (write_FZ  | writeSZ[1]) SZ1 = write_FZ  ? SZ2 : dataPath16;
 	if (write_FZ  | writeSZ[2]) SZ2 = write_FZ  ? SZ3 : dataPath16;
 	if (write_FZ  | writeSZ[3]) SZ3 = dataPath16;
-	// CRGB Fifo
-	if (write_FCRGB | writeCRGB[0]) CRGB0 = write_FCRGB ? CRGB1 : sCRGBInput;
-	if (write_FCRGB | writeCRGB[1]) CRGB1 = write_FCRGB ? CRGB2 : sCRGBInput;
-	if (write_FCRGB | writeCRGB[2]) CRGB2 = sCRGBInput;
+	
+	// R Fifo
+	if (pushR | writeCRGB[0]) CRGB0[ 7: 0] = pushR ? CRGB1[ 7: 0] : i_dataIn[ 7: 0]; // R
+	if (pushR | writeCRGB[1]) CRGB1[ 7: 0] = pushR ? CRGB2[ 7: 0] : i_dataIn[ 7: 0]; // R
+	if (pushR | writeCRGB[2]) CRGB2[ 7: 0] = pushR ? colorWrValue : i_dataIn[ 7: 0]; // R
+	
+	// G Fifo
+	if (pushG | writeCRGB[0]) CRGB0[15: 8] = pushG ? CRGB1[15: 8] : i_dataIn[15: 8]; // G
+	if (pushG | writeCRGB[1]) CRGB1[15: 8] = pushG ? CRGB2[15: 8] : i_dataIn[15: 8]; // G
+	if (pushG | writeCRGB[2]) CRGB2[15: 8] = pushG ? colorWrValue : i_dataIn[15: 8]; // G
+	
+	// B Fifo
+	if (pushB | writeCRGB[0]) CRGB0[23:16] = pushB ? CRGB1[23:16] : i_dataIn[23:16]; // B
+	if (pushB | writeCRGB[1]) CRGB1[23:16] = pushB ? CRGB2[23:16] : i_dataIn[23:16]; // B
+	if (pushB | writeCRGB[2]) CRGB2[23:16] = pushB ? colorWrValue : i_dataIn[23:16]; // B
+	
+	// Code Fifo
+	if (pushC | writeCRGB[0]) CRGB0[31:24] = pushC ? CRGB1[31:24] : i_dataIn[31:24]; // Code
+	if (pushC | writeCRGB[1]) CRGB1[31:24] = pushC ? CRGB2[31:24] : i_dataIn[31:24]; // Code
+	if (pushC | writeCRGB[2]) CRGB2[31:24] = pushC ? codeReg      : i_dataIn[31:24]; // Code
+	
+	// Cache codeReg
+	if (writeCode) codeReg = i_dataIn[31:24];
+	
 	// IR0~IR3 Write
 	if (writeIR[0]) IR0 = dataPath16;
 	if (writeIR[1]) IR1 = dataPath16;
 	if (writeIR[2]) IR2 = dataPath16;
 	if (writeIR[3]) IR3 = dataPath16;
+	
 	if (i_WritReg & accLZCR) regCntLead10LZCS = cntLeadInput;
 end
 
@@ -435,6 +577,7 @@ wire IRGB_write;
 wire ovr = (!IR1[15]) & (|IR1[14:12]);	// Overflow 0x1F
 wire ovg = (!IR2[15]) & (|IR2[14:12]);	// Overflow 0x1F
 wire ovb = (!IR3[15]) & (|IR3[14:12]);	// Overflow 0x1F
+// TODO unflow flow ZERO clip.
 wire  [4:0] oRGB_R = (IR1[11:7] & {5{!IR1[15]}}) | {5{ovr}};
 wire  [4:0] oRGB_G = (IR2[11:7] & {5{!IR2[15]}}) | {5{ovg}};
 wire  [4:0] oRGB_B = (IR3[11:7] & {5{!IR3[15]}}) | {5{ovb}};

@@ -6,6 +6,38 @@ module GTEMicrocode (
 // Include Microcode constants.
 `include "GTEConsts.vh"
 
+//  5 5 5 5 5 5 5 5 5 4 4 4 4 4 4 4 4 4 4 4 3 3 3 3 3 3 3 3 3 3 2 2 2 2 2 2 2 2 2 2 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0
+//  9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
+//      | | | | | | | | | | | | | | | | | | | +-------+ +-------+ | | | | | | +-------+ +-------+ +-------+ +-------+ | | |
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | | |         |         |         |         | | | Reset Status Flag (1=Reset)
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | | |         |         |         |         | | Last Instruction
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | | |         |         |         |         | lm bit override (0=Reset flag,1=lm as is)
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | | |         |         |         |         Read Adress DATA File A
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | | |         |         |         Read Adress DATA File B
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | | |         |         Read Adress CTRL File A
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | | |         Read Adress CTRL File B
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | | Write DATA                      
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | | Write CTRL                        
+//      | | | | | | | | | | | | | | | | | | |         |         | | | | Write SZ Fifo                       
+//      | | | | | | | | | | | | | | | | | | |         |         | | | Write SX Fifo                        
+//      | | | | | | | | | | | | | | | | | | |         |         | | Write SY Fifo                           
+//      | | | | | | | | | | | | | | | | | | |         |         | Write CRGB Fifo                           
+//      | | | | | | | | | | | | | | | | | | |         |         Write Adress Data                            
+//      | | | | | | | | | | | | | | | | | | |         Write Adress CTRL                                     
+//      | 121314151617181921222324252627282930 Update Status Registers Bits with value from flag unit.     
+//      sf bit override (                                                                                                    
+//                                                                                                          
+//                                                                                                          
+//                                                                                                          
+//                                                                                                          
+//                                                                                                          
+//                                                                                                          
+//                                                                                                          
+
+
+
+
+// [2:Reset Bit | LastInstruction Bit][1B:LM Override to ZERO (0=Override, 1=Normal)]
 // MicroCode ROM Table
 reg [58:0] v;
 always @(PC) begin
@@ -35,13 +67,53 @@ always @(PC) begin
 	/*  INSTR_NCLIP 06*/ 9'd21 : v = { ___FLG } ; //  8;
 	/*  INSTR_NCLIP 07*/ 9'd22 : v = { LAST__ } ; //  8;
 	//--------------------------------
-	/*  INSTR_OP	00*/ 9'd23 : v = { RSTFLG } ; //  6;
-	/*  INSTR_OP	01*/ 9'd24 : v = { ___FLG } ; //  6;
-	/*  INSTR_OP	02*/ 9'd25 : v = { ___FLG } ; //  6;
-	/*  INSTR_OP	03*/ 9'd26 : v = { ___FLG } ; //  6;
-	/*  INSTR_OP	04*/ 9'd27 : v = { ___FLG } ; //  6;
-	/*  INSTR_OP	05*/ 9'd28 : v = { LAST__ } ; //  6;
+	/*
+		TODO : Implement read direct register path.
+		TODO : Write back without Accumulator.
+		TODO : Ax / Bx flag -> write back for IRx is Bx clamped value ! (Value 16 bit out of Flag unit)
+		TODO : Write are only MACx/IRx/RGB stack/Sx/Sy/Sz
+		       Only register is MACx.
+			   Else no write.
+			   IRx are  // write.
+			   Flag are // write.
+		// W1 -> Write IR1 too from
+		// Special Data path to write R2/G2/B2 from shifted MAC ? -> Possible, can export clamp and flag because ALWAYS out >> 4.
+		// Can compute Ax/Cx at the same time.
+	*/
+	/*  
+		MAC1 = A1((s64) (R22 * IR3) - (R33 * IR2));
+		MAC2 = A2((s64) (R33 * IR1) - (R11 * IR3));
+		MAC3 = A3((s64) (R11 * IR2) - (R22 * IR1));
+		IR1 = Lm_B1(MAC1, lm);
+		IR2 = Lm_B2(MAC2, lm);
+		IR3 = Lm_B3(MAC3, lm);
+	*/
+	/*  INSTR_OP	00*/ 9'd23 : v = { __,F_______,__,_____, NO_OP___,NO_OP___ ,N,N,CT_R22R23,CT____R33, NO_DATA_R,NO_DATA_R, RSTFLG } ; // 
+	/*  INSTR_OP	01*/ 9'd24 : v = { __,FLG_A1B1,W1,WMAC1, D16C16__,D16C16_N ,H,L,CT____R33,CT_R11R12, DATA__IR3,DATA__IR2, ___FLG } ; // 
+	/*  INSTR_OP	02*/ 9'd25 : v = { __,FLG_A2B2,W2,WMAC2, D16C16__,D16C16_N ,L,H,CT_R11R12,CT_R22R23, DATA__IR1,DATA__IR3, ___FLG } ; // 
+	/*  INSTR_OP	03*/ 9'd26 : v = { __,FLG_A3B3,W3,WMAC3, D16C16__,D16C16_N ,H,H,NO_DATA_C,NO_DATA_C, DATA__IR2,DATA__IR1, ___FLG } ; // 
+	/*  INSTR_OP	04*/ 9'd27 : v = { __,F_______,__,_____, NO_OP___,NO_OP___ ,N,N,NO_DATA_C,NO_DATA_C, NO_DATA_R,NO_DATA_R, ___FLG } ; // 
+	/*  INSTR_OP	04*/ 9'd27 : v = { __,F_______,__,_____, NO_OP___,NO_OP___ ,N,N,NO_DATA_C,NO_DATA_C, NO_DATA_R,NO_DATA_R, LAST__ } ; // 
 	//--------------------------------
+	/*
+		xxx  = Lm_B1(A1(((s64) RFC << 12) - (R << 16)), 0)			// 0
+		MAC1 = A1((R << 16) + (IR0 * xxx)); IR1 = Lm_B1(MAC1, lm);	// 1
+		xxx  = Lm_B2(A2(((s64) GFC << 12) - (G << 16)), 0)			// 2
+		MAC2 = A2((G << 16) + (IR0 * xxx)); IR2 = Lm_B2(MAC2, lm);	// 3
+		xxx  = Lm_B3(A3(((s64) BFC << 12) - (B << 16)), 0)			// 4
+		MAC3 = A3((B << 16) + (IR0 * xxx)); IR3 = Lm_B3(MAC3, lm);	// 5
+		
+		
+		RGB0 = RGB1;
+		RGB1 = RGB2;
+		CD2  = CODE; // Data Path ? Store CODE as special register ?
+		// Special Data path to write R2/G2/B2 from shifted MAC ? -> Possible, can export clamp and flag because ALWAYS out >> 4.
+		// Can compute Ax/Cx at the same time.
+		R2 = Lm_C1(MAC1 >> 4);
+		G2 = Lm_C2(MAC2 >> 4);
+		B2 = Lm_C3(MAC3 >> 4);
+	*/
+	
 	/*  INSTR_DPCS	00*/ 9'd29 : v = { RSTFLG } ; //  8;
 	/*  INSTR_DPCS	01*/ 9'd30 : v = { ___FLG } ; //  8;
 	/*  INSTR_DPCS	02*/ 9'd31 : v = { ___FLG } ; //  8;

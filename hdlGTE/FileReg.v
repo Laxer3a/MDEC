@@ -7,7 +7,18 @@ module FileReg (
 	input   [4:0] writeAdr,
 	input  [31:0] inData
 );
+// Declare the RAM variable
+reg [31:0] ram[31:0];
+reg [31:0] routData;
 
-	// TODO
-	
+always @ (posedge clk)
+begin
+	if (write) 
+	begin
+		ram[writeAdr] <= inData;
+	end
+	routData <= ram[readAdr];
+end
+assign outData = routData;
+
 endmodule
