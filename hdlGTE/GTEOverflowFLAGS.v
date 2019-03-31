@@ -105,12 +105,10 @@ wire or2524   = (|v[25:24]);
 wire HPosFlg  = (isPos )  & ( overG   | or2524);	// 12 Bit positive overflow.           11: 0 = 12 bit. ( > 0x*******FFF )
 wire HPosClp  = (isPosD)  & ( orRdctF | orRdctG | or2726 | or2524);
 
-wire orRdctD  = overG    | (|v[25:16]);				// 42:16
-wire andRdctD = andRdctF & (&v[30:16]);				// 42:16
-
 // Positive overflow ?
 
 // SF=1 always for D
+// wire orRdctD  = overG    | (|v[25:16]);			// 42:16
 // wire DPos0    = (isPos) & (orRdctD);				// 16 Bit positive overflow.           15: 0 = 16 bit. ( > 0x******FFFF )
 wire DPos12   = (isPosD) & (orRdctF | orRdctG);		// [42:31][30:28] : 16 Bit positive overflow, shift 12. 27:12 = 16 bit. ( > 0x******FFFF )
 

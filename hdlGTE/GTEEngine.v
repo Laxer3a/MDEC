@@ -23,8 +23,7 @@ module GTEEngine (
 //   Microcoded Instructions
 // ----------------------------------------------------------------------------------------------
 // Instruction Mnemonic
-reg       instr_sf,instr_lm;		
-reg	[5:0] opcode = Instruction[ 5: 0];
+reg       instr_sf,instr_lm;
 // Only in command MVMVA
 reg [1:0] instr_cv,instr_vec,instr_mx;
 reg       executing;
@@ -329,8 +328,8 @@ wire signed [47:0] outB;
 wire signed [48:0] sumAB    = { outA[47], outA} + { outB[47], outB};
 wire signed [49:0] totalSum = {sumAB[48],sumAB} +       accumulator;
 reg  signed [49:0] accumulator;
-reg         [31:0] fullvalueOut = clippedA;
-reg         [15:0] lowValueOut	= fullvalueOut[15:0];
+wire        [31:0] fullvalueOut = clippedA;
+wire        [15:0] lowValueOut	= fullvalueOut[15:0];
  
 // ----------------------------------------------------------------------------------------------
 //   Division Unit.

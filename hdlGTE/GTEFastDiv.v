@@ -124,7 +124,7 @@ module GTEFastDiv(
 		4'b1???: countT0 = 2'b00;
 		default: countT0 = 2'b00;
 	endcase
-	wire anyOneT0 = |z3[3:0];
+	// NEVER USED : wire anyOneT0 = |z3[3:0];
 
 	// Gather all leading zero generated in parallel and generate final value.
 	reg [3:0] shiftAmount;

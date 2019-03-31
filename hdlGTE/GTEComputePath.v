@@ -112,12 +112,12 @@ module GTEComputePath (
         case (select32)
         0       : bSide = i32C;
         1       : bSide = {{15{rev17[16]}}, rev17};
-        2       : bSide = {{ 7{negU [ 8]}}, negU, 16'd0  };
-        default : bSide = {{19{negU [ 8]}}, negU,  4'd0  };
+        2       : bSide = {{ 7{negU8[ 8]}}, negU8, 16'd0  };
+        default : bSide = {{19{negU8[ 8]}}, negU8,  4'd0  };
 		endcase
     end
     
-    reg signed [47:0] mult = aSide * bSide;
+    wire signed [47:0] mult = aSide * bSide;
 
     assign out = shft12 ? { mult[35:0],12'b0 } : mult;
 endmodule
