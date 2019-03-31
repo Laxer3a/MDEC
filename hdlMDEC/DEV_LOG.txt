@@ -234,3 +234,42 @@
 				Around 12 TODOs to complete before first valid tests.
 				Getting there !!!
 				-----------------------------------------------------
+				
+20/03/2019 :	Huge amount of work for 5 days on the GTE to change my mind.
+				- Implemented GTE Unsigned division unit & testbench ALL possible outcome.
+				- Implemented GTE Overflow computation unit.
+				- Implemented GTE overall system in place.
+					- Custom Register FIFOs
+					- CPU Read/Write logic to custom register & register files.
+					- Microcode PC and state management.
+					- Have Register File/Division/Overflow in place.
+					
+21/03/2019 :	Fix compilation of verilog code.
+				Add support for register reading of 16 bit values into computation pipe (READ register file)
+				Support for lead 1/0 Count registers.
+				Support for ORGB / IRGB special registers.
+
+24/03/2019 :	Start to add a computing data path.
+				Fix seperate R/G/B fifos.
+				Add module with implementation of computing data path.
+				Add module with implementation of register files.
+
+31/03/2019 :	Overflow unit is checked, bug fixed with testbench. (not complete due to changes)
+				Fixed with specs change of the overflow unit.
+				Now also provide clamped value according to latest specs understanding.
+				Fixed various verilog small issues (reg instead of wire or opposite).
+				Removed unused signals.
+				Connected proper clamped value to data path write back.
+				
+01/04/2019 :	Started implement microcode concerning :
+				- Write back to IRx/MACx/RGBC Fifo
+				- Flag setup mask.
+				- LM flag overriding.
+				Done : 200/314 (65%), 
+					remains INSTR_RTPT/INSTR_RTPS/INSTR_NCLIP	<-- Different new work needed.
+					        INSTR_DPCT/INSTR_NCDT				<-- Need architecture change to respect original timing.
+							INSTR_MVMVA				<- Different case but no pb
+				
+				TODO next : - case for control bits from ROM value.
+				TODO next : - Support RTPT/RTPS/NCLIP control bits at least. Support MVMVA and leave DPCT/NCDT for later.
+				
