@@ -116,7 +116,7 @@ wire [3:0]	gteWrtIR;
 wire		gteSF;
 wire		gteLM;
 wire		gteResetStatus;
-wire [18:0] gteFlagMask;
+wire [14:0] gteFlagMask;
 wire		gteForceSF_B;
 
 wire   gteWriteToDataFile;
@@ -382,21 +382,21 @@ begin
 		regStatus = 19'd0;
 	end else begin
 		// Implemented as sticky flag -> write only if 1.
-		if (AxPos & gteFlagMask[18]) regStatus[18] = AxPos;
-		if (AxPos & gteFlagMask[17]) regStatus[17] = AxPos;
-		if (AxPos & gteFlagMask[16]) regStatus[16] = AxPos;
-		if (AxNeg & gteFlagMask[15]) regStatus[15] = AxNeg;
-		if (AxNeg & gteFlagMask[14]) regStatus[14] = AxNeg;
-		if (AxNeg & gteFlagMask[13]) regStatus[13] = AxNeg;
-		if (B     & gteFlagMask[12]) regStatus[12] = B;
-		if (B     & gteFlagMask[11]) regStatus[11] = B;
-		if (B     & gteFlagMask[10]) regStatus[10] = B;
-		if (C     & gteFlagMask[ 9]) regStatus[ 9] = C;
-		if (C     & gteFlagMask[ 8]) regStatus[ 8] = C;
-		if (C     & gteFlagMask[ 7]) regStatus[ 7] = C;
-		if (D     & gteFlagMask[ 6]) regStatus[ 6] = D;
-		if (DivOvr& gteFlagMask[ 5]) regStatus[ 5] = DivOvr;
-		if (FPos  & gteFlagMask[ 4]) regStatus[ 4] = FPos;
+		if (AxPos & gteFlagMask[14]) regStatus[18] = AxPos;
+		if (AxPos & gteFlagMask[13]) regStatus[17] = AxPos;
+		if (AxPos & gteFlagMask[12]) regStatus[16] = AxPos;
+		if (AxNeg & gteFlagMask[14]) regStatus[15] = AxNeg;
+		if (AxNeg & gteFlagMask[13]) regStatus[14] = AxNeg;
+		if (AxNeg & gteFlagMask[12]) regStatus[13] = AxNeg;
+		if (B     & gteFlagMask[11]) regStatus[12] = B;
+		if (B     & gteFlagMask[10]) regStatus[11] = B;
+		if (B     & gteFlagMask[ 9]) regStatus[10] = B;
+		if (C     & gteFlagMask[ 8]) regStatus[ 9] = C;
+		if (C     & gteFlagMask[ 7]) regStatus[ 8] = C;
+		if (C     & gteFlagMask[ 6]) regStatus[ 7] = C;
+		if (D     & gteFlagMask[ 5]) regStatus[ 6] = D;
+		if (DivOvr& gteFlagMask[ 4]) regStatus[ 5] = DivOvr;
+		if (FPos  & gteFlagMask[ 3]) regStatus[ 4] = FPos;
 		if (FNeg  & gteFlagMask[ 3]) regStatus[ 3] = FNeg;
 		if (G     & gteFlagMask[ 2]) regStatus[ 2] = G;
 		if (G     & gteFlagMask[ 1]) regStatus[ 1] = G;

@@ -89,13 +89,5 @@ parameter
 	PUSH__SPY = 1'b1,
 	PUSH_CRGB = 1'b1,
 	_NO_PSH__ = 1'b0,
-	
-	F______   = 19'b000_0000_0000_0000_0000,
-	FLG_A1 	  = 19'b100_1000_0000_0000_0000,
-	FLG_A2 	  = 19'b010_0100_0000_0000_0000,
-	FLG_A3 	  = 19'b001_0010_0000_0000_0000,
-	FLG_B1	  = 19'b000_0001_0000_0000_0000,
-	FLG_B2	  = 19'b000_0000_1000_0000_0000,
-	FLG_B3	  = 19'b000_0000_0100_0000_0000,
-	
+		
 	UNUSED_SYMBOL_END_LIST = 0; // Convenience to add/remove item with the last , issue.

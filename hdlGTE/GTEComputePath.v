@@ -19,12 +19,12 @@
 */
 
 module GTEComputePath (
-    input [ 1:0]    select16,   // 0:-1,1:0,2:+1,3:data16
+    input [ 1:0]    select16,   // 0:0,1:-1,2:+1,3:data16
     input           selA,
     input [15:0]    iD16,
     input [15:0]    A16,
     
-    input [1:0]     select32,   // i32C,u8Shl16, u8Shl4, i16B
+    input [1:0]     select32,   // i32C,i16B,u8Shl16, u8Shl4,
 	input           negB,
     input [31:0]    i32C,
     input [15:0]    i16B,
@@ -56,11 +56,11 @@ module GTEComputePath (
                         \       /<----- selA             +-+       +-+                  
                          +-----+                       17b|         |9b                 
                             |                             | u8<<16  |                   
-                0   +1  -1  |                       i32C  |   +-----+              
+                0   -1  +1  |                       i32C  |   +-----+              
                 |   |   |   |                         |   |   |     | u8<<4                  
               -----------------                    --------------------                 
               \ 0   1   2   3 /                     \ 0   1   2     3/                  
-               \             /<---- Select 16        \              /<---- Select 16    
+               \             /<---- Select 16        \              /<---- Select 32
                 +-----------+                         +------------+                    
                      |                                      |       Note : i16B is sign extended.
 					 +----------------[ * ]-----------------+                           
