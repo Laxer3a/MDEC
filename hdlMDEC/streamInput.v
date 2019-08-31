@@ -10,7 +10,7 @@
 	- First value is for Matrix [0,0] : [Scale  6 bit][Coefficient 10 bit signed]
 	- Following values are            : [Offset 6 bit][Coefficient 10 bit signed]
 	With CurrentIndex = PreviousIndex + 1 + Offset for current value. (CurrentIndex = 0 for first value)
-	- Note that Index is in ZIGZAG order, not LINEAR ORDER.
+	- Note that Index is in ZIGZAG order, not LINEAR ORDER when writing in the destination matrix in RLE mode. (but LINEAR in FULL mode(scale=0)).
 	- Stream ends when End Of Block(EOB)[111111 6 bit][10_0000_0000 10 bit value]
 	
 	If [Scale] is ZERO, then we have a FULL 64 entry block in LINEAR order AND not SPARSE.

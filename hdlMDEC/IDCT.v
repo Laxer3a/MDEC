@@ -353,6 +353,8 @@ module IDCT (
 	wire signed [24:0] mul0  = (coef12A * coef13A); // 12x13 bit = 25 bit.
 	wire signed [24:0] mul1  = (coef12B * coef13B); 
 
+	// TODO : Accumulator should not need 20 bit but 18 (actually 17 ?)
+	//        We do NOT use the accumulator result for the top bits anyway.
 	wire signed [19:0] ext_mul0 = {{3{mul0[23]}},mul0[23:7]};
 	wire signed [19:0] ext_mul1 = {{3{mul1[23]}},mul1[23:7]};
 	
@@ -386,47 +388,52 @@ module IDCT (
 		ppYCnt <= pYCnt;
 	end
 
-	// (Cycle 2)
-	wire signed [13:0] v0 = acc0[19:6];
-	wire signed [13:0] v1 = acc1[19:6];
+	// Remove 4 bit at output of pass1 (and pass2)
+	wire signed [12:0] v0 = acc0[16:4];
+	wire signed [12:0] v1 = acc1[16:4];
 
 	// Write Accumulator result when At beginning of next line. For last line, wait for beginning of first line of next pass.
 	wire   writeOut             = ppLast && ppPass;		// When arrived to last element done in pass 1
 	assign writeCoefTable2		= ppLast && (!ppPass);	// When arrived to last element done in pass 0
 	assign writeCoefTable2Index = {ppXCnt,ppYCnt};
 	
-	assign writeValueA			= v0[12:0];
-	assign writeValueB			= v1[12:0];
+	// Write back values for Pass1 to buffer.
+	assign writeValueA			= v0;
+	assign writeValueB			= v1;
 	
 	// ----------------------------------------------------------------------------------------------------------------------------------
 	// For external output, need to shift values (like a shift register) for both, and have o_writeValue maintained for multiple cycles.
 	// Cycle n = write v0, n+1 = write v1
 	// ----------------------------------------------------------------------------------------------------------------------------------
-	reg signed [13:0] pv1;
+
+	//
+	// Pass 2 Value requires again to remove 2 more bit (need to remove 6 bits from accumulator, and we removed only 4 at that point : v0/v1)
+	//
+	reg signed [9:0] pv1;
 	reg pWriteOut;
 	reg [1:0] pppXCnt;
 	reg [2:0] pppYCnt;
 	always @ (posedge clk)
 	begin
-		pv1       <= v1;
+		pv1       <= v1[11:2];										// Remove the 2 bits for V1
 		pWriteOut <= writeOut;
 		pppXCnt   <= ppXCnt;
 		pppYCnt   <= ppYCnt;
 	end
 	
-	wire  [13:0] vBeforeSDiv2   = pWriteOut ? pv1     : v0;
+	wire  [9:0] vBeforeSDiv2   = pWriteOut ? pv1     : v0[11:2];	// Remove the 2 bits for V0.
 	// ---------------------------------------
 	// Signed division by 2.
 	// ---------------------------------------
-	wire  [13:0] div2step1      = vBeforeSDiv2 + { 13'b0,vBeforeSDiv2[13] };
-	wire  [12:0] div2step2      = div2step1[12:0]; // result div 2 signed.
+	wire  [9:0] div2step1      = vBeforeSDiv2 + { 9'b0,vBeforeSDiv2[9] };
+	wire  [9:0] div2step2      = div2step1[9:0]; // result div 2 signed.
 	// ---------------------------------------
-	// Saturated Arithmetic [12:0]-4096..+4095 -> [7:0][-128..+127]
+	// Saturated Arithmetic [9:0]-512..+511 -> [7:0][-128..+127]
 	// ---------------------------------------
-	wire isNZero = |div2step2[11:8];
-	wire isOne   = &div2step2[11:8];
-	wire orR     = (!div2step2[12]) & (isNZero);				// [+ Value] and has non zero                    -> OR  1
-	wire andR    = ((div2step2[12]) & ( isOne)) | (!div2step2[12]);	// [- Value] and has all one   or positive value -> AND 1 
+	wire isNZero = div2step2[8];
+	wire isOne   = div2step2[8];
+	wire orR     = (!div2step2[9]) & (isNZero);						// [+ Value] and has non zero                    -> OR  1
+	wire andR    = ((div2step2[9]) & ( isOne)) | (!div2step2[9]);	// [- Value] and has all one   or positive value -> AND 1 
 	// Signed saturated arithmetic result.
 	assign o_value = (div2step2[7:0] | {8{orR}}) & {8{andR}};
 	

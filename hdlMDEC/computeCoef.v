@@ -88,21 +88,25 @@ module computeCoef (
 	//	 Temporary Coef * Quantization Value => Output
 	//                  * 1.0 if fullblockType
 	//
-	wire signed [23:0] outCalc;
+	wire signed [23:0] outCalc,outCalcRoundDiv;
 	reg  signed [11:0] pOutCalc;
 	
 	wire signed [ 7:0] quant = pFullBlkType ? 8'd1 : { 1'b0, valueQuant };
 
 	assign outCalc = pMultF * quant; // 16x7 = 23 bit.	// Consider MUL to take 1 cycle, implement accordingly.
 
+
+	// /8 signed then Signed saturated arithmetic. 12 bit. (-2048..+2047)
+	// ---------------------------------------------------------------------
 	// [23:Sign][22:15 Overflow][14:3 Value][2:0 Not necessary (div 8)]
-	// /8 then Signed saturated arithmetic. 12 bit. (-2048..+2047)
-	// TODO : Signed div 8 ? --> add sign [23]
-	wire isNZero= |outCalc[22:15];
-	wire isOne  = &outCalc[22:15];
-	wire orSt   = (!outCalc[23]) & (isNZero);					// [+ Value] and has non zero                    -> OR  1
-	wire andSt  = ((outCalc[23]) & ( isOne)) | (!outCalc[23]);	// [- Value] and has all one   or positive value -> AND 1 
-	wire [11:0] clippedOutCalc = (outCalc[14:3] | {12{orSt}}) & {12{andSt}};
+	// Before unsigned division by 8 (shift 3), make sure that -1/-2/-3/-4/-5/-6/-7 return 0. (worked for SIGNED VALUES)
+	wire outCalcRoundDiv = outCalc + { 21'b0, outCalc[23], outCalc[23], outCalc[23] };
+	// Remove 3 bit ( div 8 unsigned ), then clamp.
+	wire isNZero= |outCalcRoundDiv[22:15];
+	wire isOne  = &outCalcRoundDiv[22:15];
+	wire orSt   = (!outCalcRoundDiv[23]) & (isNZero);					// [+ Value] and has non zero                    -> OR  1
+	wire andSt  = ((outCalcRoundDiv[23]) & ( isOne)) | (!outCalcRoundDiv[23]);	// [- Value] and has all one   or positive value -> AND 1 
+	wire [11:0] clippedOutCalc = (outCalcRoundDiv[14:3] | {12{orSt}}) & {12{andSt}};
 	
 	reg       ppWrite;
 	reg [5:0] ppIndex;
@@ -118,11 +122,16 @@ module computeCoef (
 		pOutCalc<= clippedOutCalc;
 	end
 
+	// round toward zero for positive and negative value, except -1.
+	wire all1      = &pOutCalc; // [1 if value is -1]
+	wire tmp[11:0] = pOutCalc[11:0] + (pOutCalc[11] & !all1); // Add Sign bit, except when -1.
+	wire roundedTowardZeroExceptMinus1[11:0] = { tmp[11:1], all1 };
+
 	assign o_write    		= ppWrite & i_nrst;
 	assign o_writeIdx 		= ppIndex;
 	assign o_blockNum 		= ppBlk;
 	// 12 bit : -2048..+2047
-	assign o_coefValue		= pOutCalc;
+	assign o_coefValue		= roundedTowardZeroExceptMinus1;
 	assign o_matrixComplete = ppMatrixComplete;
 	
 	// -----------------------------------------
