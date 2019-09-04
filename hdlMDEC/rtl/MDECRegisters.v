@@ -63,7 +63,6 @@ module MDECRegisters (
 	reg  [16:0]	remainingHalfWord;
 	reg			regLoadChromaQuant;
 	reg			regAllowDMA0,regAllowDMA1;
-	reg			regWaitCommand;
 	
 	// --- State Machine ---
 	reg [2:0]	state;
@@ -102,7 +101,6 @@ module MDECRegisters (
 			regAllowDMA0		<= 1; // TODO D CHECK : IS DEFAULT CORRECT ?
 			regAllowDMA1		<= 1; // Better allow than disable ?
 			
-			regWaitCommand		<= 1;
 			state				<= WAIT_COMMAND;
 			pRegSelect			<= 0;
 		end else begin
@@ -271,8 +269,7 @@ module MDECRegisters (
 	wire        writeStream	= ((state == LOAD_STREAML) || (state == LOAD_STREAMH)) && allowLoad;		// Use FIFO last output, even if data is not asked.
 	wire [15:0] streamIn	=  (state == LOAD_STREAML) ? fifoIN_output[31:16] : fifoIN_output[15:0];	// TODO B : Select proper 16 bit.
 	wire allowLoad;
-	wire [1:0]  outPixelFormat;
-	
+
 	MDECore mdecInst (
 		// System
 		.clk			(i_clk),
@@ -302,7 +299,6 @@ module MDECRegisters (
 		.o_idctBlockNum	(currentBlock),
 		.o_stillIDCT	(commandBusy),
 		
-		.o_depth		(outPixelFormat),
 		.o_pixelOut		(wrtPix),
 		.o_pixelAddress	(pixIdx), // 16x16 or 8x8 [yyyyxxxx] or [0yyy0xxx]
 		.o_rComp		(r),
@@ -314,6 +310,10 @@ module MDECRegisters (
 	wire wrtPix;
 	wire [7:0] pixIdx,r,g,b;
 	wire stopFill;
+
+	// For now pixel format is not pipelined but use directly register setup.
+	// 
+	wire [1:0]  outPixelFormat = regPixelFormat;
 
 	wire fifoOUT_hasData;
 	RGB2Fifo RGBFifo_inst(
@@ -336,17 +336,17 @@ module MDECRegisters (
 
 	// Reset State : 0x80040000 [31:Fifo Empty] | [17: 4bit -> Y=4]
 	wire [31:0] reg1Out;
-	assign reg1Out[31]		= !fifoOUT_hasData;										// 31    Data-Out Fifo Empty (0=No, 1=Empty)
-	assign reg1Out[30]		= fifoIN_full;											// 30    Data-In Fifo Full   (0=No, 1=Full, or Last word received)
-	assign reg1Out[29]		= (state != WAIT_COMMAND) || (!fifoIN_empty);			// 29    Command Busy  (0=Ready, 1=Busy receiving or processing parameters)
-	assign reg1Out[28]		= !fifoIN_full & regAllowDMA0;							// 28    Data-In Request  	(set when DMA0 enabled and ready to receive data)
-																					// Note : Should be DMA job to check this bit, but CPU seems to expect this flag to be ZERO.
-																					// And DMA will read this register AS IS.
-	assign reg1Out[27]		= fifoOUT_hasData & regAllowDMA1;						// 27    Data-Out Request	(set when DMA1 enabled and ready to send data)
-	assign reg1Out[26:25]	= regPixelFormat;										// 26-25 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;CMD.28-27
-	assign reg1Out[24]		= regPixelSigned;										// 24    Data Output Signed (0=Unsigned, 1=Signed)                  ;CMD.26
-	assign reg1Out[23]		= regPixelSetAlpha;										// 23    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;CMD.25
-	assign reg1Out[22:19]	= 4'b0000;												// 22-19 Not used (seems to be always zero)
+	assign reg1Out[31]		= !fifoOUT_hasData;												// 31    Data-Out Fifo Empty (0=No, 1=Empty)
+	assign reg1Out[30]		= fifoIN_full;													// 30    Data-In Fifo Full   (0=No, 1=Full, or Last word received)
+	assign reg1Out[29]		= (state != WAIT_COMMAND) || commandBusy || (!fifoIN_empty);	// 29    Command Busy  (0=Ready, 1=Busy receiving or processing parameters)
+	assign reg1Out[28]		= !fifoIN_full & regAllowDMA0;									// 28    Data-In Request  	(set when DMA0 enabled and ready to receive data)
+																							// Note : Should be DMA job to check this bit, but CPU seems to expect this flag to be ZERO.
+																							// And DMA will read this register AS IS.
+	assign reg1Out[27]		= fifoOUT_hasData & regAllowDMA1;								// 27    Data-Out Request	(set when DMA1 enabled and ready to send data)
+	assign reg1Out[26:25]	= regPixelFormat;												// 26-25 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;CMD.28-27
+	assign reg1Out[24]		= regPixelSigned;												// 24    Data Output Signed (0=Unsigned, 1=Signed)                  ;CMD.26
+	assign reg1Out[23]		= regPixelSetAlpha;												// 23    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;CMD.25
+	assign reg1Out[22:19]	= 4'b0000;														// 22-19 Not used (seems to be always zero)
 
 	wire   isYOnly          = |currentBlock;
 	wire   isCrCb			= (currentBlock < 3'd2);
@@ -370,29 +370,4 @@ module MDECRegisters (
 	assign o_DMA0WriteRequest	= reg1Out[28];
 	assign o_canWriteReg0		= !fifoIN_full;
 	// ---------------------------------------------------------------------------------------------------
-
-	/* Move inside RGB fifo unit stuff...
-	// ---------------------------------------------------------------------------------------------------
-	//   Output FIFO (Consider 1 tile 8x8@24 bit needed at least => 48 entries x 32 bit. Size is 64 then)
-	// ---------------------------------------------------------------------------------------------------
-	wire 		fifoOUT_wr,fifoOUT_rd,fifoOUT_full,fifoOUT_empty;
-	wire [31:0]	fifoOUT_input,fifoOUT_output;
-
-	Fifo #(.DEPTH_WIDTH(6),.DATA_WIDTH(32)) 
-	OutputFIFO (
-		// System
-		.clk			(i_clk),
-		.rst			(resetChip),
-
-		.wr_data_i		(),	// Data In
-		.wr_en_i		(),	// Write Signal
-
-		.rd_data_o		(),	// Data Out
-		.rd_en_i		(),	// Read signal
-
-		.full_o			(),
-		.empty_o		()
-	);
-	wire		fifoOUT_hasData = !fifoOUT_empty;
-	*/
 endmodule

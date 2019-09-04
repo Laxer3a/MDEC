@@ -76,9 +76,9 @@ module streamInput(
 	reg [5:0]	scalereg;		// Stored special offset from 1st item (Scale value)
 
 	// --- State Machine ---
-	reg 		state,nextState;
+	reg [1:0]	state,nextState;
 	// First value is DC, Other values are AC.
-	parameter	LOAD_DC=0, LOAD_OTHER=1;
+	parameter	LOAD_DC=2'b0, LOAD_OTHER=2'b1;
 	// ---------------------
 	
 	wire[5:0]	nextIdx			= (indexCounter + 6'b000001 + offset);
@@ -165,19 +165,23 @@ module streamInput(
 			else
 				if (i_dataWrite) 
 					nextState = LOAD_OTHER;
+				else
+					nextState = state;
 		LOAD_OTHER:
 			if (i_nrst == 0)
 				nextState = LOAD_DC;
 			else
 				if (i_dataWrite && isBlockComplete)
 					nextState = LOAD_DC;
+				else
+					nextState = state;
 		default:
 			nextState = LOAD_DC;
 		endcase
 	end
 	// ---- STATE MACHINE : Clocked part ----
 	always @(posedge clk) begin
-		state = nextState;
+		state <= nextState;
 	end
 	// --------------------------------------------------------
 

@@ -28,7 +28,6 @@ module MDECore (
 	
 	output			o_stillIDCT,
 	
-	output  [1:0]	o_depth,
 	output			o_pixelOut,
 	output  [7:0]   o_pixelAddress,		// 16x16 or 8x8 [yyyyxxxx] or [0yyy0xxx]
 	output  [7:0]	o_rComp,

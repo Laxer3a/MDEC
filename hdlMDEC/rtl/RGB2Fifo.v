@@ -31,7 +31,7 @@ module RGB2Fifo(
 		end else begin
 			pWrite = i_wrtPix;
 			if (i_wrtPix) begin
-				count = count + 1;
+				count = count + 3'd1;
 			end
 		end
 	end
@@ -165,8 +165,8 @@ module RGB2Fifo(
 	wire [15:0] v9 = { R, G };
 
 	// One cycle later than groupBits[10] and [11] : pipelined.
-	reg pushReg1;
-	reg pushReg0;
+//	reg pushReg1;
+//	reg pushReg0;
 	reg [31:0] reg0,reg1;
 	
 	always @(posedge i_clk)
@@ -174,8 +174,8 @@ module RGB2Fifo(
 		// i_wrtPix <-- no need for it.
 		// we just write forever until the correct data arrive and bit state change.
 		
-		pushReg1 <= groupBits[10];
-		pushReg0 <= groupBits[11];
+//		pushReg1 <= groupBits[10];
+//		pushReg0 <= groupBits[11];
 		if (groupBits[0])
 			reg0[31:28] = v0;
 		if (groupBits[1])
@@ -227,7 +227,7 @@ module RGB2Fifo(
 		.rst			(oppRst),
 
 		.wr_data_i		(valueWrite),
-		.wr_en_i		(pWrite),
+		.wr_en_i		(writeFifo),
 
 		.rd_data_o		(o_dataOut),
 		.rd_en_i		(i_readFifo),
