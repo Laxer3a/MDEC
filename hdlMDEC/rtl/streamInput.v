@@ -45,12 +45,8 @@ module streamInput(
 	input			i_nrst,
 	input			i_dataWrite,
 	input [15:0]	i_dataIn,
-	output 			o_allowLoad,
-
 	input 			i_YOnly,
 	
-	input			i_idctBusy,
-	input			i_canLoadMatrix,
 	output			o_dataWrt,
 	output[9:0]		o_dataOut,
 	output[5:0]		o_scale,
@@ -101,8 +97,7 @@ module streamInput(
 	//	waitUntil i_idctBusy = 0;
 	//	assign blockComplete = 1;
 	// end
-	assign	o_blockComplete	= isBlockComplete && !i_idctBusy;	// TODO Can NOT load last item on block while pass2 is working --> Signal not generated !!!
-	assign  o_allowLoad     = i_canLoadMatrix && rLoading;		// TODO && notWaiting;
+	assign	o_blockComplete	= isBlockComplete;
 	
 	// --------------------------------------------------------
 	//   Block handling the U,V,Y0,Y1,Y2,Y3 counter.
@@ -114,7 +109,7 @@ module streamInput(
 			rBlockCounter <= 0;
 			rLoading      <= 1;
 		end else begin
-			if (!rLoading && i_canLoadMatrix) begin
+			if (!rLoading) begin
 				rLoading <= 1;
 			end else if (rLoading && isBlockComplete) begin
 				rLoading <= 0;

@@ -9,13 +9,13 @@ module RGB2Fifo(
 	input	[7:0]	i_r,
 	input	[7:0]	i_g,
 	input	[7:0]	i_b,
+	output			stopFill,
 
 	input			i_readFifo,
 	output			o_fifoHasData,
 	output	[31:0]	o_dataOut
 );
-
-	// [TODO] Can handle RGB or BGR order here. (easiest)
+	// TODO C CHECK Can handle RGB or BGR order here. (easiest)
 	wire [7:0]  R = i_r;
 	wire [7:0]  G = i_g;
 	wire [7:0]  B = i_b;
@@ -215,7 +215,7 @@ module RGB2Fifo(
 	
 	wire oppRst = !i_nrst;
 	wire emptyFifo;
-	wire unusedFullFifo;
+	wire isFifoFull;
 	Fifo
 	#(
 		.DEPTH_WIDTH	(5),
@@ -232,9 +232,10 @@ module RGB2Fifo(
 		.rd_data_o		(o_dataOut),
 		.rd_en_i		(i_readFifo),
 
-		.full_o			(unusedFullFifo),
+		.full_o			(isFifoFull),	// TODO A : not FULL but FULL-2 item !!! to fix later...
 		.empty_o		(emptyFifo)
 	);
-	// [TODO] can handle byte order here (o_dataOut)
-	assign o_fifoHasData = !emptyFifo;
+	// TODO C CHECK can handle byte order here (o_dataOut)
+	assign o_fifoHasData	= !emptyFifo;
+	assign stopFill			= isFifoFull;
 endmodule

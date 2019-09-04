@@ -3,6 +3,7 @@ module MDECRegisters (
 	input					i_clk,
 	input					i_nrst,
 
+	output					o_canWriteReg0,		// Write OK? (FIFO)
 	output					o_DMA0WriteRequest,	// Write Reg0
 	output					o_DMA1ReadRequest,	// Read  Reg0
 	
@@ -13,49 +14,82 @@ module MDECRegisters (
 	input	[31:0]			i_valueIn,
 	output	[31:0]			o_valueOut
 );
+	wire writeReg1		=   i_regSelect  && i_write;
+	wire writeReg0		= (!i_regSelect) && i_write;
+	wire  resetChip		= (!i_nrst) || (writeReg1 & i_valueIn[31]); // Reset on 1 part
+	wire nResetChip		= (!resetChip);								// Reset on 0 part
 
-	wire outFifoHasData;
-	wire inFifoFull;
-	wire canInputData;
-	wire commandBusy;
-	wire [31:0] reg0Out;
+	/*
+	. If we send a signal to block write from DMA / CPU.
+	  The flag must be set BEFORE (at least 1 cycle before), else writer may simply loose a write.
+	. If the FIFO is only for REG_0 with command 1 --> We can't have this specification.
+	  Thus FIFO must be at the command entrance, even for COS / Quantize table logic, and other loading.
+	  The other being non blocking, that should not be an issue.
+	. Also, the state machine will forbid changing the table during IDCT computation.
+	
+	  => [FIFO is located at FRONT] before the state machine.
+	*/
+	// ---------------------------------------------------------------------------------------------------
+	//   Input FIFO
+	// ---------------------------------------------------------------------------------------------------
+	reg			fifoIN_rd;
+	wire 		fifoIN_full,fifoIN_empty;
+	wire		fifoIN_hasData = !fifoIN_empty;
+	wire [31:0]	fifoIN_output;
+	
+	// TODO : we assume that FIFO output the last read value always, even if read signal is not called.
+	Fifo #(.DEPTH_WIDTH(5),.DATA_WIDTH(32))
+	InputFIFO (
+		// System
+		.clk			(i_clk),
+		.rst			(resetChip),
 
-	// Command Setup
+		.wr_data_i		(i_valueIn),	// Data In
+		.wr_en_i		(writeReg0),	// Write Signal
+
+		.rd_data_o		(fifoIN_output),// Data Out
+		.rd_en_i		(fifoIN_rd),	// Read signal
+
+		.full_o			(fifoIN_full),
+		.empty_o		(fifoIN_empty)
+	);
+	
+	// -------------------------------------------
+	// Internal Registers / Command Setup
+	// -------------------------------------------
 	reg  [1:0]  regPixelFormat;
 	reg  		regPixelSigned;
 	reg  		regPixelSetAlpha;
-	reg [16:0]	remaining32BitWord;
+	reg  [16:0]	remainingHalfWord;
 	reg			regLoadChromaQuant;
 	reg			regAllowDMA0,regAllowDMA1;
 	reg			regWaitCommand;
-	reg  [4:0]	regCounter;
 	
 	// --- State Machine ---
-	reg  [2:0]	state,nextState;
+	reg [2:0]	state;
+	reg [2:0]	nextState;
+	
 	// First value is DC, Other values are AC.
-	parameter	WAIT_COMMAND=3'd0, LOAD_STREAM=3'd1, LOAD_COS=3'd2, LOAD_LUMA=3'd3, LOAD_CHROMA=3'd4;
+	parameter	WAIT_COMMAND=3'd0, LOAD_STREAMW=3'd1, LOAD_STREAML=3'd2, LOAD_STREAMH=3'd3, LOAD_COS=3'd4, LOAD_LUMA=3'd5, LOAD_CHROMA=3'd6;
 	// ---------------------
 	reg			pRegSelect;
 	
-	
-	// ---------------------------------------------------------------------------------------------------
-	// TODO : FIFO reg0 write FIFO.
-	// writeReg0 = fifo.hasData
-	//
-	wire [31:0] fifoOut = i_valueIn;
-//	wire        fifoRead= fifo.hasData && ((state == LOAD_STREAM) || ((state != LOAD_STREAM) && (allowLoad)))
-	wire		fifoData= i_write; // TODO pipe(fifoRead)
+	wire commandBusy;
+	wire [31:0] reg0Out;
 	// ---------------------------------------------------------------------------------------------------
 
-	wire writeReg1		=   i_regSelect  && i_write;
+	// --- Command Related ---
+	wire isCommandStream	= (fifoIN_output[31:29] == 3'b001);
+	wire isCommandQuant		= (fifoIN_output[31:29] == 3'b010);
+	wire isCommandCosTbl	= (fifoIN_output[31:29] == 3'b011);
+	wire isColorQuant		= fifoIN_output[0];
+	wire isNewCommand		= writeReg0 && (state == WAIT_COMMAND);
+
+	// --- Counter related ----
+	wire [16:0] nextRemainingHalfWord = remainingHalfWord + { 16'b1111111111111111, !decrementCounter[1] }; // -1 or -2
+	reg  [1:0]  decrementCounter;
+	wire isLastHalfWord		= (nextRemainingHalfWord == 17'd0);
 	
-	wire nResetChip		= (i_nrst) || (!(writeReg1 & i_valueIn[31])); // Inverse Reset <- 31 Reset MDEC (0=No change, 1=Abort any command, and set status=80040000h)
-
-	wire writeReg0		= (!i_regSelect) && fifoData;
-	wire comm1			= (fifoOut[31:29] == 3'b001);
-	wire comm2			= (fifoOut[31:29] == 3'b010);
-	wire comm3			= (fifoOut[31:29] == 3'b011);
-
 	always @(posedge i_clk)
 	begin
 		if (nResetChip) begin
@@ -63,28 +97,37 @@ module MDECRegisters (
 			regPixelSigned   	<= 0;
 			regPixelSetAlpha 	<= 0;
 			regLoadChromaQuant	<= 0; // Safer but not necessary.
-			remaining32BitWord 	<= 17'h0;
+			remainingHalfWord 	<= 17'h0;
 			
-			regAllowDMA0		<= 0; // IS DEFAULT CORRECT ?
-			regAllowDMA1		<= 0;
+			regAllowDMA0		<= 1; // TODO D CHECK : IS DEFAULT CORRECT ?
+			regAllowDMA1		<= 1; // Better allow than disable ?
 			
 			regWaitCommand		<= 1;
 			state				<= WAIT_COMMAND;
 			pRegSelect			<= 0;
 		end else begin
 			pRegSelect			<= i_regSelect;
-			if (writeReg0 && (state == WAIT_COMMAND)) begin
+			if (isNewCommand) begin
 				// -- Read from FIFO
 				// Register are updated for ANY command.
-				regPixelFormat		<= fifoOut[28:27];
-				regPixelSigned		<= fifoOut[26];
-				regPixelSetAlpha	<= fifoOut[25];
-				regLoadChromaQuant	<= fifoOut[0];
+				regPixelFormat		<= fifoIN_output[28:27];
+				regPixelSigned		<= fifoIN_output[26];
+				regPixelSetAlpha	<= fifoIN_output[25];
+				regLoadChromaQuant	<= isColorQuant;
 				
-				// TODO : Check with a real PSX if value decremented when uploading COS / QUANT (test QUANT 1/2) table with CPU... 64 entry = 64/128 byte or 64 short(COS) 
-				//        Would make a LOT of sense to use this counter and avoid having regCounter !!! Then change incrementing to decrementing.
-				remaining32BitWord	<= {(comm2 | comm3) ? 16'd64 : fifoOut[15:0], 1'b0};
+				if (isCommandQuant) begin
+					// [Unit in HALF WORD]
+					remainingHalfWord <= isColorQuant ? 17'd64 : 17'd32;							// [32 word (128 byte) vs. 16 word (64 byte)] of 32 bit, but we use half word counter internally [64/32].
+				end else begin
+					// [Unit in WORD] << 1 -> HALF WORD
+					remainingHalfWord <= {(isCommandCosTbl ? 16'd32 : fifoIN_output[15:0]), 1'b0};	//  32 word of 32 bit = 64 word of 16 bit (Cos Table)
+				end
+			end else begin
+				if (decrementCounter != 2'b00) begin
+					remainingHalfWord <= nextRemainingHalfWord;
+				end
 			end
+			
 			if (writeReg1) begin
 				// -- Read from Data In directly.
 				regAllowDMA0		<= i_valueIn[30]; // 30    Enable Data-In Request  (0=Disable, 1=Enable DMA0 and Status.bit28)
@@ -93,106 +136,143 @@ module MDECRegisters (
 			state <= nextState;
 		end
 	end
-	
-	reg resetCounter;
-	reg incrementCounter;
-	
+		
+	reg isFIFOInDataValid;
 	always @(posedge i_clk)
 	begin
-		if (resetCounter) begin
-			regCounter <= 5'd0;
-		end else if (incrementCounter) begin
-			regCounter <= regCounter + 1;
-		end
+		isFIFOInDataValid <= fifoIN_rd;
 	end
-	
-	wire		i_cosWrite	= writeReg0 && (state == LOAD_COS);
-	wire [4:0]	i_cosIndex	= regCounter;	// 5 bit. [0..31]
-	wire [25:0]	i_cosVal	= { fifoOut[28:16] , fifoOut[12:0]};
-	
-	wire 		i_quantWrt	= writeReg0 && ((state == LOAD_LUMA) || (state == LOAD_CHROMA));
-	wire [3:0]	i_quantAdr	= regCounter[3:0];
-	wire [27:0]	i_quantVal	= {fifoOut[30:24],fifoOut[22:16],fifoOut[14:8],fifoOut[6:0]};
-	wire i_quantTblSelect	= regCounter[4];
-	
-	wire        writeStream = writeReg0 && (state == LOAD_STREAM);
+		
+	wire isCommandStreamValid = isCommandStream & isFIFOInDataValid;
 	always @(*)
 	begin
         case (state)
-		default: // ,WAIT_COMMAND: (included)
+		default: // Unknown state, roll to default.
 		begin
-			resetCounter     = 1;
-			incrementCounter = 0;
-			if (writeReg0 && (comm1 | comm2 | comm3)) begin
-				nextState = comm1 ? LOAD_STREAM : (comm2 ? LOAD_LUMA : LOAD_COS);
+			fifoIN_rd			= 1'b0;
+			decrementCounter	= 2'd0;
+			nextState			= WAIT_COMMAND;
+		end
+		WAIT_COMMAND:
+		begin
+			fifoIN_rd			= fifoIN_hasData & (!isCommandStreamValid); // Stream do not load in advance.
+			decrementCounter	= 2'd0;
+			if (isFIFOInDataValid & (isCommandStream | isCommandQuant | isCommandCosTbl)) begin
+				nextState = isCommandStream ? LOAD_STREAMW : (isCommandQuant ? LOAD_LUMA : LOAD_COS);
 			end else begin
 				nextState = WAIT_COMMAND;
 			end
 		end
-		LOAD_STREAM:
+		LOAD_STREAMW:	// LOAD_STREAM_WAIT.
 		begin
-			// ---------------------------------------------
-			// TODO State machine and RLE feed...
-			// ---------------------------------------------
-			resetCounter     = 0;
-			incrementCounter = 0; // TODO.
+			//
+			// Do NOT launch a READ here.
+			// We arrive where the data has been LOADED already... or not if FIFO is empty.
+			// 
+			fifoIN_rd			= allowLoad & fifoIN_hasData;
+			nextState			= allowLoad & fifoIN_hasData ? LOAD_STREAML : LOAD_STREAMW;
+			decrementCounter	= 2'd0;	// No data available in this state.
+		end
+		LOAD_STREAML:
+		begin
+			// Data IS ALWAYS valid : Read initiated by W or H.
+			fifoIN_rd			= 1'b0;
+			if (allowLoad) begin
+				nextState		= LOAD_STREAMH;
+				decrementCounter= 2'b01;
+			end else begin
+				// Loop until accept Half Word.
+				nextState		= LOAD_STREAML;
+				decrementCounter= 2'b00;
+			end
+		end
+		LOAD_STREAMH:
+		begin
+			if (allowLoad) begin
+				decrementCounter= 2'b01;
+				fifoIN_rd		= fifoIN_hasData;
+				if (isLastHalfWord) begin
+					nextState 	= WAIT_COMMAND;
+				end else begin
+					if (fifoIN_hasData) begin
+						nextState	= LOAD_STREAML;
+					end else begin
+						// Wait until data or allow is possible...
+						nextState	= LOAD_STREAMW;
+					end
+				end
+			end else begin
+				// Loop until accept Half Word.
+				fifoIN_rd			= 1'b0;
+				nextState			= LOAD_STREAMH;
+				decrementCounter	= 2'b00;
+			end
 		end
 		LOAD_COS:
 		begin
-			resetCounter     = 0;
-			if (writeReg0) begin
-				if (regCounter == 5'd31) begin
-					nextState		 = WAIT_COMMAND;
-				end else begin
-					nextState 		 = LOAD_COS;
-				end
-				incrementCounter = 1;
+			fifoIN_rd			= fifoIN_hasData;
+			decrementCounter	= { isFIFOInDataValid, 1'b0 };
+			if (fifoIN_hasData) begin
+				nextState		 	= (isLastHalfWord) ? WAIT_COMMAND : LOAD_COS;
 			end else begin
-				nextState = LOAD_COS;
-				incrementCounter = 0;
+				nextState			= LOAD_COS;
 			end
 		end
 		LOAD_LUMA:
 		begin
-			resetCounter     = 0;
-			if (writeReg0) begin
-				if (regCounter[3:0] == 4'd15) begin
-					if (regLoadChromaQuant) begin // 
-						nextState		 = LOAD_CHROMA;
+			fifoIN_rd			= fifoIN_hasData;
+			decrementCounter	= { isFIFOInDataValid, 1'b0 };
+			if (fifoIN_hasData) begin
+				if (nextRemainingHalfWord[4:1]==4'b1111) begin
+					if (regLoadChromaQuant) begin
+						nextState		= LOAD_CHROMA;
 					end else begin
-						nextState		 = WAIT_COMMAND;
+						nextState		= WAIT_COMMAND;
 					end
 				end else begin
-					nextState 		 = LOAD_LUMA;
+					nextState 		= LOAD_LUMA;
 				end
-				incrementCounter = 1;
 			end else begin
 				nextState = LOAD_LUMA;
-				incrementCounter = 0;
 			end
 		end
 		LOAD_CHROMA:
 		begin
-			resetCounter     = 0;
-			if (writeReg0) begin
-				if (regCounter[3:0] == 4'd15) begin
-					nextState		 = WAIT_COMMAND;
+			fifoIN_rd			= fifoIN_hasData;
+			decrementCounter	= { isFIFOInDataValid, 1'b0 };
+			if (fifoIN_hasData) begin
+				if (nextRemainingHalfWord[4:1]==4'b1111) begin
+					nextState		= WAIT_COMMAND;
 				end else begin
-					nextState 		 = LOAD_CHROMA;
+					nextState 		= LOAD_CHROMA;
 				end
-				incrementCounter = 1;
 			end else begin
 				nextState = LOAD_CHROMA;
-				incrementCounter = 0;
 			end
 		end
         endcase
 	end
+
+	//----------------------------------------------------------------------------------
+	// All input signals for MDECore based on state and current FIFO output.
+	//----------------------------------------------------------------------------------
 	
+	// ---- COS Loading ----
+	wire		i_cosWrite	= isFIFOInDataValid && (state == LOAD_COS);
+	wire [4:0]	i_cosIndex	= ~(nextRemainingHalfWord[5:1]);	// 31->0 => 0->31
+	wire [25:0]	i_cosVal	= { fifoIN_output[28:16] , fifoIN_output[12:0]};
+	// ---- Quantization Table Loading ----
+	wire 		i_quantWrt	= isFIFOInDataValid && ((state == LOAD_LUMA) || (state == LOAD_CHROMA));
+	wire [3:0]	i_quantAdr	= ~(nextRemainingHalfWord[4:1]);
+	wire [27:0]	i_quantVal	= {fifoIN_output[30:24],fifoIN_output[22:16],fifoIN_output[14:8],fifoIN_output[6:0]};
+	wire i_quantTblSelect	= !nextRemainingHalfWord[5];	// Counter is 63 downto 0, reverse is 0..63 => Table 1->0 becomes Table 0->1
+
+	// ---- Stream Loading ----
+	wire        writeStream	= ((state == LOAD_STREAML) || (state == LOAD_STREAMH)) && allowLoad;		// Use FIFO last output, even if data is not asked.
+	wire [15:0] streamIn	=  (state == LOAD_STREAML) ? fifoIN_output[31:16] : fifoIN_output[15:0];	// TODO B : Select proper 16 bit.
 	wire allowLoad;
-	wire [15:0] streamIn = remaining32BitWord[0] ? fifoOut[31:16] : fifoOut[15:0];
-	wire unusedForNow;
 	wire [1:0]  outPixelFormat;
+	
 	MDECore mdecInst (
 		// System
 		.clk			(i_clk),
@@ -218,8 +298,9 @@ module MDECRegisters (
 		.i_quantAdr		(i_quantAdr),
 		.i_quantTblSelect(i_quantTblSelect),
 
+		.i_stopFillY	(stopFill),
+		.o_idctBlockNum	(currentBlock),
 		.o_stillIDCT	(commandBusy),
-		.o_stillPushingPixel (unusedForNow),	// TODO
 		
 		.o_depth		(outPixelFormat),
 		.o_pixelOut		(wrtPix),
@@ -229,10 +310,12 @@ module MDECRegisters (
 		.o_bComp		(b)
 	);
 	
-	wire [2:0] currentBlock; // TODO
+	wire [2:0] currentBlock; // Output for status register.
 	wire wrtPix;
 	wire [7:0] pixIdx,r,g,b;
+	wire stopFill;
 
+	wire fifoOUT_hasData;
 	RGB2Fifo RGBFifo_inst(
 		.i_clk			(i_clk),
 		.i_nrst			(nResetChip),
@@ -244,27 +327,72 @@ module MDECRegisters (
 		.i_r			(r),
 		.i_g			(g),
 		.i_b			(b),
+		.stopFill		(stopFill),
 
 		.i_readFifo		(i_read),
-		.o_fifoHasData	(outFifoHasData),
+		.o_fifoHasData	(fifoOUT_hasData),
 		.o_dataOut		(reg0Out)
 	);
 
 	// Reset State : 0x80040000 [31:Fifo Empty] | [17: 4bit -> Y=4]
 	wire [31:0] reg1Out;
-	assign reg1Out[31]		= !outFifoHasData;										// 31    Data-Out Fifo Empty (0=No, 1=Empty)
-	assign reg1Out[30]		= inFifoFull;											// 30    Data-In Fifo Full   (0=No, 1=Full, or Last word received)
-	assign reg1Out[29]		= commandBusy;											// 29    Command Busy  (0=Ready, 1=Busy receiving or processing parameters)
-	assign reg1Out[28]		= canInputData & regAllowDMA0;							// 28    Data-In Request  	(set when DMA0 enabled and ready to receive data)
+	assign reg1Out[31]		= !fifoOUT_hasData;										// 31    Data-Out Fifo Empty (0=No, 1=Empty)
+	assign reg1Out[30]		= fifoIN_full;											// 30    Data-In Fifo Full   (0=No, 1=Full, or Last word received)
+	assign reg1Out[29]		= (state != WAIT_COMMAND) || (!fifoIN_empty);			// 29    Command Busy  (0=Ready, 1=Busy receiving or processing parameters)
+	assign reg1Out[28]		= !fifoIN_full & regAllowDMA0;							// 28    Data-In Request  	(set when DMA0 enabled and ready to receive data)
 																					// Note : Should be DMA job to check this bit, but CPU seems to expect this flag to be ZERO.
 																					// And DMA will read this register AS IS.
-	assign reg1Out[27]		= outFifoHasData & regAllowDMA1;						// 27    Data-Out Request	(set when DMA1 enabled and ready to send data)
+	assign reg1Out[27]		= fifoOUT_hasData & regAllowDMA1;						// 27    Data-Out Request	(set when DMA1 enabled and ready to send data)
 	assign reg1Out[26:25]	= regPixelFormat;										// 26-25 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;CMD.28-27
 	assign reg1Out[24]		= regPixelSigned;										// 24    Data Output Signed (0=Unsigned, 1=Signed)                  ;CMD.26
 	assign reg1Out[23]		= regPixelSetAlpha;										// 23    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;CMD.25
 	assign reg1Out[22:19]	= 4'b0000;												// 22-19 Not used (seems to be always zero)
-	assign reg1Out[18:16]	= currentBlock;											// 18-16 Current Block (0..3=Y1..Y4, 4=Cr, 5=Cb) (or for mono: always 4=Y)
-	assign reg1Out[15: 0]	= remaining32BitWord[16:1];								// 15-0  Number of Parameter Words remaining minus 1  (FFFFh=None)  ;CMD.Bit0-15
+
+	wire   isYOnly          = |currentBlock;
+	wire   isCrCb			= (currentBlock < 3'd2);
+
+	// 18-16 Current Block (0..3=Y1..Y4, 4=Cr, 5=Cb) (or for mono: always 4=Y)
+	// IDCT Values :
+	//  000=Cr, 		
+	//  001=Cb, 		
+	//  010=Y0,
+	//  011=Y1, 		
+	//  100=Y2, 		
+	//  101=Y3, 		
+	//  111=Y only mode	 --> Remapped to 0..5
+	assign reg1Out[18:16]	= isYOnly ? 3'd4 : (isCrCb ? { 2'b10, currentBlock[0]} : { 1'b0, !currentBlock[1] , currentBlock[0]}); 
 	
-	assign o_valueOut		= pRegSelect ? reg1Out : reg0Out;
+	assign reg1Out[15: 0]	= nextRemainingHalfWord[16:1]; 							// 15-0  Number of Parameter Words remaining minus 1  (FFFFh=None)  ;CMD.Bit0-15
+	
+	// ---------------------------------------------------------------------------------------------------
+	assign o_valueOut			= pRegSelect ? reg1Out : reg0Out;
+	assign o_DMA1ReadRequest	= reg1Out[27];
+	assign o_DMA0WriteRequest	= reg1Out[28];
+	assign o_canWriteReg0		= !fifoIN_full;
+	// ---------------------------------------------------------------------------------------------------
+
+	/* Move inside RGB fifo unit stuff...
+	// ---------------------------------------------------------------------------------------------------
+	//   Output FIFO (Consider 1 tile 8x8@24 bit needed at least => 48 entries x 32 bit. Size is 64 then)
+	// ---------------------------------------------------------------------------------------------------
+	wire 		fifoOUT_wr,fifoOUT_rd,fifoOUT_full,fifoOUT_empty;
+	wire [31:0]	fifoOUT_input,fifoOUT_output;
+
+	Fifo #(.DEPTH_WIDTH(6),.DATA_WIDTH(32)) 
+	OutputFIFO (
+		// System
+		.clk			(i_clk),
+		.rst			(resetChip),
+
+		.wr_data_i		(),	// Data In
+		.wr_en_i		(),	// Write Signal
+
+		.rd_data_o		(),	// Data Out
+		.rd_en_i		(),	// Read signal
+
+		.full_o			(),
+		.empty_o		()
+	);
+	wire		fifoOUT_hasData = !fifoOUT_empty;
+	*/
 endmodule

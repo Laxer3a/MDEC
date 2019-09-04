@@ -23,8 +23,10 @@ module MDECore (
 	input	 [3:0]	i_quantAdr,
 	input			i_quantTblSelect,
 
+	input			i_stopFillY,
+	output	[2:0]	o_idctBlockNum,
+	
 	output			o_stillIDCT,
-	output			o_stillPushingPixel,
 	
 	output  [1:0]	o_depth,
 	output			o_pixelOut,
@@ -38,22 +40,20 @@ module MDECore (
 	wire YOnly = !i_bitSetupDepth[1];
 	wire busyIDCT;
 	
-	assign o_stillIDCT = busyIDCT;
-	
-	// [TODO] o_stillLoading, o_stillPushingPixel.
-	// [TODO] : STOP pushing input when IDCT busy. (or even pixel ? see later)
-	//
+	assign o_stillIDCT	= busyIDCT;
+
+	// ---------------- Directly to state machine and FIFO pusher -------
+	wire	canLoadMatrix;					// From IDCT direct to FIFO state machine. [Stream Input + ComputeCoef] is just 2 cycle latency.
+	assign	o_allowLoad	= canLoadMatrix;	// 
+	// ------------------------------------------------------------------
 	
 	streamInput streamInput_inst(
 		.clk			(clk),
 		.i_nrst			(i_nrst),
 		.i_dataWrite	(i_dataWrite),
 		.i_dataIn		(i_dataIn),
-		.i_YOnly		(YOnly),
-		.o_allowLoad	(o_allowLoad),
 		
-		.i_idctBusy		(busyIDCT),
-		.i_canLoadMatrix(canLoadMatrix),
+		.i_YOnly		(YOnly),
 		.o_dataWrt		(dataWrt_b),
 		.o_dataOut		(dataOut_b),
 		.o_scale		(scale_b),
@@ -104,17 +104,12 @@ module MDECore (
 		.o_matrixComplete	(matrixComplete_c)
 	);
 
-	wire		canLoadMatrix;
 	wire		write_c;
 	wire [5:0]	writeIdx_c;
-	wire [2:0]	blockNum_c;
+	wire [2:0]	blockNum_c, writeValueBlock;
 	wire [11:0]	coefValue_c;
 	wire		matrixComplete_c;
 	
-	reg  [2:0]  rBlockNum; // [TODO] store block num of first load (DC).
-	
-	// Instance IDCT
-
 	IDCT IDCTinstance (
 		// System
 		.clk				(clk),
@@ -133,11 +128,17 @@ module MDECore (
 		.i_cosVal			(i_cosVal),
 		
 		// Output in order value out
+		.i_pauseIDCT_YBlock	(pauseIDCTYBlock),		// If signal = 1, IDCT pause everthing... Signal sent only for Y blocks. (FIFO RGB full)
 		.o_value			(value_d),
 		.o_writeValue		(writeValue_d),
+		.o_blockNum			(writeValueBlock),
 		.o_busyIDCT			(busyIDCT),
 		.o_writeIndex		(writeIndex_d)
 	);
+
+	// [FIFO Out force IDCT to stop pushing Y values because it is near full]
+	wire		isYBlock  		= (writeValueBlock[2] | writeValueBlock[1]);
+	wire		pauseIDCTYBlock = isYBlock & i_stopFillY;
 	
 	wire	 [7:0]	value_d;
 	wire 			writeValue_d;
@@ -146,9 +147,9 @@ module MDECore (
 	// --------------------------------------------------
 	// Select Cr,Cb write or direct input to YUV
 	// --------------------------------------------------
-	wire writeY  = writeValue_d && (rBlockNum[2] | rBlockNum[1]);
-	wire writeCr = writeValue_d && !writeY && (!rBlockNum[0]);	// When not Y, and blocknumber = 0
-	wire writeCb = writeValue_d && !writeY && (rBlockNum[0]);	// When not Y, and blocknumber = 1
+	wire writeY  = writeValue_d && isYBlock;
+	wire writeCr = writeValue_d && !writeY && (!writeValueBlock[0]);	// When not Y, and blocknumber = 0
+	wire writeCb = writeValue_d && !writeY && (writeValueBlock[0]);		// When not Y, and blocknumber = 1
 	
 	// 000 : Y0 Ignored
 	// 001 : Y1 Ignored
@@ -157,7 +158,8 @@ module MDECore (
 	// 100 : Y2
 	// 101 : Y3
 	// 111 : Y3 (Y Only mode)
-	wire [1:0] YBlockNum = { rBlockNum[2],rBlockNum[0] };
+	wire [1:0] YBlockNum = { writeValueBlock[2],writeValueBlock[0] };
+	assign o_idctBlockNum = writeValueBlock;
 	
 	// --------------------------------------------------
 	//  Cr / Cb Memory : 8x8

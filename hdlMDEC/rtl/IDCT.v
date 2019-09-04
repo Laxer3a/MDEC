@@ -17,13 +17,16 @@ module IDCT (
 	input	[25:0]	i_cosVal,
 	
 	// Output in order value out
+	input			i_pauseIDCT_YBlock,
 	output	 [7:0]	o_value,
 	output			o_writeValue,
+	output 	 [2:0]	o_blockNum,
 	output			o_busyIDCT,
 	output	 [5:0]	o_writeIndex
 );
 	// Allow to load matrix when IDCT is not busy OR that we are in the second pass.
 	// No need to worry, about internal 64 bit flag reset on pass 0->1, stream input will take >= 1 cycle to send the next data in any case.
+	// No need to worry about stream forced to wait in the middle...
 	assign o_canLoadMatrix = (!idctBusy | (pass == 1));
 	
 	//----------------------------------------------
@@ -162,17 +165,25 @@ module IDCT (
 		endcase
 	end
 	
+	reg			[2:0]	blockID;
+
 	always @ (posedge clk)
 	begin
 		if (i_nrst==0 || (pass==1 && pPass==0))	// Reset the loaded flag of coefficients, allow next matrix loading when we enter the second pass IDCT.
 		begin
-			isLoadedBits = 64'd0;
+			isLoadedBits	= 64'd0;
+			blockID			= 3'd0;
 		end
 		else
 		begin
 			if (i_write)
 			begin
 				coefTable[i_writeIdx] <= i_coefValue;
+				
+				// Load block ID on DC loading.
+				if (i_writeIdx == 6'd0) begin
+					blockID = i_blockNum;
+				end
 				
 				case (i_writeIdx)
 				'd0  : isLoadedBits[ 0] = 1'b1;
@@ -293,7 +304,6 @@ module IDCT (
 	// BIT [Pass 0/1][Y:0..7][X:0..3][K:0..7]
 	reg	 [8:0]	idctCounter;
 	reg			idctBusy;
-	reg			rblockNum;
 	
 	// Helper for code maintenance.
 	wire 		pass		= idctCounter  [8];	// 1 BIT
@@ -301,7 +311,8 @@ module IDCT (
 	wire [1:0]	XCnt		= idctCounter[4:3];	// 2 BIT
 	wire [2:0]	KCnt		= idctCounter[2:0];	// 3 BIT
 	wire        isLast      = (KCnt == 3'b111);
-
+	wire		freezeIDCT	= i_pauseIDCT_YBlock & pass;	// Freeze only during pass 2 when outputting Y Blocks.
+	reg			pFreeze,ppFreeze;	
 	reg			pLast,ppLast,pPass,ppPass;
 	always @ (posedge clk) begin pLast  <= isLast; pPass  <=  pass; end
 	always @ (posedge clk) begin ppLast <=  pLast; ppPass <= pPass; end
@@ -309,37 +320,57 @@ module IDCT (
 	assign addrCos	= {KCnt,XCnt};
 
 	//-------------------------------------------------------
+	reg rMatrixComplete;
+	reg [2:0] idctBlockNum;
+	
 	always @ (posedge clk)
 	begin
 		if (i_nrst==0)
 		begin
-			idctCounter = 9'd0;
-			idctBusy    = 0;
+			idctCounter 	<= 9'd0;
+			idctBusy    	<= 0;
+			pFreeze			<= 0;
+			rMatrixComplete	<= 0;
 		end else begin
+			pFreeze			<= freezeIDCT;
+			
 			if (idctBusy)
 			begin
+				if (i_write & i_matrixComplete) begin
+					rMatrixComplete <= 1'b1;
+				end
+				
 				if (idctCounter == 511)
 				begin
-					idctCounter = 9'd0;
-					idctBusy	= 0; 	// Stop IDCT until new block loading complete.
+					idctCounter <= 9'd0;
+					idctBusy	<= 0; 	// Stop IDCT until new block loading complete.
 				end
 				else
-					idctCounter = idctCounter + 1'b1/*(1'b1 Avoid size warning)*/;
+				begin
+					idctCounter <= idctCounter + { 8'd0 , !freezeIDCT }; // Add 1 only when NOT freezed.
+				end
 			end else begin
 				// We skip the matrix complete flag if we are busy computing a IDCT.
 				// Normally should never happen : Our busy flag will maintain that data is not pushed while computing.
-				if (i_matrixComplete)
+				if (rMatrixComplete || (i_write & i_matrixComplete))
 				begin
-					idctBusy = 1;
+					idctBusy		<= 1;
+					rMatrixComplete	<= 0;
+					idctBlockNum	<= blockID;
 				end
 			end
 		end
 	end
+	
+	
 	//-------------------------------------------------------
-
-	// For BOTH Table 0 and Table 1 (Cycle 0)
+	// CYCLE 0 : READ COS / READ COEF Table Latency
+	//-------------------------------------------------------
 	assign readAdrCoefTable = pass ? {YCnt,KCnt} /* Pass1 */ : {KCnt,YCnt} /* Pass0 */;
 	
+	//-------------------------------------------------------
+	// CYCLE 1 : USE COS Values, 
+	//-------------------------------------------------------
 	// (Cycle 1 : Result Come back)
 	// Sign extend 20 bit to 23 bit for pass 0 values.
 	// Read 23 bit directly         for pass 1 values.
@@ -353,7 +384,7 @@ module IDCT (
 	wire signed [24:0] mul0  = (coef12A * coef13A); // 12x13 bit = 25 bit.
 	wire signed [24:0] mul1  = (coef12B * coef13B); 
 
-	// TODO : Accumulator should not need 20 bit but 18 (actually 17 ?)
+	// TO OPTIMIZE : Accumulator should not need 20 bit but 18 (actually 17 ?)
 	//        We do NOT use the accumulator result for the top bits anyway.
 	wire signed [19:0] ext_mul0 = {{3{mul0[23]}},mul0[23:7]};
 	wire signed [19:0] ext_mul1 = {{3{mul1[23]}},mul1[23:7]};
@@ -373,19 +404,30 @@ module IDCT (
 		pKCnt <= KCnt;
 	end
 	
+	//-------------------------------------------------------
+	// CYCLE 2 : Accumulator latency
+	//-------------------------------------------------------
 	always @ (posedge clk)
 	begin
-		if (pKCnt != 0)
-		begin
-			acc0 <= acc0 + ext_mul0;
-			acc1 <= acc1 + ext_mul1;
-		end else begin
-			acc0 <= ext_mul0;
-			acc1 <= ext_mul1;
+		if (!pFreeze) begin
+			if (pKCnt != 0)
+			begin
+				acc0 <= acc0 + ext_mul0;
+				acc1 <= acc1 + ext_mul1;
+			end else begin
+				acc0 <= ext_mul0;
+				acc1 <= ext_mul1;
+			end
+		/* Same without else
+		else
+			// Keep our accumulator out of work when freezing.
+			acc0 <= acc0;
+			acc1 <= acc1;
+		*/
 		end
-		
-		ppXCnt <= pXCnt;
-		ppYCnt <= pYCnt;
+		ppXCnt   <= pXCnt;
+		ppYCnt   <= pYCnt;
+		ppFreeze <= pFreeze;
 	end
 
 	// Remove 4 bit at output of pass1 (and pass2)
@@ -393,8 +435,8 @@ module IDCT (
 	wire signed [12:0] v1 = acc1[16:4];
 
 	// Write Accumulator result when At beginning of next line. For last line, wait for beginning of first line of next pass.
-	wire   writeOut             = ppLast && ppPass;		// When arrived to last element done in pass 1
-	assign writeCoefTable2		= ppLast && (!ppPass);	// When arrived to last element done in pass 0
+	wire   writeOut             = ppLast && ppPass && (!ppFreeze);	// When arrived to last element done in pass 1
+	assign writeCoefTable2		= ppLast && (!ppPass);				// When arrived to last element done in pass 0
 	assign writeCoefTable2Index = {ppXCnt,ppYCnt};
 	
 	// Write back values for Pass1 to buffer.
@@ -442,5 +484,6 @@ module IDCT (
 	assign o_writeValue			= (!writeOut && pWriteOut) || writeOut;
 	assign o_busyIDCT			= idctBusy;
 	assign o_writeIndex			= {outY,{outX,pWriteOut}}; // Generate correct X odd and even values when pushing out values.
+	assign o_blockNum			= idctBlockNum;
 	// ----------------------------------------------------------------------------------------------------------------------------------
 endmodule
