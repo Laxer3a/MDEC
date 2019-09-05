@@ -90,32 +90,26 @@ module streamInput(
 
 	// Block is complete with current input :
 	// if OEB input or full uncompressed block with last item (no EOB is possible)
-	// Generated only ONCE.
+	// Generated only ONCE. (per sequence, included empty sequences)
 	wire		isBlockComplete	= ((isEOB) || (rIsFullBlock && (currIdx == 63))) && i_dataWrite;
+	// (state!=LOAD_DC) : Add protection here about avoid increment counter with empty FE00 sequences...
+	wire		isValidBlockComplete	= isBlockComplete & (!isDC);
 	
 	// if (i_idctBusy && isBlockComplete) then
 	//	waitUntil i_idctBusy = 0;
 	//	assign blockComplete = 1;
 	// end
-	assign	o_blockComplete	= isBlockComplete;
+	assign	o_blockComplete	= isValidBlockComplete;
 	
 	// --------------------------------------------------------
 	//   Block handling the U,V,Y0,Y1,Y2,Y3 counter.
 	//   Handle special case when Y only mode is enabled.
 	reg[2:0]	rBlockCounter;
-	reg         rLoading;
 	always @(posedge clk) begin
 		if (i_nrst == 0 || i_YOnly) begin
 			rBlockCounter <= 0;
-			rLoading      <= 1;
 		end else begin
-			if (!rLoading) begin
-				rLoading <= 1;
-			end else if (rLoading && isBlockComplete) begin
-				rLoading <= 0;
-			end
-			
-			if (i_dataWrite && isBlockComplete)
+			if (isValidBlockComplete)	// Increment block counter only with VALID stream (no empty FE00)
 			begin
 				if (rBlockCounter == 3'd5)
 					rBlockCounter <= 0;
@@ -145,7 +139,7 @@ module streamInput(
 					rIsFullBlock <= isFullBlock;
 				end
 				
-				if (isBlockComplete)
+				if (isBlockComplete) // Empty FE00 sequence reset counter too, no pb.
 					indexCounter <= 0;
 				else
 					indexCounter <= currIdx;
@@ -163,7 +157,7 @@ module streamInput(
 			if (i_nrst == 0)
 				nextState = LOAD_DC;
 			else
-				if (i_dataWrite) 
+				if (i_dataWrite & (!isEOB))	// Test that if we have a sequence of FE00 of empty block, we stay on LOAD_DC
 					nextState = LOAD_OTHER;
 				else
 					nextState = state;
