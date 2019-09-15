@@ -3,12 +3,12 @@
   MDEC Stream Specification :
 ---------------------------------------------------------------
 
-- MDEC receive stream of 16 bit unsigned value.
-- The stream is a list of block, ending with 0xFE00.
-- Each block describe a UVY video 8x8 sparse matrix (in order Cr,Cb, Y0,Y1,Y2,Y3)
-  or a list of Y block if Y only mode is set.
+1 - MDEC receive stream of 16 bit unsigned value.
+2 - The stream is a list of block, ending with 0xFE00.
+3 - Each block describe a UVY video 8x8 sparse matrix (in order Cr,Cb, Y0,Y1,Y2,Y3) or a list of Y block if 'Y only mode' is set.
 	- First value is for Matrix [0,0] : [Scale  6 bit][Coefficient 10 bit signed]
 	- Following values are            : [Offset 6 bit][Coefficient 10 bit signed]
+	
 	With CurrentIndex = PreviousIndex + 1 + Offset for current value. (CurrentIndex = 0 for first value)
 	- Note that Index is in ZIGZAG order, not LINEAR ORDER when writing in the destination matrix in RLE mode. (but LINEAR in FULL mode(scale=0)).
 	- Stream ends when End Of Block(EOB)[111111 6 bit][10_0000_0000 10 bit value]
@@ -16,7 +16,9 @@
 	If [Scale] is ZERO, then we have a FULL 64 entry block in LINEAR order AND not SPARSE.
 	Also end of block (EOB) works but becomes optionnal.
 
-  After this unit, output coefficient are multiplied using different rules :
+	Note :	Implementation will lock if 'Y only mode' per matrix stream. Switch between entries will be ignored.
+			The value to be used for the flag is with the FIRST item on the block stream.
+4 -	After this unit, output coefficient are multiplied using different rules :
   - Is inside a UV or Y block ?							(o_blockNum)
   - Is inside a LINEAR non sparse uncompressed block	(o_fullBlockType)
   - Is it the element at [0,0]							(o_isDC)
@@ -31,6 +33,8 @@ Inputs :
 
 Outputs:
 - o_dataWrt signal says all the others o_* are valid EXCEPT for o_blockComplete (independant)
+	Block can be complete AT    the last valid item (item at index 63)
+	Block can be complete AFTER the last valid item (value 0xFE00)
 - o_scale is maintained through the RLE block, user has no need to keep the scale value from
   first item. It is already taken care of.
 - o_fullBlockType value is also guaranteed for the whole block length.
@@ -46,17 +50,30 @@ module streamInput(
 	input			i_dataWrite,
 	input [15:0]	i_dataIn,
 	input 			i_YOnly,
+	input			i_freezePipe,
+	
+//	output			o_outOfRangeblockIndex,
 	
 	output			o_dataWrt,
 	output[9:0]		o_dataOut,
 	output[5:0]		o_scale,
 	output			o_isDC,
-	output[5:0]		o_index,			// Linear order for storage
-	output[5:0]		o_zagIndex,			// Needed because Quant table is in zigzag order, avoid decode into linear.
+	output[5:0]		o_index,			// Linear or Z order for storage
+	output[5:0]		o_linearIndex,		// Linear index for Quant Read.
 	output			o_fullBlockType,
 	output[2:0]		o_blockNum,			// Need to propagate info with data, easier for control logic.
 	output			o_blockComplete
 );
+	// ----- When pipeline is frozen, we avoid the value after until pipe is unfrozen.
+	//   When pipeline froze signal is set, the current value is value.
+	//   It is from the next cycle that is it not anymore.
+	//
+	reg			pFreezePipe;
+	always @(posedge clk) begin
+		pFreezePipe <= i_freezePipe;
+	end
+	wire		bDataWrite = (!pFreezePipe) & i_dataWrite;
+	
 	// --------------------------------------------------------
 	// [alias, basic flag for current data reading]
 	wire[5:0]	offset			= i_dataIn[15:10];
@@ -91,9 +108,29 @@ module streamInput(
 	// Block is complete with current input :
 	// if OEB input or full uncompressed block with last item (no EOB is possible)
 	// Generated only ONCE. (per sequence, included empty sequences)
-	wire		isBlockComplete	= ((isEOB) || (rIsFullBlock && (currIdx == 63))) && i_dataWrite;
+	wire		isBlockComplete	= ((isEOB) | (currIdx[5:0] == 63)) & bDataWrite;
 	// (state!=LOAD_DC) : Add protection here about avoid increment counter with empty FE00 sequences...
 	wire		isValidBlockComplete	= isBlockComplete & (!isDC);
+
+	/*
+	// -----------------------------------------------------------
+	// Detect a block with an invalid index.
+	// Not in the MDEC spec, but could be usefull as we do not how to deal with this case in the specs.
+	// If 
+	//
+	reg			outOfRangeblockIndex;
+	always @(posedge clk) begin
+		if (i_nrst==0) begin
+			outOfRangeblockIndex <= 1'b0;
+		end else
+			if (currIdx[6]) begin
+				outOfRangeblockIndex <= 1'b1;
+			end
+		end
+	end
+	assign o_outOfRangeblockIndex = outOfRangeblockIndex;
+	// -----------------------------------------------------------
+	*/
 	
 	// if (i_idctBusy && isBlockComplete) then
 	//	waitUntil i_idctBusy = 0;
@@ -103,11 +140,27 @@ module streamInput(
 	
 	// --------------------------------------------------------
 	//   Block handling the U,V,Y0,Y1,Y2,Y3 counter.
-	//   Handle special case when Y only mode is enabled.
+	//   - Handle special case when Y only mode is enabled.
+	//	 ON RESET : 0 if CHROMA register setup / 2 if MONO setup
+	//	 ON Y SET : 2.
+	//   - Load Value only on DC for monochrome
+	//	 - Switch from monochrome to chroma handled by 1 cycle no job state guaranteed by MDEC architecture.
+	//	 - Increment only when reaching next block.
+    //   => Protected against i_YOnly changes.
+    //
 	reg[2:0]	rBlockCounter;
+	reg         prevYOnly;
 	always @(posedge clk) begin
-		if (i_nrst == 0 || i_YOnly) begin
-			rBlockCounter <= 0;
+		prevYOnly <= i_YOnly;
+	end
+	
+	always @(posedge clk) begin
+		// Switch to MonoChrome <-> color, one cycle no job garanteed.
+		// ------------------------------------------------------------
+		// Force always to '100' when YOnly. (avoid increment on valid Complete)
+		// Reset when transition from YOnly to color (or opposite)
+		if ((i_nrst == 0) | (i_YOnly) | (i_YOnly ^ prevYOnly)) begin		
+			rBlockCounter <= { i_YOnly, 2'b00 };	// Reset set Counter to 0 or 4 (Color or Y0)
 		end else begin
 			if (isValidBlockComplete)	// Increment block counter only with VALID stream (no empty FE00)
 			begin
@@ -124,6 +177,10 @@ module streamInput(
 	//   Block Handle saving of DC Coefficient.
 	//                       of Uncompressed full block state.
 	//                input coefficient counter.
+	
+	// Move the equation outside did the simulator work... Sigh...
+	wire condFullBlock = isFullBlock & (!isEOB);
+	
 	always @(posedge clk) begin
 		if (i_nrst == 0)
 		begin
@@ -131,12 +188,12 @@ module streamInput(
 			scalereg		<= 0; // Not necessary, but cleaner.
 			rIsFullBlock	<= 0; // Not necessary, but cleaner.
 		end else begin
-			if (i_dataWrite)
+			if (bDataWrite)
 			begin
 				if (isDC)
 				begin
 					scalereg	 <= offset;
-					rIsFullBlock <= isFullBlock;
+					rIsFullBlock <= condFullBlock; // Make sure EMPTY EOB is not counted.
 				end
 				
 				if (isBlockComplete) // Empty FE00 sequence reset counter too, no pb.
@@ -154,38 +211,34 @@ module streamInput(
 	always @(*) begin
 		case (state)
 		LOAD_DC:
-			if (i_nrst == 0)
-				nextState = LOAD_DC;
+			if (bDataWrite & (!isEOB))	// Test that if we have a sequence of FE00 of empty block, we stay on LOAD_DC
+				nextState = LOAD_OTHER;
 			else
-				if (i_dataWrite & (!isEOB))	// Test that if we have a sequence of FE00 of empty block, we stay on LOAD_DC
-					nextState = LOAD_OTHER;
-				else
-					nextState = state;
+				nextState = state;
 		LOAD_OTHER:
-			if (i_nrst == 0)
+			if (bDataWrite & isBlockComplete)
 				nextState = LOAD_DC;
 			else
-				if (i_dataWrite && isBlockComplete)
-					nextState = LOAD_DC;
-				else
-					nextState = state;
+				nextState = state;
 		default:
 			nextState = LOAD_DC;
 		endcase
 	end
 	// ---- STATE MACHINE : Clocked part ----
 	always @(posedge clk) begin
-		state <= nextState;
+		state <= (i_nrst == 0) ? LOAD_DC : nextState;
 	end
 	// --------------------------------------------------------
 
 	// --------------------------------------------------------
 	// ZAG Logic Decode / ROM like.
 	// --------------------------------------------------------
+	wire [5:0] currIdx6Bit = currIdx[5:0];
+	
 	reg [5:0] z; // PUT HERE BECAUSSE MODELSIM DID NOT LIKE AFTER !!!!
     always @(*)
     begin
-        case (currIdx)
+        case (currIdx6Bit)
         'd0  : z = 6'd0;
         'd1  : z = 6'd1;
         'd2  : z = 6'd8;
@@ -255,12 +308,14 @@ module streamInput(
 
 	// --------------------------------------------------------
 	// [Outputs]
-	assign	o_dataWrt		= (i_dataWrite && (!isEOB));
+	assign	o_dataWrt		= (bDataWrite & (!isEOB) & i_nrst);
 	assign	o_dataOut		= coef;
-	assign	o_scale			= scalereg;
+	wire    wFullBlockType  = (isDC & isFullBlock) | ((!isDC) & rIsFullBlock);
+	assign	o_scale			= (isDC | wFullBlockType)	? {1'b0,{wFullBlockType,!wFullBlockType},3'b000}	// Scale = 8 if fullblockType=0, or 16 if 1 or i_scale.
+														: scalereg;
 	assign	o_isDC			= isDC;
-	assign	o_fullBlockType	= (isDC && isFullBlock) || ((!isDC) && rIsFullBlock);
-	assign  o_blockNum		= i_YOnly ?  3'b111 : rBlockCounter;
-	assign	o_index			= rIsFullBlock ? currIdx : z; // Index order depends on block type 
-	assign	o_zagIndex		= currIdx;
+	assign	o_fullBlockType	= wFullBlockType;
+	assign  o_blockNum		= rBlockCounter;
+	assign	o_index			= rIsFullBlock ? currIdx6Bit : z; // Index order depends on block type 
+	assign	o_linearIndex	= currIdx6Bit;
 endmodule

@@ -10,6 +10,8 @@
 	- Item 0 : Coef x   2.0                     -> Coef x    16 x              1 / 8
 	- Item x : Coef x   2.0						-> Coef x    16 x              1 / 8
 	
+	No$PSX specs says that +4 is added BEFORE DIVISION by 8.
+	
 	[Coef : 10 Bit]x[Scale : 6 Bit]x[Quantization : 7 Bit] = [22:0] BIT / 8 = BIT[19:0]
 	
 	And pass pipelined the important information such as :
@@ -27,17 +29,22 @@ module computeCoef (
 	input	signed[9:0]		i_dataIn,
 	input	[5:0]			i_scale,
 	input					i_isDC,
-	input	[5:0]			i_index,
-	input	[5:0]			i_zagIndex,			// Needed because Quant table is in zigzag order, avoid decode into linear.
+	input	[5:0]			i_index,			// Linear or Zagzig order.
+	input	[5:0]			i_linearIndex,		// Needed because Quant table is read in linear order, avoid i_index.
 	input					i_fullBlockType,
 	input	[2:0]			i_blockNum,
 	input					i_matrixComplete,
+
+	// IDCT Busy side
+	input					i_freezePipe,
 
 	// Quant Table Loading
 	input					i_quantWrt,
 	input	[27:0]			i_quantValue,
 	input	[3:0]			i_quantAdr,
 	input					i_quantTblSelect,
+	
+//	output	[23:0]			debug,
 	
 	// Write output (2 cycle latency from loading)
 	output					o_write,
@@ -46,103 +53,114 @@ module computeCoef (
 	output	signed [11:0]	o_coefValue,
 	output          		o_matrixComplete
 );
-
-	// ---- Stage 0 ----
-	// 
-	// Cycle 0 :	- Drive SRAM Read for quantization block.
-	//				- Compute Scale * Coef => Temporary Coef
+	// ----- Data Pipelining Management ----------------------------------
 	//
-	wire 		selectTable			= i_blockNum[1] | i_blockNum[2];
-	wire [5:0]	quantReadIdx		= i_zagIndex;
-
-	reg			pWrite;
-	reg  [5:0]	pIndex;
-	reg  [2:0]	pBlk;
-	reg			pMatrixComplete;
-	reg			pFullBlkType;
-
+	// IDCT can suddenly decide to be full and STOP the FIFO from feeding.
+	// But in this case, we may have valid data in flight due to a 1 cycle
+	// pipeline (which we can NOT avoid because of the Quantization table read).
+	// So we handle the freezing and unfreezing of the pipeline.
 	//
-	// Save values needed for stage 1 (pipeline to match SRAM latency)
+	// Transition over time : {pipedfreezePipe,freezePipe} => [00] [01] [11] [10] 
+	// ----
 	//
-	wire [5:0] scale	= (i_isDC | i_fullBlockType)	? {1'b0,{i_fullBlockType,!i_fullBlockType},3'b000}	// Scale = 8 if fullblockType=0, or 16 if 1 or i_scale.
-														: i_scale;
-	wire signed [15:0] multF;
-	reg  signed [15:0] pMultF;
-	
-	wire signed [6:0]  signedScale = {1'b0,scale}; // Verilog authorize wire signed a = ua; and generate one more bit, but Verilator is not. And I prefer explicit anyway.
-	
-	assign multF = i_dataIn * signedScale; // 10x6 bit
-
-	always @(posedge i_clk)
-	begin
-		pWrite			<= i_dataWrt & i_nrst;
-		pIndex			<= i_index;
-		pBlk			<= i_blockNum;
-		pMatrixComplete	<= i_matrixComplete;
-		pFullBlkType	<= i_fullBlockType;
-		pMultF          <= multF;
+	// Values over time (output of reg for register):
+	//     Input    Reg1    Reg2 (Backup)                                    Reg1W   Reg2W  StoreQuantV
+	// 00    C       B B'    A" 			Output B (Acceptd by IDCT)        1       X       1                    Use Reg
+	// 01    D       C C'    B"				Output C (Refused by IDCT)        1       1       1                    Dont care -> Use Reg
+	// 11    X       D D'    C"				Output D (Refused by IDCT)        0       0		  1                    Dont care -> Use Reg
+	// 11    X       D X'    C"				Output D (Refused by IDCT)        0       0		  0                    Dont care -> Use Reg
+	// 11    X       D X'    C"				Output D (Refused by IDCT)        0       0		  0                    Dont care -> Use Reg
+	// 10    X       D X'	 C"				Output C (Acceptd by IDCT)        0       1		  0                    Use Reg2
+	// 00    E       D X'    #"				Output D (Acceptd by IDCT)        1       X  	  0                    Use Reg
+	// 00    F       E E'    
+	//
+	// x' are value from the Quantization Table read.
+	// x" are value stored using x' and x values if we do not handle 
+	//
+	// We notice thate there is a discrepancy if we just pipeline the values, but
+	// do not manager the output of the table.
+	//
+	// => Store the Quant Table result on pipe(True when 01 transition)
+	// => Use stored result (TRUE) on 10 transition (non piped !)
+	//
+	always @(posedge i_clk) begin
+		pFreeze 		<= i_freezePipe;
 	end
 
-	// ---- Stage 1 ----
-	//   Compute :
-	//	 Temporary Coef * Quantization Value => Output
-	//                  * 1.0 if fullblockType
-	//
-	wire signed [23:0] outCalc;
-	reg  signed [11:0] pOutCalc;
-	
-	wire signed [ 7:0] quant = pFullBlkType ? 8'd1 : { 1'b0, valueQuant };
-
-	assign outCalc = pMultF * quant; // 16x7 = 23 bit.	// Consider MUL to take 1 cycle, implement accordingly.
-
-
-	// /8 signed then Signed saturated arithmetic. 12 bit. (-2048..+2047)
-	// ---------------------------------------------------------------------
-	// [23:Sign][22:15 Overflow][14:3 Value][2:0 Not necessary (div 8)]
-	// Before unsigned division by 8 (shift 3), make sure that -1/-2/-3/-4/-5/-6/-7 return 0. (worked for SIGNED VALUES)
-	wire [23:0] outCalcRoundDiv = outCalc + { 21'b0, outCalc[23], outCalc[23], outCalc[23] };
-	// Remove 3 bit ( div 8 unsigned ), then clamp.
-	wire isNZero= |outCalcRoundDiv[22:15];
-	wire isOne  = &outCalcRoundDiv[22:15];
-	wire orSt   = (!outCalcRoundDiv[23]) & (isNZero);					// [+ Value] and has non zero                    -> OR  1
-	wire andSt  = ((outCalcRoundDiv[23]) & ( isOne)) | (!outCalcRoundDiv[23]);	// [- Value] and has all one   or positive value -> AND 1 
-	wire [11:0] clippedOutCalc = (outCalcRoundDiv[14:3] | {12{orSt}}) & {12{andSt}};
-	
-	reg       ppWrite;
-	reg [5:0] ppIndex;
-	reg [2:0] ppBlk;
-	reg       ppMatrixComplete;
-
-	always @(posedge i_clk)
-	begin
-		ppWrite <= pWrite & i_nrst;
-		ppIndex <= pIndex;
-		ppBlk   <= pBlk;
-		ppMatrixComplete <= pMatrixComplete;
-		pOutCalc<= clippedOutCalc;
+	always @(posedge i_clk) begin
+		storeQuantVal <= Reg1W;
+		useQuantStore <= useReg2;
 	end
-
-	// round toward zero for positive and negative value, except -1.
-	wire all1      = &pOutCalc; // [1 if value is -1]
-	wire [11:0] tmp = pOutCalc[11:0] + { 11'b0 , (pOutCalc[11] & !all1)}; // Add Sign bit, except when -1.
-	wire [11:0] roundedTowardZeroExceptMinus1 = { tmp[11:1], all1 };
-
-	assign o_write    		= ppWrite & i_nrst;
-	assign o_writeIdx 		= ppIndex;
-	assign o_blockNum 		= ppBlk;
-	// 12 bit : -2048..+2047
-	assign o_coefValue		= roundedTowardZeroExceptMinus1;
-	assign o_matrixComplete = ppMatrixComplete;
 	
-	// -----------------------------------------
+	reg		pFreeze;
+	reg		storeQuantVal;
+	reg		useQuantStore;
+	wire	Reg1W   		= (!pFreeze)					| (!i_nrst);	// We also make sure we invalidate data in the pipe if RESET.
+	wire	Reg2W   		= (!pFreeze &  i_freezePipe)	| (!i_nrst);	// We also make sure we invalidate data in the pipe if RESET.
+	wire	useReg2 		= ( pFreeze & !i_freezePipe);
+	/*
+	reg		Reg2W;
+	reg		useReg2;
+	always @(*)
+	begin
+		// TODO Reg1W / Reg2W use i_nrst;
+		case ({pFreeze,i_freezePipe})
+		2'b00:
+		begin
+			// Value is processed, mul occurs as needed at the next cycle.
+			Reg2W   		= 0;
+			useReg2			= 0;
+		end
+		2'b01:
+		begin
+			// Value is STORED, Reg1 does NOT have multiplied result.
+			Reg2W   		= 1;	// Need to save previous value.
+			useReg2			= 0;
+		end
+		2'b11:
+		begin
+			Reg2W   		= 0;
+			useReg2			= 0;
+		end
+		2'b10:
+		begin
+			Reg2W   		= 0;	// Don't change internal.
+			useReg2			= 1;	
+		end
+		endcase
+	end
+	*/
+	// -------------------------------------------------------------------
+
+	// -------------------------------------------------------------------
 	//   Embedded Quantization Table RAM
-	// -----------------------------------------
+	// -------------------------------------------------------------------
+	// INPUT : [We read continuously from the Quant table]
+	//
+	//    Read from computeCoef
+	//    ----------------------
+	//             storeQuantVal
+	//             selectTable
+	//       [5:0] quantReadIdx
+	//
+	//    Setup from outside
+	//    ----------------------
+	//				i_quantWrt,
+	//		[27:0]	i_quantValue,
+	//		[ 3:0]	i_quantAdr,
+	//				i_quantTblSelect,
+	//
+	// OUTPUT
+	reg  [6:0] valueQuant;
+	reg  [6:0] storedQuant;
+	// -------------------------------------------------------------------
+	// Internal stuff
 	reg  [27:0] QuantTbl[31:0];
-	// Internal Address buffering
-	reg  [4:0] quantAdr_reg;
-	wire [4:0] writeAdr = {i_quantTblSelect,i_quantAdr};
-	reg  [1:0] pipeQuantReadIdx;
-	
+	reg   [4:0] quantAdr_reg;
+	wire  [4:0] writeAdr = {i_quantTblSelect,i_quantAdr};
+	reg   [1:0] pipeQuantReadIdx;
+
+	// [Quantization Table READ/WRITE]
 	always @ (posedge i_clk)
 	begin
 		// Write
@@ -156,10 +174,10 @@ module computeCoef (
 		// Read
 		pipeQuantReadIdx <= quantReadIdx[1:0];
 	end
-	
 	wire [27:0] fullValueQuant = QuantTbl[quantAdr_reg]; 
-	reg  [ 6:0] valueQuant;
-	always @ (*)
+
+	// [Select the correct 7 bit from 28 bit record]
+	always @ (*)	
 	begin
 		case (pipeQuantReadIdx)
 		0       : valueQuant = fullValueQuant[ 6: 0];
@@ -168,4 +186,108 @@ module computeCoef (
 		default : valueQuant = fullValueQuant[27:21];
 		endcase
 	end
+
+	// [Storage of valueQuant if we can't use it (pipeline freeze)
+	always @ (posedge i_clk)
+	begin
+		if (storeQuantVal) begin
+			storedQuant <= valueQuant;
+		end
+	end
+	// -------------------------------------------------------------------
+	
+	
+	// -------------------------------------------------------------------
+	//   Stage 0 : Compute data (1st multiplication) while we request
+	//             the quantization factor
+	// -------------------------------------------------------------------
+	// 
+	// Cycle 0 :	- Drive SRAM Read for quantization block.
+	//				- Compute Scale * Coef => Temporary Coef
+	//
+	wire 		selectTable			= i_blockNum[1] | i_blockNum[2];
+	wire [5:0]	quantReadIdx		= i_linearIndex;
+
+	reg			pWrite;
+	reg  [5:0]	pIndex;
+	reg  [2:0]	pBlk;
+	reg			pMatrixComplete;
+	reg			pFullBlkType;
+
+	//
+	// Save values needed for stage 1 (pipeline to match SRAM latency)
+	//
+	wire signed [16:0] multF;
+	reg  signed [15:0] pMultF;
+	
+	wire signed [6:0]  signedScale = {1'b0,i_scale}; // Verilog authorize wire signed a = ua; and generate one more bit, but Verilator is not. And I prefer explicit anyway.
+	
+	assign multF = i_dataIn * signedScale; // 10x7 -> 17 bit, but range is from [-512*63..511*63] (-32256,32193)
+
+	always @(posedge i_clk)
+	begin
+		if (Reg1W) begin
+			pWrite			<= i_dataWrt & i_nrst;
+			pIndex			<= i_index;
+			pBlk			<= i_blockNum;
+			pMatrixComplete	<= i_matrixComplete & i_nrst;
+			pFullBlkType	<= i_fullBlockType;
+			pMultF          <= multF[15:0];
+		end
+	end
+	
+	// -------------------------------------------------------------------
+	//   Stage 1 : Compute data (2nd multiplication) with the arrived
+	//             the quantization factor
+	// -------------------------------------------------------------------
+	//   Compute :
+	//	 Temporary Coef * Quantization Value => Output
+	//                  * 1.0 if fullblockType
+	//
+	wire signed [23:0] outCalc;
+	reg  signed [11:0] pOutCalc;
+	wire         [6:0] LocalQuantValue	= useQuantStore ? storedQuant : valueQuant;
+	wire signed [ 7:0] quant			= pFullBlkType  ? 8'd1 : { 1'b0, LocalQuantValue };
+
+	// Spec says in No$PSX => (signed10bit(n AND 3FFh)*qt[k]*q_scale+4)/8
+	
+	//--------------------------------------------------------------------------------------------
+	// First we do qt[k]*(q_scale*value)
+	assign outCalc = (pMultF * quant); // 16x8 = 24 bit.	// Consider MUL to take 1 cycle, implement accordingly.
+
+	roundDiv8AndClamp inst_roundDiv8AndClamp(
+		.valueIn	(outCalc),
+		.valueOut	(roundedOddTowardZeroExceptMinus1)
+	);
+	
+	wire [11:0] roundedOddTowardZeroExceptMinus1;
+	
+	reg       ppWrite;
+	reg [5:0] ppIndex;
+	reg [2:0] ppBlk;
+	reg       ppMatrixComplete;
+
+	always @(posedge i_clk)
+	begin
+		if (Reg2W) begin
+			ppWrite				<= pWrite & i_nrst;
+			ppIndex				<= pIndex;
+			ppBlk   			<= pBlk;
+			ppMatrixComplete	<= pMatrixComplete & i_nrst;
+			pOutCalc			<= roundedOddTowardZeroExceptMinus1;
+		end
+	end
+	
+	wire      	outWrite			= useReg2 ? ppWrite 			: pWrite;
+	wire [5:0]	outIndex			= useReg2 ? ppIndex 			: pIndex;
+	wire [2:0]	outBlk				= useReg2 ? ppBlk				: pBlk;
+	wire      	outMatrixComplete	= useReg2 ? ppMatrixComplete	: pMatrixComplete;
+	wire [11:0] outSelCalc 			= useReg2 ? pOutCalc			: roundedOddTowardZeroExceptMinus1;
+
+	assign o_write    		= outWrite & i_nrst & (!i_freezePipe);
+	assign o_writeIdx 		= outIndex;
+	assign o_blockNum 		= outBlk;
+	// 12 bit : -2048..+2047
+	assign o_coefValue		= outSelCalc;
+	assign o_matrixComplete = outMatrixComplete;	
 endmodule

@@ -1,3 +1,5 @@
+// TODO : bitSetupDepth should move along the pipeline (copied at DC entry -> then store/pass to IDCT -> use it when outputting pixel. => Same for all 8x8 block.
+
 module MDECore (
 	// System
 	input			clk,
@@ -42,26 +44,28 @@ module MDECore (
 	assign o_stillIDCT	= busyIDCT;
 
 	// ---------------- Directly to state machine and FIFO pusher -------
-	wire	canLoadMatrix;					// From IDCT direct to FIFO state machine. [Stream Input + ComputeCoef] is just 2 cycle latency.
-	assign	o_allowLoad	= canLoadMatrix;	// 
+	wire	canLoadMatrix;	// From IDCT direct to FIFO state machine.
+	assign	o_allowLoad				= canLoadMatrix;
+	wire	freezeStreamAndCompute	= !canLoadMatrix;
 	// ------------------------------------------------------------------
 	
 	streamInput streamInput_inst(
-		.clk			(clk),
-		.i_nrst			(i_nrst),
-		.i_dataWrite	(i_dataWrite),
-		.i_dataIn		(i_dataIn),
+		.clk				(clk),
+		.i_nrst				(i_nrst),
+		.i_dataWrite		(i_dataWrite),
+		.i_dataIn			(i_dataIn),
+		.i_freezePipe		(freezeStreamAndCompute),
 		
-		.i_YOnly		(YOnly),
-		.o_dataWrt		(dataWrt_b),
-		.o_dataOut		(dataOut_b),
-		.o_scale		(scale_b),
-		.o_isDC			(isDC_b),
-		.o_index		(index_b),				// Linear order for storage
-		.o_zagIndex		(zagIndex_b),			// Needed because Quant table is in zigzag order, avoid decode into linear.
-		.o_fullBlockType(fullBlockType_b),
-		.o_blockNum		(blockNum_b),			// Need to propagate info with data, easier for control logic.
-		.o_blockComplete(blockComplete_b)
+		.i_YOnly			(YOnly),
+		.o_dataWrt			(dataWrt_b),
+		.o_dataOut			(dataOut_b),
+		.o_scale			(scale_b),
+		.o_isDC				(isDC_b),
+		.o_index			(index_b),				// Direct Access order for storage.
+		.o_linearIndex		(linearIndex_b),		// 
+		.o_fullBlockType	(fullBlockType_b),
+		.o_blockNum			(blockNum_b),			// Need to propagate info with data, easier for control logic.
+		.o_blockComplete	(blockComplete_b)
 	);
 	
 	wire 			dataWrt_b;
@@ -69,31 +73,33 @@ module MDECore (
 	wire [5:0]		scale_b;
 	wire			isDC_b;
 	wire [5:0]		index_b;			
-	wire [5:0]		zagIndex_b;		
+	wire [5:0]		linearIndex_b;		
 	wire			fullBlockType_b;
 	wire [2:0]		blockNum_b;		
 	wire			blockComplete_b;
 
 	// Instance Coef Multiplier
 	computeCoef ComputeCoef_inst (
-		.i_clk			(clk),
-		.i_nrst			(i_nrst),
+		.i_clk				(clk),
+		.i_nrst				(i_nrst),
 
-		.i_dataWrt		(dataWrt_b),
-		.i_dataIn		(dataOut_b),
-		.i_scale		(scale_b),
-		.i_isDC			(isDC_b),
-		.i_index		(index_b),
-		.i_zagIndex		(zagIndex_b),			// Needed because Quant table is in zigzag order, avoid decode into linear.
-		.i_fullBlockType(fullBlockType_b),
-		.i_blockNum		(blockNum_b),
-		.i_matrixComplete(blockComplete_b),
+		.i_dataWrt			(dataWrt_b),
+		.i_dataIn			(dataOut_b),
+		.i_scale			(scale_b),
+		.i_isDC				(isDC_b),
+		.i_index			(index_b),
+		.i_linearIndex		(linearIndex_b),			// Needed because Quant table is in linear order.
+		.i_fullBlockType	(fullBlockType_b),
+		.i_blockNum			(blockNum_b),
+		.i_matrixComplete	(blockComplete_b),
+		
+		.i_freezePipe		(freezeStreamAndCompute),
 
 		// Quant Table Loading
-		.i_quantWrt		(i_quantWrt),
-		.i_quantValue	(i_quantValue),
-		.i_quantAdr		(i_quantAdr),
-		.i_quantTblSelect(i_quantTblSelect),
+		.i_quantWrt			(i_quantWrt),
+		.i_quantValue		(i_quantValue),
+		.i_quantAdr			(i_quantAdr),
+		.i_quantTblSelect	(i_quantTblSelect),
 		
 		// Write output (2 cycle latency from loading)
 		.o_write			(write_c),

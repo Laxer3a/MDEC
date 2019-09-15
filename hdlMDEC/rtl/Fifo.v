@@ -66,7 +66,7 @@ module Fifo
 	// ------------------------------------------
 	//   FIFO RAM
 	// ------------------------------------------
-	wire [AW-1:0]					raddr;
+	wire [AW-1:0]					raddr = read_pointer[AW-1:0];
 	reg  [AW-1:0]   				pRaddr;
 	reg signed [DATA_WIDTH-1:0] 	RAMStorage[(2**DEPTH_WIDTH)-1:0];
 

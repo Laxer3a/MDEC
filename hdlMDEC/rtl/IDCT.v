@@ -8,7 +8,7 @@ module IDCT (
 	input	[5:0]	i_writeIdx,
 	input	[2:0]	i_blockNum,
 	input	[11:0]	i_coefValue,
-	input			i_matrixComplete,
+	input			i_matrixComplete,	// Warning this bit CAN BECOME 1, independantly FROM i_write (See streamInput specs) !
 	output			o_canLoadMatrix,
 
 	// Loading of COS Table (Linear, no zigzag)
@@ -336,7 +336,7 @@ module IDCT (
 			
 			if (idctBusy)
 			begin
-				if (i_write & i_matrixComplete) begin
+				if (i_matrixComplete) begin
 					rMatrixComplete <= 1'b1;
 				end
 				
@@ -352,7 +352,7 @@ module IDCT (
 			end else begin
 				// We skip the matrix complete flag if we are busy computing a IDCT.
 				// Normally should never happen : Our busy flag will maintain that data is not pushed while computing.
-				if (rMatrixComplete || (i_write & i_matrixComplete))
+				if (rMatrixComplete | i_matrixComplete)
 				begin
 					idctBusy		<= 1;
 					rMatrixComplete	<= 0;
