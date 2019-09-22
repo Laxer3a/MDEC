@@ -69,15 +69,31 @@ module Fifo
 	wire [AW-1:0]					raddr = read_pointer[AW-1:0];
 	reg  [AW-1:0]   				pRaddr;
 	reg signed [DATA_WIDTH-1:0] 	RAMStorage[(2**DEPTH_WIDTH)-1:0];
+	reg  [DATA_WIDTH-1:0]			outputCache;
 
 	always @ (posedge clk)
 	begin
-		if (rd_en_i)
+		if (wr_en_i)
 		begin
 			RAMStorage[write_pointer[AW-1:0]] <= wr_data_i;
 		end
 		pRaddr <= raddr;
 	end
-	assign rd_data_o = RAMStorage[pRaddr];
+	
+	reg pRd_en_i;
+	always @ (posedge clk)
+	begin
+		pRd_en_i <= rd_en_i;
+	end
+	
+	wire [DATA_WIDTH-1:0] straight_rd_data_o = RAMStorage[pRaddr];
+	
+	assign rd_data_o = pRd_en_i ? straight_rd_data_o : outputCache;
+	always @(posedge clk)
+	begin
+		if (pRd_en_i) begin
+			outputCache <= straight_rd_data_o;
+		end
+	end
 	// ------------------------------------------
 endmodule

@@ -42,7 +42,7 @@ module computeCoef (
 	input					i_quantWrt,
 	input	[27:0]			i_quantValue,
 	input	[3:0]			i_quantAdr,
-	input					i_quantTblSelect,
+	input					i_quantTblSelect,	// 1:Luma Table, 0:Chroma Table
 	
 //	output	[23:0]			debug,
 	
@@ -74,6 +74,10 @@ module computeCoef (
 	// 00    E       D X'    #"				Output D (Acceptd by IDCT)        1       X  	  0                    Use Reg
 	// 00    F       E E'    
 	//
+	//		transition	00	01	11	11	10	00	
+	//		Input		A	B	X	X	C	D	
+	//		Output		X	A	Z	X	B	C	
+	
 	// x' are value from the Quantization Table read.
 	// x" are value stored using x' and x values if we do not handle 
 	//
@@ -98,38 +102,6 @@ module computeCoef (
 	wire	Reg1W   		= (!pFreeze)					| (!i_nrst);	// We also make sure we invalidate data in the pipe if RESET.
 	wire	Reg2W   		= (!pFreeze &  i_freezePipe)	| (!i_nrst);	// We also make sure we invalidate data in the pipe if RESET.
 	wire	useReg2 		= ( pFreeze & !i_freezePipe);
-	/*
-	reg		Reg2W;
-	reg		useReg2;
-	always @(*)
-	begin
-		// TODO Reg1W / Reg2W use i_nrst;
-		case ({pFreeze,i_freezePipe})
-		2'b00:
-		begin
-			// Value is processed, mul occurs as needed at the next cycle.
-			Reg2W   		= 0;
-			useReg2			= 0;
-		end
-		2'b01:
-		begin
-			// Value is STORED, Reg1 does NOT have multiplied result.
-			Reg2W   		= 1;	// Need to save previous value.
-			useReg2			= 0;
-		end
-		2'b11:
-		begin
-			Reg2W   		= 0;
-			useReg2			= 0;
-		end
-		2'b10:
-		begin
-			Reg2W   		= 0;	// Don't change internal.
-			useReg2			= 1;	
-		end
-		endcase
-	end
-	*/
 	// -------------------------------------------------------------------
 
 	// -------------------------------------------------------------------
@@ -205,7 +177,7 @@ module computeCoef (
 	// Cycle 0 :	- Drive SRAM Read for quantization block.
 	//				- Compute Scale * Coef => Temporary Coef
 	//
-	wire 		selectTable			= i_blockNum[1] | i_blockNum[2];
+	wire 		selectTable			= i_blockNum[1] | i_blockNum[2];	// 1=Luma, 0=Chroma
 	wire [5:0]	quantReadIdx		= i_linearIndex;
 
 	reg			pWrite;
@@ -284,10 +256,11 @@ module computeCoef (
 	wire      	outMatrixComplete	= useReg2 ? ppMatrixComplete	: pMatrixComplete;
 	wire [11:0] outSelCalc 			= useReg2 ? pOutCalc			: roundedOddTowardZeroExceptMinus1;
 
-	assign o_write    		= outWrite & i_nrst & (!i_freezePipe);
+	wire   outWriteSignal   = outWrite & i_nrst & (!i_freezePipe);
+	assign o_write    		= outWriteSignal;
 	assign o_writeIdx 		= outIndex;
 	assign o_blockNum 		= outBlk;
 	// 12 bit : -2048..+2047
-	assign o_coefValue		= outSelCalc;
+	assign o_coefValue		= outWriteSignal ? outSelCalc : 12'd999; // TODO DEBUG, TO REMOVE.
 	assign o_matrixComplete = outMatrixComplete;	
 endmodule

@@ -82,7 +82,7 @@ module MDECRegisters (
 	wire isCommandQuant		= (fifoIN_output[31:29] == 3'b010);
 	wire isCommandCosTbl	= (fifoIN_output[31:29] == 3'b011);
 	wire isColorQuant		= fifoIN_output[0];
-	wire isNewCommand		= writeReg0 && (state == WAIT_COMMAND);
+	wire isNewCommand		= isFIFOInDataValid && (state == WAIT_COMMAND);
 
 	// --- Counter related ----
 	wire [16:0] nextRemainingHalfWord = remainingHalfWord + { 16'b1111111111111111, !decrementCounter[1] }; // -1 or -2
@@ -91,7 +91,7 @@ module MDECRegisters (
 	
 	always @(posedge i_clk)
 	begin
-		if (nResetChip) begin
+		if (resetChip) begin
 			regPixelFormat   	<= 2'b00;
 			regPixelSigned   	<= 0;
 			regPixelSetAlpha 	<= 0;
@@ -142,6 +142,7 @@ module MDECRegisters (
 	end
 		
 	wire isCommandStreamValid = isCommandStream & isFIFOInDataValid;
+	wire validLoad            = allowLoad & fifoIN_hasData;
 	always @(*)
 	begin
         case (state)
@@ -153,46 +154,45 @@ module MDECRegisters (
 		end
 		WAIT_COMMAND:
 		begin
-			fifoIN_rd			= fifoIN_hasData & (!isCommandStreamValid); // Stream do not load in advance.
+			fifoIN_rd			= validLoad; // Stream do not load in advance.
 			decrementCounter	= 2'd0;
 			if (isFIFOInDataValid & (isCommandStream | isCommandQuant | isCommandCosTbl)) begin
-				nextState = isCommandStream ? LOAD_STREAMW : (isCommandQuant ? LOAD_LUMA : LOAD_COS);
+				nextState = isCommandStream ? (validLoad ? LOAD_STREAML : LOAD_STREAMW) : (isCommandQuant ? LOAD_LUMA : LOAD_COS);
 			end else begin
 				nextState = WAIT_COMMAND;
 			end
 		end
-		LOAD_STREAMW:	// LOAD_STREAM_WAIT.
+		LOAD_STREAMW:	// STATE 1 : LOAD_STREAM_WAIT.
 		begin
 			//
 			// Do NOT launch a READ here.
 			// We arrive where the data has been LOADED already... or not if FIFO is empty.
 			// 
-			fifoIN_rd			= allowLoad & fifoIN_hasData;
-			nextState			= allowLoad & fifoIN_hasData ? LOAD_STREAML : LOAD_STREAMW;
+			fifoIN_rd			= validLoad;
+			nextState			= validLoad ? LOAD_STREAML : LOAD_STREAMW;
 			decrementCounter	= 2'd0;	// No data available in this state.
 		end
-		LOAD_STREAML:
+		LOAD_STREAML: // STATE 2.
 		begin
 			// Data IS ALWAYS valid : Read initiated by W or H.
 			fifoIN_rd			= 1'b0;
+			decrementCounter	= 2'b00;
 			if (allowLoad) begin
 				nextState		= LOAD_STREAMH;
-				decrementCounter= 2'b01;
 			end else begin
 				// Loop until accept Half Word.
 				nextState		= LOAD_STREAML;
-				decrementCounter= 2'b00;
 			end
 		end
-		LOAD_STREAMH:
+		LOAD_STREAMH: // STATE 3.
 		begin
 			if (allowLoad) begin
 				decrementCounter= 2'b01;
-				fifoIN_rd		= fifoIN_hasData;
+				fifoIN_rd		= validLoad;
 				if (isLastHalfWord) begin
 					nextState 	= WAIT_COMMAND;
 				end else begin
-					if (fifoIN_hasData) begin
+					if (validLoad) begin
 						nextState	= LOAD_STREAML;
 					end else begin
 						// Wait until data or allow is possible...
@@ -210,7 +210,7 @@ module MDECRegisters (
 		begin
 			fifoIN_rd			= fifoIN_hasData;
 			decrementCounter	= { isFIFOInDataValid, 1'b0 };
-			if (fifoIN_hasData) begin
+			if (isFIFOInDataValid) begin
 				nextState		 	= (isLastHalfWord) ? WAIT_COMMAND : LOAD_COS;
 			end else begin
 				nextState			= LOAD_COS;
@@ -220,8 +220,8 @@ module MDECRegisters (
 		begin
 			fifoIN_rd			= fifoIN_hasData;
 			decrementCounter	= { isFIFOInDataValid, 1'b0 };
-			if (fifoIN_hasData) begin
-				if (nextRemainingHalfWord[4:1]==4'b1111) begin
+			if (isFIFOInDataValid) begin
+				if (nextRemainingHalfWord[4:1]==4'b0000) begin
 					if (regLoadChromaQuant) begin
 						nextState		= LOAD_CHROMA;
 					end else begin
@@ -238,8 +238,8 @@ module MDECRegisters (
 		begin
 			fifoIN_rd			= fifoIN_hasData;
 			decrementCounter	= { isFIFOInDataValid, 1'b0 };
-			if (fifoIN_hasData) begin
-				if (nextRemainingHalfWord[4:1]==4'b1111) begin
+			if (isFIFOInDataValid) begin
+				if (nextRemainingHalfWord[4:1]==4'b0000) begin
 					nextState		= WAIT_COMMAND;
 				end else begin
 					nextState 		= LOAD_CHROMA;
@@ -255,19 +255,28 @@ module MDECRegisters (
 	// All input signals for MDECore based on state and current FIFO output.
 	//----------------------------------------------------------------------------------
 	
+	wire isLoadCos = (state == LOAD_COS);
+	wire isLoadLum = (state == LOAD_LUMA);
+	wire isLoadChr = (state == LOAD_CHROMA);
+	wire isLoadStL = (state == LOAD_STREAML);
+	wire isLoadStH = (state == LOAD_STREAMH);
+	
 	// ---- COS Loading ----
-	wire		i_cosWrite	= isFIFOInDataValid && (state == LOAD_COS);
+	wire		i_cosWrite	= isFIFOInDataValid && isLoadCos;
 	wire [4:0]	i_cosIndex	= ~(nextRemainingHalfWord[5:1]);	// 31->0 => 0->31
 	wire [25:0]	i_cosVal	= { fifoIN_output[28:16] , fifoIN_output[12:0]};
 	// ---- Quantization Table Loading ----
-	wire 		i_quantWrt	= isFIFOInDataValid && ((state == LOAD_LUMA) || (state == LOAD_CHROMA));
+	wire 		i_quantWrt	= isFIFOInDataValid && (isLoadLum || isLoadChr);
 	wire [3:0]	i_quantAdr	= ~(nextRemainingHalfWord[4:1]);
 	wire [27:0]	i_quantVal	= {fifoIN_output[30:24],fifoIN_output[22:16],fifoIN_output[14:8],fifoIN_output[6:0]};
-	wire i_quantTblSelect	= !nextRemainingHalfWord[5];	// Counter is 63 downto 0, reverse is 0..63 => Table 1->0 becomes Table 0->1
+	wire i_quantTblSelect	= isLoadLum; // Table 1 for LUMA, 0 for CHROMA.
 
 	// ---- Stream Loading ----
-	wire        writeStream	= ((state == LOAD_STREAML) || (state == LOAD_STREAMH)) && allowLoad;		// Use FIFO last output, even if data is not asked.
-	wire [15:0] streamIn	=  (state == LOAD_STREAML) ? fifoIN_output[31:16] : fifoIN_output[15:0];	// TODO B : Select proper 16 bit.
+	
+	wire        writeStream	= (isLoadStL || isLoadStH) && allowLoad;		// Use FIFO last output, even if data is not asked.
+	// FIRST BLOCK is LSB, SECOND BLOCK IS LSB
+	// TODO change name of state L/H by FIRST/SECOND.
+	wire [15:0] streamIn	=  isLoadStL ? fifoIN_output[15:0] : fifoIN_output[31:16];
 	wire allowLoad;
 
 	MDECore mdecInst (

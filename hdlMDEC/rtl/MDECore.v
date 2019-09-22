@@ -1,4 +1,5 @@
-// TODO : bitSetupDepth should move along the pipeline (copied at DC entry -> then store/pass to IDCT -> use it when outputting pixel. => Same for all 8x8 block.
+// Note : bitSetupDepth has no need to move along the pipeline
+//        => Command to MDEC can not change in between. Format belong to the command itself, not register setup. Atomic guarantee. Smaller hardware logic.
 
 module MDECore (
 	// System

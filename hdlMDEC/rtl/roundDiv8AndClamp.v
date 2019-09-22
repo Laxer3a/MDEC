@@ -4,7 +4,9 @@
 // => Perform Clamp in -2048..+2047 Range
 // => Round toward ZERO for the closest EVEN integer, EXCEPT -1.
 //
-module roundDiv8AndClamp(
+
+module roundDiv8AndClamp
+(
 	input  signed [23:0] valueIn,
 	output signed [11:0] valueOut
 );
@@ -25,19 +27,12 @@ module roundDiv8AndClamp(
 	// Signed saturated arithmetic. 12 bit. (-2048..+2047)
 	//--------------------------------------------------------------------------------------------
 	// Remove 3 bit ( div 8 unsigned ), then clamp.
-	wire isNZero= |outCalcRoundDiv[22:15];
-	wire isOne  = &outCalcRoundDiv[22:15];
-	wire orSt   = (!outCalcRoundDiv[23]) & (isNZero);							// [+ Value] and has non zero                    -> OR  1
-	wire andSt  = ((outCalcRoundDiv[23]) & ( isOne)) | (!outCalcRoundDiv[23]);	// [- Value] and has all one   or positive value -> AND 1 
-	wire [11:0] clippedOutCalc = (outCalcRoundDiv[14:3] | {12{orSt}}) & {12{andSt}};
+	wire [20:0] shift3 = outCalcRoundDiv[23:3];
+	wire [11:0] clippedOutCalc;
+	clampSRange #(.INW(21),.OUTW(12)) myClampSRange(.valueIn(shift3),.valueOut(clippedOutCalc));
 
 	//--------------------------------------------------------------------------------------------
 	// round toward closest to zero EVEN number for positive and negative value, except -1.
 	//--------------------------------------------------------------------------------------------
-	wire isMinus1	= &clippedOutCalc; 						// [1 if value is -1]
-	wire isOdd      =  clippedOutCalc[0]  & (!isMinus1);	// If ODD and not minus ONE.
-	wire posV       = !clippedOutCalc[11] & isOdd;			// Fill with ONE for Positive ODD value.
-
-	assign valueOut = clippedOutCalc + { {11{posV}} , isOdd };	// Add +1 if negative, -1 if positive for VALID numbers.
-
+	roundTowardZeroExceptM1 #(.WIDTH(12)) myRTZEM1(.valueIn(clippedOutCalc),.valueOut(valueOut));
 endmodule
