@@ -1,0 +1,99 @@
+The GPU has 2 Kbyte Texture Cache
+The Texture Cache is (maybe) also used for CLUT data - or is there a separate CLUT Cache - or is the CLUT uncached - but that'd be trash?
+----------
+	=> Clut probably cached during polygon rendering, then trashed.
+	=> Clut cached probably by 8 byte chunk, up to 1 KB ? (4 bit => 16 color => 32 byte, 8 bit => 256 color => 512 byte.
+		64 entry bit reset if clut adress changes.
+----------
+
+If polygons with texture are displayed, the GPU needs to read these from the frame buffer.
+ This slows down the drawing process, and as a result the number of polygons that can be drawn in a given timespan. 
+ To speed up this process the GPU is equipped with a texture cache, so a given piece of texture needs not to be read multiple times in succession.
+
+The texture cache size depends on the color mode used for the textures.
+In 4 bit CLUT mode it has a size of 64x64, in 8 bit CLUT it's 32x64 and in 15bitDirect is 32x32. A general speed up can be achieved by setting up textures according to these sizes. For further speed gain a more precise knowledge of how the cache works is necessary.
+
+Cache blocks
+The texture page is divided into non-overlapping cache blocks, each of a unit size according to color mode. These cache blocks are tiled within the texture page.
+
+  +-----+-----+-----+--
+  |cache|     |     |
+  |block|     |           <----- 2 KB block
+  |    0|   1 |    2   ..
+  +-----+-----+--
+  |..   |     |
+
+
+  
+A block is 2 KB.
+32x2x32 = 16 bit	64 byte long in 16 bit 
+32x1x64 =  8 bit    32 byte long in  8 bit
+64  x64 =  4 bit    32 byte long in  4 bit
+
+The 1MByte VRAM is organized as 512 lines of 2048 bytes. It is accessed via coordinates, ranging from (0,0)=Upper-Left to (N,511)=Lower-Right.
+  Unit  = 4bit  8bit  16bit  24bit   Halfwords   | Unit   = Lines
+  Width = 4096  2048  1024   682.66  1024        | Height = 512
+  
+Texture Page :
+	0-3   Texture page X Base   (N*64)	(ie. in 64-halfword steps)	;GPUSTAT.0-3	->  64x2         = 128 Byte Jump.
+	4     Texture page Y Base   (N*256) (ie. 0 or 256)				;GPUSTAT.4		-> 256x2048 byte = 512KB Jump
+
+VRAM FULL ADRESS : 1MByte = 20 bit.
+	98765432109876543210
+	bbbbbbbbbbaaaaaaaaaa
+	Y        XXXX        <-- Texture Page Base X = 128 byte , Y = 512 KB Jump
+	
+	So 8 byte cache line :
+	
+	98765432109876543 210
+	bbbbbbbbbbaaaaaaa|aaa
+	 VVVVVVVV            <-- Y Line is 2048 byte (VVVV.VVVV is 256 lines)
+	Y        XXXX        <-- Texture Page Base X = 128 byte , Y = 512 KB Jump
+	Upper adress is independant of texture format.
+	But cache adressing changes on texture format.
+	    PPPPP     LLL	 <-- One line width for block in  16 bpp. (32 pixel   , 64 byte per line)
+	   PPPPPP      LL    <-- One line width for block in 8/4 bpp. (32/64 pixel, 32 byte per line)
+
+	Then inside the cache, 
+	
+Cache entries
+  Each cache block is divided into 256 cache entries, which are numbered sequentially, and are 8 bytes wide. => 1 cache entry holds 16x4bit / 8x8bit clut / 4x15bitdirect.
+  
+  4bit and 8bit clut:        15bitdirect:
+  Whole Cache is			Whole Cache is
+  32 byte / line			64 byte/line as described.
+  +----+----+----+----+     +----+----+----+----+----+----+----+----+
+  |   0|   1|   2|   3|     |   0|   1|   2|   3|   4|   5|   6|   7|
+  +----+----+----+----+     +----+----+----+----+----+----+----+----+
+  |   4|   5|   6|   7|     |   8|   9|   a|   b|   c|   d|   e|   f|
+  +----+----+----+----+     +----+----+----+----+----+----+----+----+
+  |   8|   9|  ..           |  10|  11|  ..
+  +----+----+--             +----+----+--
+  |   c|  ..|               |  18|  ..|
+  +----+--                  +----+--
+  |  ..                     |  ..
+
+The cache can hold only one cache entry by the same number, so if f.e. a piece of texture spans multiple cache blocks and it has data on entry 9 of block 1, but also on entry 9 of block 2, these cannot be in the cache at once.
+
+	Linear Adress Space :
+	--------------------------
+	ccccPPPPPbbbbbLLL aaa <-- One line width for block in  16 bpp. (32 pixel   , 64 byte per line)
+	cccPPPPPPbbbbbbLL aaa <-- One line width for block in 8/4 bpp. (32/64 pixel, 32 byte per line)
+
+	Swizzled, remapped to IN THE cache as : (no need to swizzle outside, cache can implement it internally and just output 16 bit for an address read)
+	--------------------------
+	ccccbbbbb|PPPPPLLL aaa <-- One line width for block in  16 bpp. (32 pixel   , 64 byte per line)
+	cccbbbbbb|PPPPPPLL aaa <-- One line width for block in 8/4 bpp. (32/64 pixel, 32 byte per line)
+    out$---->|<--- inside $ (256 block of 8 byte)
+	
+	Texture address can be computed as is from :
+	bbbbbbbbbbaaaaaaa|aaa
+	Y        XXXX        <-- Texture Page Base X = 128 byte , Y = 512 KB Jump
++	 VVVVVVVV    UUUU|UUU.U in 4  bit (last U is selector for 4 bit, sub byte)
++	 VVVVVVVV   UUUUU|UUU   in 8  bit
++	 VVVVVVVV  UUUUUU|UU0   in 16 bit
+
+	Now because we will receive 16 bit from the data cache (we will make adress in byte still, not word, we can afford it)
+	we will use U or UU depending on the texture format.
+
+																					   
