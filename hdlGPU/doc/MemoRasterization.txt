@@ -1,0 +1,61 @@
+Triangle forms a basis coordinate system, defined by the matrix :
+
+
+
+Matrix = [a=dx20 b=dx10]
+         [c=dy20 d=dy10]
+        0->2 Axis
+		         0->1 Axis
+With 
+dx20 = x2-x0	dy20 = y2-y0
+dx10 = x1-x0	dy10 = y1-y0
+	 
+
+	Reverse Matrix to give displacement in texture from screen space.
+	Texture Space = [ d/D]  [-b/D]
+	                [-c/D]  [ a/D]
+					
+	[Horizontal Vector in texture space]
+	[1] => [ d/D]
+	[0]    [-c/D]
+	
+	[Vertical Vector in texture space]
+	[0] => [-b/D]
+	[1]    [ a/D]
+	
+	Which is a RATIO in component space over the RANGE in screen space. (between 0 and 1)
+
+    C1
+	[0,1]    Triangle space.
+	^
+	|\
+	|  \
+	|    \
+	|      \
+	|  ^     \
+	|  |       \             ^ 
+	|            \           | Vector in texture space when we move 1 pixel in screen space (constant, can be anywhere)
+    +--------------\[1,0] C2
+[0,0] C0
+	
+	Inside the triangle space, each edge is a value C0, C1, C2
+	
+	So if we want the value of C at we have for the X axis (C2-C0)*tx + C0
+	So if we want the value of C at we have for the Y axis (C1-C0)*ty + C0
+	but as we want to compute the DIFFERENCE between vector start and end (constant)
+	  C2-C0 for X axis in texture space, C1-C0 for Y axis in texture space.
+	  
+	[Horizontal Vector in texture space ratio x distance in Component space]
+	[1] = [ d/D] * (C20)
+	[0]   [-c/D] * (C10)
+	// In screen space :
+		Reminder, D = (dy10*dx20 - dy20*dx10)
+
+then	deltaC for horizontal +1 = [( dy10  * C20) - (dy20 * C10)] / D
+	
+	[Vertical Vector in texture space]
+	[0] = [-b/D] * (C2-C0)
+	[1]   [ a/D] * (C1-C0)
+	// In screen space :
+
+then	deltaC for vertical   +1 = [(-dx10  * C20) + (dx20 * C10)] / D

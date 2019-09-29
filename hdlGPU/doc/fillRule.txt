@@ -1,0 +1,28 @@
+float w0;
+float w1;
+float w2;
+ 
+Vec2f edge0 = v2 - v1;
+Vec2f edge1 = v0 - v2;
+Vec2f edge2 = v1 - v0;
+ 
+bool overlaps = true; 
+
+	// compute ONCE at triangle setup.
+	specialW_N = ((edgeNdy == 0 && edgeNdx > 0) ||  edgeNdy > 0) || ((edgeNdy == 0 && edgeNdx < 0) ||  edgeNdy < 0);
+	
+ 
+// If the point is on the edge, test if it is a top or left edge, 
+// otherwise test if  the edge function is positive
+overlaps &= (w0 == 0 ? ((edge0dy == 0 && edge0dx > 0) ||  edge0dy > 0) : (w0 > 0)); 
+overlaps &= (w1 == 0 ? ((edge1dy == 0 && edge1dx > 0) ||  edge1dy > 0) : (w1 > 0)); 
+overlaps &= (w2 == 0 ? ((edge2dy == 0 && edge2dx > 0) ||  edge2dy > 0) : (w2 > 0)); 
+
+overlaps &= (w0 == 0 ? ((edge0dy == 0 && edge0dx < 0) ||  edge0dy < 0) : (w0 < 0)); 
+overlaps &= (w1 == 0 ? ((edge1dy == 0 && edge1dx < 0) ||  edge1dy < 0) : (w1 < 0)); 
+overlaps &= (w2 == 0 ? ((edge2dy == 0 && edge2dx < 0) ||  edge2dy < 0) : (w2 < 0)); 
+
+Of course if you are using a counter-clockwise order, 
+a top edge is an edge that is horizontal and whose x-coordinate is negative, and a left edge is an edge whose y-coordinate is negative.
+
+// Check Tonight...
