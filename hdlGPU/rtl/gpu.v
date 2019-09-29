@@ -6,6 +6,8 @@ module gpu(
 	input			gpuSel,
 	output			ack,
 	
+	output			IRQRequest,
+	
 	input			cpuWrite,
 	input 	[31:0]	cpuDataIn,
 	output	[31:0]	cpuDataOut
@@ -14,6 +16,8 @@ module gpu(
 wire writeFifo	= (cpuAddress == 0) & gpuSel & cpuWrite;
 wire writeGP1	= (cpuAddress == 1) & gpuSel & cpuWrite;
 assign ack		= !isFifoFull;
+
+assign IRQRequest = GPU_REG_IRQSet;
 
 wire [31:0] fifoDataOut;
 wire isFifoFull;
@@ -228,8 +232,8 @@ begin
 			GPU_REG_ForcePixel15MaskSet <= fifoDataOut[0];
 			GPU_REG_CheckMaskBit		<= fifoDataOut[1];
 		end
-		if (rstIRQ) begin
-			GPU_REG_IRQSet				<= 0; // TODO, when is it set ? Should be done here with different condition...
+		if (rstIRQ | setIRQ) begin
+			GPU_REG_IRQSet				<= setIRQ;
 		end
 		if (setDisp) begin
 			GPU_REG_DisplayDisabled		<= cpuDataIn[0];
@@ -269,6 +273,11 @@ wire bIsPolyCommand			= (command[7:5]==3'b001);
 wire bIsRectCommand			= (command[7:5]==3'b011);
 wire bIsLineCommand			= (command[7:5]==3'b101);
 wire bIsForECommand			= (command[7:5]==3'b111);
+wire bIsCopyVVCommand		= (command[7:5]==3'b100);
+wire bIsCopyCVCommand		= (command[7:5]==3'b101);
+wire bIsCopyVCCommand		= (command[7:5]==3'b110);
+wire bIsFillCommand			= bIsBase0x & bIsBase02;
+
 wire bIsBase0x              = (command[7:5]==3'b000);
 	wire bIsBase01     			= (command[4:0]==5'd1  );
 	wire bIsBase02     			= (command[4:0]==5'd2  );
@@ -333,8 +342,9 @@ reg  [7:0] RegU2;
 reg  [7:0] RegV2;
 reg [14:0] RegC ;
 reg  [9:0] RegTx;
-reg [10:0] RegWidth;
-reg [ 9:0] RegHeight;
+reg  [9:0] RegSizeW,RegSX0,RegSX1;
+reg  [8:0] RegSizeH,RegSY0,RegSY1;
+
 
 // FIFO is empty or next stage still busy processing the last primitive.
 
@@ -372,16 +382,28 @@ reg loadTexWindowSetting;
 reg loadDrawAreaTL;
 reg loadDrawAreaBR;
 reg loadMaskSetting;
+reg setIRQ;
+reg rstTextureCache;
 reg nextCondUseFIFO;
 reg loadClutPage;
 reg loadTexPage;
 reg loadSize;
+reg loadCoord1,loadCoord2;
 reg [1:0] loadSizeParam;
 reg bIssuePrimitive;
 
-parameter	DEFAULT_STATE=3'd0, LOAD_COMMAND=3'd1, COLOR_LOAD=3'd2, VERTEX_LOAD=3'd3, UV_LOAD=3'd4, WIDTH_HEIGHT_STATE=4'd5 /* 6/7 free for 3 bit */;
-reg  [2:0] currState,nextLogicalState;
-wire [2:0] nextState;
+parameter	DEFAULT_STATE		=4'd0,
+			LOAD_COMMAND		=4'd1,
+			COLOR_LOAD			=4'd2,
+			VERTEX_LOAD			=4'd3,
+			UV_LOAD				=4'd4,
+			WIDTH_HEIGHT_STATE	=4'd5,
+			LOAD_XY1			=4'd6,
+			LOAD_XY2			=4'd7,
+			WAIT_COMMAND_COMPLETE = 4'd8;
+			
+reg  [3:0] currState,nextLogicalState;
+wire [3:0] nextState;
 
 always @(*)
 begin
@@ -392,6 +414,8 @@ begin
 	DEFAULT_STATE:
 	begin
 		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		loadCoord1				<= 0; loadCoord2	<= 0;
+		setIRQ					<= 0;
 		resetVertexCounter		<= 1;
 		increaseVertexCounter	<= 0;
 		storeCommand			<= 0;
@@ -409,16 +433,19 @@ begin
 	// Step 0A
 	LOAD_COMMAND:				// Here we do NOT check data validity : if we arrive in this state, we know the data is available from the FIFO, and GPU accepts commands.
 	begin
+		loadCoord1				<= 0; loadCoord2	<= 0;
 		resetVertexCounter 		<= 0;
 		increaseVertexCounter	<= 0;
 		storeCommand       		<= 1;
 		loadUV					<= 0;
-		loadRGB					<= 1; // TODO : Except for command E1~E6/01~02/8x/Ax/Cx
+		loadRGB					<= 1; // Work for all command, just ignored.
 		loadVertices			<= 0;
 		loadAllRGB				<= (bIgnoreColor) ? 1'b1 : (!bIsPerVtxCol);
 		loadClutPage			<= 0;
 		loadTexPage				<= 0;
 		loadSize				<= 0; loadSizeParam <= 2'b0;
+		setIRQ					<= bIsBase0x & bIsBase1F;
+		rstTextureCache			<= bIsBase0x & bIsBase01;
 		bIssuePrimitive			<= 0;
 		nextCondUseFIFO			<= 1;
 		if (bIsRenderAttrib) begin
@@ -430,20 +457,70 @@ begin
 			loadDrawAreaBR		<= (command[2:0] == 3'd4);
 			loadMaskSetting		<= (command[2:0] == 3'd6);
 		end else begin
+			if (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand) begin
+				nextLogicalState	<= LOAD_XY1;
+			end else begin
+				nextLogicalState	<= VERTEX_LOAD; // Need FIFO // TODO Handle E1~E6/01~02/8x/Ax/Cx
+			end
+		
 			loadE5Offsets 		<= 0;
 			loadTexPageE1		<= 0;
 			loadTexWindowSetting <= 0;
 			loadDrawAreaTL		<= 0;
 			loadDrawAreaBR		<= 0;
 			loadMaskSetting		<= 0;
-			nextLogicalState	<= VERTEX_LOAD; // Need FIFO // TODO Handle E1~E6/01~02/8x/Ax/Cx
 		end
+	end
+	LOAD_XY1:
+	begin
+		loadCoord1				<= 1; loadCoord2	<= 0;
+		// bIsCopyVVCommand		Top Left Corner   (YyyyXxxxh) then WIDTH_HEIGHT_STATE
+		// bIsCopyCVCommand		Source Coord      (YyyyXxxxh) then LOAD_X2
+		// bIsCopyVCCommand		Destination Coord (YyyyXxxxh) then WIDTH_HEIGHT_STATE
+		// bIsFillCommand		Top Left Corner   (YyyyXxxxh) then WIDTH_HEIGHT_STATE
+		
+		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		setIRQ					<= 0;
+		resetVertexCounter		<= 0;
+		increaseVertexCounter	<= 0;
+		storeCommand       		<= 0;
+		loadUV					<= 0;
+		loadRGB					<= 0;
+		loadVertices			<= 0;
+		loadAllRGB				<= 0;
+		loadClutPage			<= 0;
+		loadTexPage				<= 0;
+		loadSize				<= 0; loadSizeParam <= 2'b0;
+		bIssuePrimitive			<= 0;
+		nextCondUseFIFO			<= 1;
+		nextLogicalState		<= bIsCopyCVCommand ? LOAD_XY2 :  WIDTH_HEIGHT_STATE;
+	end
+	LOAD_XY2:
+	begin
+		loadCoord1				<= 0; loadCoord2	<= 1;
+		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		setIRQ					<= 0;
+		resetVertexCounter		<= 0;
+		increaseVertexCounter	<= 0;
+		storeCommand       		<= 0;
+		loadUV					<= 0;
+		loadRGB					<= 0;
+		loadVertices			<= 0;
+		loadAllRGB				<= 0;
+		loadClutPage			<= 0;
+		loadTexPage				<= 0;
+		loadSize				<= 0; loadSizeParam <= 2'b0;
+		bIssuePrimitive			<= 0;
+		nextCondUseFIFO			<= 1;
+		nextLogicalState		<= WIDTH_HEIGHT_STATE;
 	end
 	// Step 0B
 	COLOR_LOAD:
 	begin
 		//
 		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		loadCoord1				<= 0; loadCoord2	<= 0;
+		setIRQ					<= 0;
 		resetVertexCounter		<= 0;
 		increaseVertexCounter	<= 0;
 		storeCommand       		<= 0;
@@ -462,6 +539,8 @@ begin
 	VERTEX_LOAD:
 	begin
 		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		loadCoord1				<= 0; loadCoord2	<= 0;
+		setIRQ					<= 0;
 		resetVertexCounter		<= 0;
 		increaseVertexCounter	<= FifoDataValid & (!bUseTexture) & (bIsValidVertex);	// go to next vertex if do not need UVs.
 		storeCommand       		<= 0;
@@ -494,7 +573,7 @@ begin
 			end else begin
 				nextCondUseFIFO		<= 0;
 				loadSize			<= 1; loadSizeParam	<= command[4:3];
-				nextLogicalState	<= DEFAULT_STATE;
+				nextLogicalState	<= WAIT_COMMAND_COMPLETE;
 			end
 		end else begin
 			loadSize			<= 0; loadSizeParam <= 2'b0;
@@ -506,7 +585,7 @@ begin
 				// Or a 4 point polygon or 3 point polygon.
 				if ((bIsLineCommand & bIsTerminator) | (bIsPolyCommand & isPolyFinalVertex)) begin
 					nextCondUseFIFO		<= 0;	// Instead of FIFO state, it uses
-					nextLogicalState	<= DEFAULT_STATE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+					nextLogicalState	<= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
 				end else begin
 					if (bIsPerVtxCol) begin
 						nextCondUseFIFO		<= 1;
@@ -529,6 +608,8 @@ begin
 	begin
 		//
 		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		loadCoord1				<= 0; loadCoord2	<= 0;
+		setIRQ					<= 0;
 		resetVertexCounter		<= 0;
 		increaseVertexCounter	<= FifoDataValid & (!bIsRectCommand);	// go to next vertex if do not need UVs.
 		storeCommand       		<= 0;
@@ -551,14 +632,14 @@ begin
 			end else begin
 				nextCondUseFIFO		<= 0;
 				loadSize			<= 1; loadSizeParam	<= command[4:3];
-				nextLogicalState	<= DEFAULT_STATE;
+				nextLogicalState	<= WAIT_COMMAND_COMPLETE;
 			end
 		end else begin
 			loadSize			<= 0; loadSizeParam <= 2'b0;
 			// Not a line, only textured Poly (quad or triangle)
 			if (isPolyFinalVertex) begin // 3rd final point ? 4th final point ?
 				nextCondUseFIFO		<= 0;
-				nextLogicalState	<= DEFAULT_STATE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+				nextLogicalState	<= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
 			end else begin
 				nextCondUseFIFO		<= 1;
 				nextLogicalState	<= bIsPerVtxCol ? COLOR_LOAD : VERTEX_LOAD;
@@ -576,6 +657,8 @@ begin
 		
 		// TODO, just set here to avoid latching.
 		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		loadCoord1				<= 0; loadCoord2	<= 0;
+		setIRQ					<= 0;
 		resetVertexCounter		<= 0;
 		increaseVertexCounter	<= 0;
 		storeCommand       		<= 0;
@@ -585,6 +668,31 @@ begin
 		loadAllRGB				<= 0;
 		loadClutPage			<= 0;
 		loadTexPage				<= 0;
+		bIssuePrimitive			<= canOutputTriangle;
+		nextCondUseFIFO			<= 0;
+		
+		// TODO : all bIssuePrimitive can issue ONLY ONCE. Make sure state machine does not LOOP. Make sure that it does not skip rendering if primitive is busy... (ie canOutputTriangle)
+		//				But should never because we have WAIT_COMMAND_COMPLETE now in the state machine.
+		
+		nextLogicalState		<= WAIT_COMMAND_COMPLETE;
+	end
+	WAIT_COMMAND_COMPLETE:
+	begin
+		// (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand)
+		
+		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		loadCoord1				<= 0; loadCoord2	<= 0;
+		setIRQ					<= 0;
+		resetVertexCounter		<= 0;
+		increaseVertexCounter	<= 0;
+		storeCommand       		<= 0;
+		loadUV					<= 0;
+		loadRGB					<= 0;
+		loadVertices			<= 0;
+		loadAllRGB				<= 0;
+		loadClutPage			<= 0;
+		loadTexPage				<= 0;
+		loadSize				<= 0; loadSizeParam <= 2'b0;
 		bIssuePrimitive			<= 0;
 		nextCondUseFIFO			<= 0;
 		
@@ -592,8 +700,9 @@ begin
 	end
 	default:
 	begin
-		// TODO, just set here to avoid latching.
 		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
+		loadCoord1				<= 0; loadCoord2	<= 0;
+		setIRQ					<= 0;
 		resetVertexCounter		<= 0;
 		increaseVertexCounter	<= 0;
 		storeCommand       		<= 0;
@@ -684,36 +793,39 @@ begin
 	
 	if (loadTexPage)  RegTx <= fifoDataOutTex;
 	if (loadClutPage) RegC  <= fifoDataOutClut;
-	/* 
-	
-	TODO : Rect primitive loading.
-	
-	Better load and add W to RegX0,RegY0,RegX1=RegX0+W ? Same for Y1.
+//	Better load and add W to RegX0,RegY0,RegX1=RegX0+W ? Same for Y1.
 	if (loadSize) begin
 		case (loadSizeParam)
 		SIZE_VAR:
 		begin
-			x = fifoDataOutWidth
-			y = fifoDataOutHeight 
+			RegSizeW = fifoDataOutWidth;
+			RegSizeH = fifoDataOutHeight;
 		end
 		SIZE_1x1:
 		begin
-			x = 10'd1;
-			y =  9'd1;
+			RegSizeW = 10'd1;
+			RegSizeH =  9'd1;
 		end
 		SIZE_8x8:
 		begin
-			x = 10'd8;
-			y =  9'd8;
+			RegSizeW = 10'd8;
+			RegSizeH =  9'd8;
 		end
 		SIZE_16x16:
 		begin
-			x = 10'd16;
-			y =  9'd16;
+			RegSizeW = 10'd16;
+			RegSizeH =  9'd16;
 		end
 		endcase
 	end
-	*/
+	if (loadCoord1) begin
+		RegSX0 = fifoDataOutWidth;
+		RegSY0 = fifoDataOutHeight;
+	end
+	if (loadCoord2) begin
+		RegSX1 = fifoDataOutWidth;
+		RegSY1 = fifoDataOutHeight;
+	end
 end
 
 // ---------------------------------------------------------------------------------------------------------------------
