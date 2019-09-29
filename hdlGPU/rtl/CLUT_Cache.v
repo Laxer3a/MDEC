@@ -4,7 +4,9 @@ module CLUT_Cache(
 	
 	input [15:0]	CLUT_ID,
 	
-	input			write,
+	// Forced to do 8x32 bit cache line fill when CLUT lookup empty. (16 colors)
+	// --> Simplify for 4 bit texture. 1 Load
+	input				write,
 	input [6:0]		writeIdx,
 	input [31:0]	ColorIn,
 
@@ -90,4 +92,4 @@ module CLUT_Cache(
 	wire [31:0] vB		= CLUTStorage[pRaddrB[7:1]];
 	assign colorEntry1	= pRaddrA[0] ? vA[31:16] : vA[15:0];
 	assign colorEntry2	= pRaddrB[0] ? vB[31:16] : vB[15:0];
-endmodule;
+endmodule

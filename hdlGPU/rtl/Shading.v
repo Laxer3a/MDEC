@@ -29,11 +29,11 @@ module Shading(
 	// [13:0] is 9.5 fixed point format.
 	// [13:5] is 9.0 fixed point format. (+511..0)
 	// [12:5] is 8.0 clamp result.
-	wire [13:0] mR = rGouraud * rTex;
-	wire [13:0] mG = gGouraud * gTex;
-	wire [13:0] mB = bGouraud * bTex;
+	wire [13:0] mR = rGouraud * tR;
+	wire [13:0] mG = gGouraud * tG;
+	wire [13:0] mB = bGouraud * tB;
 
 	clampUPositive #(.INW(9),.OUTW(8)) ClampPosR(.valueIn(mR[13:5]),.valueOut(rOut));
 	clampUPositive #(.INW(9),.OUTW(8)) ClampPosG(.valueIn(mG[13:5]),.valueOut(gOut));
 	clampUPositive #(.INW(9),.OUTW(8)) ClampPosB(.valueIn(mB[13:5]),.valueOut(bOut));
-end module;
+endmodule

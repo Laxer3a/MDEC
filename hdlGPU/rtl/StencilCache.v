@@ -9,8 +9,8 @@ module StencilCache(
 	output			oddStencilOut,
 	output			evenStencilOut
 );
-	reg RAMCacheOdd [(2**17)-1:0];
-	reg RAMCacheEven[(2**17)-1:0];
+	reg RAMCacheOdd [(2**18)-1:0];
+	reg RAMCacheEven[(2**18)-1:0];
 	reg [17:0] pAddrWord;
 	always @ (posedge clk)
 	begin
