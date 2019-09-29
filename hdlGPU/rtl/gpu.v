@@ -19,7 +19,7 @@ wire [31:0] fifoDataOut;
 wire isFifoFull;
 wire isFifoEmpty;
 wire isFifoNotEmpty = !isFifoEmpty;
-wire rstInFIFO = (!i_nrst) | rstCmd;
+wire rstInFIFO = rstGPU | rstCmd;
 
 Fifo
 #(
@@ -137,7 +137,7 @@ reg  FifoDataValid;
 
 wire cmdGP1  	= writeGP1 & (cpuDataIn[29:27] == 3'd0); // Short cut for most commands.
 
-wire rstGPU  	= cmdGP1   & (cpuDataIn[26:24] == 3'd0);
+wire rstGPU  	= (cmdGP1   & (cpuDataIn[26:24] == 3'd0)) | (i_nrst == 0);
 wire rstCmd  	= cmdGP1   & (cpuDataIn[26:24] == 3'd1);
 wire rstIRQ  	= cmdGP1   & (cpuDataIn[26:24] == 3'd2);
 wire setDisp 	= cmdGP1   & (cpuDataIn[26:24] == 3'd3);
@@ -154,7 +154,7 @@ wire getGPUInfo = writeGP1 & (cpuDataIn[29:28] == 2'd1); // 0h1X command.
 	
 always @(posedge clk)
 begin
-	if ((i_nrst == 0) || rstGPU) begin
+	if (rstGPU) begin
 		GPU_REG_OFFSETX      <= 11'd0;
 		GPU_REG_OFFSETY      <= 11'd0;
 		GPU_REG_TexBasePageX <= 4'd0;
@@ -341,7 +341,7 @@ reg [ 9:0] RegHeight;
 reg [2:0] vertCnt;
 always @(posedge clk)
 begin
-	if (resetVertexCounter) begin
+	if (resetVertexCounter | rstGPU) begin
 		vertCnt = 2'b00;
 	end else begin
 		vertCnt = vertCnt + increaseVertexCounter;
@@ -352,7 +352,7 @@ wire canOutputTriangle	= (vertCnt >= 2'd2) ? (bCanPushPrimitive & bIsPolyCommand
 
 always @(posedge clk)
 begin
-	if (i_nrst == 0) begin
+	if (rstGPU) begin
 		currState <= DEFAULT_STATE;
 	end else begin
 		currState <= nextState;
