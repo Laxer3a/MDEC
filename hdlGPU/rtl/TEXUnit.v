@@ -62,28 +62,28 @@ module TEXUnit(
 	// ------------------------------
 	// But WARNING : in HALF-WORD !!!!
 	// ------------------------------
-	wire [18:0] baseT1 = { GPU_REG_TexBasePageY, texCoordV1, GPU_REG_TexBasePageX, 6'd0 };
-	wire [18:0] baseT2 = { GPU_REG_TexBasePageY, texCoordV2, GPU_REG_TexBasePageX, 6'd0 };
+	wire [9:0] baseT1 = { GPU_REG_TexBasePageX, 6'd0 };
+	wire [9:0] baseT2 = { GPU_REG_TexBasePageX, 6'd0 };
 	
-	reg [18:0] adr1,adr2;
+	reg [9:0] adr1,adr2;
 	
 	parameter PIX_4BIT   =2'd0, PIX_8BIT  =2'd1, PIX_16BIT =2'd2, PIX_RESERVED     =2'd3; // TODO Include instead.	
 	always @(*) begin
 		case (GPU_REG_TexFormat)
-		PIX_4BIT: adr1 = baseT1 + { 13'd0, texCoordU1[7:2] };
-		PIX_8BIT: adr1 = baseT1 + { 12'd0, texCoordU1[7:1] };
-		default:  adr1 = baseT1 + { 11'd0, texCoordU1[7:0] };
+		PIX_4BIT: adr1 = baseT1 + { 4'd0, texCoordU1[7:2] };
+		PIX_8BIT: adr1 = baseT1 + { 3'd0, texCoordU1[7:1] };
+		default:  adr1 = baseT1 + { 2'd0, texCoordU1[7:0] };
 		endcase
 	end
 
 	always @(*) begin
 		case (GPU_REG_TexFormat)
-		PIX_4BIT: adr2 = baseT2 + { 13'd0, texCoordU2[7:2] };
-		PIX_8BIT: adr2 = baseT2 + { 12'd0, texCoordU2[7:1] };
-		default:  adr2 = baseT2 + { 11'd0, texCoordU2[7:0] };
+		PIX_4BIT: adr2 = baseT2 + { 4'd0, texCoordU2[7:2] };
+		PIX_8BIT: adr2 = baseT2 + { 3'd0, texCoordU2[7:1] };
+		default:  adr2 = baseT2 + { 2'd0, texCoordU2[7:0] };
 		endcase
 	end
 	
-	assign texelAdress1 = adr1;
-	assign texelAdress2 = adr2;
+	assign texelAdress1 = {{ GPU_REG_TexBasePageY, texCoordV1 } , adr1 };
+	assign texelAdress2 = {{ GPU_REG_TexBasePageY, texCoordV2 } , adr2 };
 endmodule
