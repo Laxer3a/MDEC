@@ -47,10 +47,9 @@ Outputs:
 module streamInput(
 	input			clk,
 	input			i_nrst,
-	input			i_dataWrite,
+	input			bDataWrite,
 	input [15:0]	i_dataIn,
 	input 			i_YOnly,
-	input			i_freezePipe,
 	
 //	output			o_outOfRangeblockIndex,
 	
@@ -64,16 +63,6 @@ module streamInput(
 	output[2:0]		o_blockNum,			// Need to propagate info with data, easier for control logic.
 	output			o_blockComplete
 );
-	// ----- When pipeline is frozen, we avoid the value after until pipe is unfrozen.
-	//   When pipeline froze signal is set, the current value is value.
-	//   It is from the next cycle that is it not anymore.
-	//
-	reg			pFreezePipe;
-	always @(posedge clk) begin
-		pFreezePipe <= i_freezePipe;
-	end
-	wire		bDataWrite = (!pFreezePipe) & i_dataWrite;
-	
 	// --------------------------------------------------------
 	// [alias, basic flag for current data reading]
 	wire[5:0]	offset			= i_dataIn[15:10];

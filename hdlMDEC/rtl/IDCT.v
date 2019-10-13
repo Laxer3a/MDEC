@@ -9,7 +9,7 @@ module IDCT (
 	input	[2:0]	i_blockNum,
 	input	[11:0]	i_coefValue,
 	input			i_matrixComplete,	// Warning this bit CAN BECOME 1, independantly FROM i_write (See streamInput specs) !
-	output			o_canLoadMatrix,
+//	output			o_canLoadMatrix,
 
 	// Loading of COS Table (Linear, no zigzag)
 	input			i_cosWrite,
@@ -24,11 +24,17 @@ module IDCT (
 	output			o_busyIDCT,
 	output	 [5:0]	o_writeIndex
 );
+
+//----- IGNORE FOR NOW -------------
 	// Allow to load matrix when IDCT is not busy OR that we are in the second pass.
 	// No need to worry, about internal 64 bit flag reset on pass 0->1, stream input will take >= 1 cycle to send the next data in any case.
 	// No need to worry about stream forced to wait in the middle...
-	assign o_canLoadMatrix = (!idctBusy | (pass == 1));
-	
+//	assign o_canLoadMatrix = (!idctBusy | ((pass == 1)  /* & (!i_matrixComplete)*/));
+// ---------------------------------
+
+
+
+
 	//----------------------------------------------
 	//  COS TABLE ACCESS AND SETUP
 	//  -> DUAL TABLE for ODD and EVEN 'X' lines.

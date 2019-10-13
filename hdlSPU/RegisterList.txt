@@ -1,0 +1,94 @@
+SPU Bus-Width
+The SPU is connected to a 16bit databus (VERIFIED MB). 8bit/16bit/32bit reads and 16bit/32bit writes are implemented. 
+However, 8bit writes are NOT implemented: 8bit writes to ODD addresses are simply ignored (without causing any exceptions), 
+8bit writes to EVEN addresses are executed as 16bit writes (eg. "movp r1,12345678h, movb [spu_port],r1" will write 5678h instead of 78h).
+
+     C0   
+Step +10h
+1F801xx0h - Voice 0..23 Volume Left                [15:0] (Fixed/Sweep)
+1F801xx2h - Voice 0..23 Volume Right               [15:0] (Fixed/Sweep)
+1F801xx4h - Voice 0..23 ADPCM Sample Rate    (R/W) [15:0] (VxPitch)
+1F801xx6h - Voice 0..23 ADPCM Start  Address (R/W) [15:0]
+1F801xx8h - Voice 0..23 Attack/Decay/Sustain/Release (ADSR) (32bit) [15:0]x2
+1F801xxCh - Voice 0..23 Current ADSR volume (R/W) (0..+7FFFh) (or -8000h..+7FFFh on manual write)
+1F801xxEh - Voice 0..23 ADPCM Repeat Address (R/W) [15:0]
+
+1100
+1098 7654 3210
+1101 10xx xxx0
+1101 11	 
+1F801D80h - Mainvolume left
+1F801D82h - Mainvolume right
+1F801D84h spu   vLOUT   volume  Reverb Output Volume Left
+1F801D86h spu   vROUT   volume  Reverb Output Volume Right
+1F801D88h - Voice 0..23 Key ON  (Start Attack/Decay/Sustain) (KON)  (W) (32 bit)
+1F801D8Ch - Voice 0..23 Key OFF (Start Release)              (KOFF) (W)
+1F801D90h - Voice 0..23 Pitch Modulation Enable Flags (PMON) [23:1]
+1F801D94h - Voice 0..23 Noise mode enable (NON) (0=ADPCM, 1=Noise)
+1F801D98h - Voice 0..23 Reverb mode aka Echo On (EON) (R/W) (0=To Mixer, 1=To Mixer and to Reverb)
+1F801D9Ch - Voice 0..23 ON/OFF (status) (ENDX) (R) (0=Newly Keyed On, 1=Reached LOOP-END), Set 0 when set KEY ON, Set 1 reach LOOP-END flag ADPCM header.bit0
+
+1F801DA0h - Some kind of a read-only status register.. or just garbage..0-15
+1F801DA2h spu   mBASE   base    Reverb Work Area Start Address in Sound RAM
+1F801DA4h - Sound RAM IRQ Address (IRQ9)    [15:0] SPUCNT (IRQ enable/disable/acknowledge) and SPUSTAT (IRQ flag).
+1F801DA6h - Sound RAM Data Transfer Address [15:0]
+1F801DA8h - Sound RAM Data Transfer Fifo    [15:0]
+1F801DAAh - SPU Control Register (SPUCNT)
+1F801DAEh - SPU Status Register (SPUSTAT) (R)
+1F801DACh - Sound RAM Data Transfer Control (should be 0004h)
+
+1F801DB0h - CD Audio Input Volume (for normal CD-DA, and compressed XA-ADPCM)
+1F801DB4h - External Audio Input Volume (32 bit [31:16]=Right, [15:0]=Left)
+1F801DB8h - Current Main Volume Left/Right (32 bit ? same RIGHT/LEFT)
+1F801DBCh - 4 bytes  - Unknown? (R/W) 80 21 4B DF Other day (dots = same as above): .. 31 .. ..
+
+  1F801DC0h rev00 dAPF1   disp    Reverb APF Offset 1
+  1F801DC2h rev01 dAPF2   disp    Reverb APF Offset 2
+  1F801DC4h rev02 vIIR    volume  Reverb Reflection Volume 1
+  1F801DC6h rev03 vCOMB1  volume  Reverb Comb Volume 1
+  1F801DC8h rev04 vCOMB2  volume  Reverb Comb Volume 2
+  1F801DCAh rev05 vCOMB3  volume  Reverb Comb Volume 3
+  1F801DCCh rev06 vCOMB4  volume  Reverb Comb Volume 4
+  1F801DCEh rev07 vWALL   volume  Reverb Reflection Volume 2
+  1F801DD0h rev08 vAPF1   volume  Reverb APF Volume 1
+  1F801DD2h rev09 vAPF2   volume  Reverb APF Volume 2
+  1F801DD4h rev0A mLSAME  src/dst Reverb Same Side Reflection Address 1 Left
+  1F801DD6h rev0B mRSAME  src/dst Reverb Same Side Reflection Address 1 Right
+  1F801DD8h rev0C mLCOMB1 src     Reverb Comb Address 1 Left
+  1F801DDAh rev0D mRCOMB1 src     Reverb Comb Address 1 Right
+  1F801DDCh rev0E mLCOMB2 src     Reverb Comb Address 2 Left
+  1F801DDEh rev0F mRCOMB2 src     Reverb Comb Address 2 Right
+  1F801DE0h rev10 dLSAME  src     Reverb Same Side Reflection Address 2 Left
+  1F801DE2h rev11 dRSAME  src     Reverb Same Side Reflection Address 2 Right
+  1F801DE4h rev12 mLDIFF  src/dst Reverb Different Side Reflect Address 1 Left
+  1F801DE6h rev13 mRDIFF  src/dst Reverb Different Side Reflect Address 1 Right
+  1F801DE8h rev14 mLCOMB3 src     Reverb Comb Address 3 Left
+  1F801DEAh rev15 mRCOMB3 src     Reverb Comb Address 3 Right
+  1F801DECh rev16 mLCOMB4 src     Reverb Comb Address 4 Left
+  1F801DEEh rev17 mRCOMB4 src     Reverb Comb Address 4 Right
+  1F801DF0h rev18 dLDIFF  src     Reverb Different Side Reflect Address 2 Left
+  1F801DF2h rev19 dRDIFF  src     Reverb Different Side Reflect Address 2 Right
+  1F801DF4h rev1A mLAPF1  src/dst Reverb APF Address 1 Left
+  1F801DF6h rev1B mRAPF1  src/dst Reverb APF Address 1 Right
+  1F801DF8h rev1C mLAPF2  src/dst Reverb APF Address 2 Left
+  1F801DFAh rev1D mRAPF2  src/dst Reverb APF Address 2 Right
+  1F801DFCh rev1E vLIN    volume  Reverb Input Volume Left
+  1F801DFEh rev1F vRIN    volume  Reverb Input Volume Right
+
+      00  Step 0x04
+1F801Eyyh - Voice 0..23 Current Volume Left/Right (32 bit, RIGHT/LEFT)
+1F801E60h - 32 bytes - Unknown? (R/W) -> Loop on adr ? Voice 0..
+
+Envelope Operation depending on Shift/Step/Mode/Direction
+  AdsrCycles = 1 SHL Max(0,ShiftValue-11)
+  AdsrStep = StepValue SHL Max(0,11-ShiftValue)
+  IF exponential AND increase AND AdsrLevel>6000h THEN AdsrCycles=AdsrCycles*4
+  IF exponential AND decrease THEN AdsrStep=AdsrStep*AdsrLevel/8000h
+  Wait(AdsrCycles)              ;cycles counted at 44.1kHz clock
+  AdsrLevel=AdsrLevel+AdsrStep  ;saturated to 0..+7FFFh
+Exponential Increase is a fake (simply changes to a slower linear increase rate at higher volume levels).
+
+Reportedly Release can go down to -1 (FFFFh), but that isn't true; and release ends at 0... or does THAT depend on an END flag found in the sample-data?
+The register is read/writeable, writing allows to let the ADSR generator to "jump" to a specific volume level. But, ACTUALLY, the ADSR generator does overwrite the setting (from another internal register) whenever applying a new Step?!
+
+These are internal registers, normally not used by software (the Volume settings are usually set via Ports 1F801D80h and 1F801C00h+N*10h).

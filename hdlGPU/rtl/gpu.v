@@ -286,7 +286,6 @@ wire bIsBase0x              = (command[7:5]==3'b000);
 wire bIsTerminator			= (fifoDataOut[31:28] == 5'd5) && (fifoDataOut[15:12] == 5'd5);
 wire bIsValidVertex			= !bIsTerminator;
 
-wire bIsLastPolyLine; 		// TODO : Important, decide to draw the last pixel or not of line. Single line is always TRUE, polyline is true only on last LINE -> Necessary for BLENDING !
 wire bIsPrimitiveLoaded;	// TODO : Execute next stage
 
 // [All attribute of commands]

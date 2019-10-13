@@ -307,3 +307,12 @@ MDEC			C language implementation modified according to latest computation specif
 				Test have been on a small test of standard data, no extreme values to test possible issues. 
 				But seems OK : compute path is based on reverse engineering, and remaining information is based on sound logicial deduction.
 				If problem remains, I can only foresee the rounding issue (RLE to IDCT and IDCT to YUV). But those have been reverse engineered too.
+5~7/09/2019 :	MDEC Test started with Verilator.
+MDEC			Did have some issue, found the problem.
+				Also wanted to have waveform visible. Did try verilator feature, just did not work.
+				=> Spent an afternoon writing a Waveform system.
+8~13/09/2019 :	Refresher, took a look at the SPU specs. Started to read, understand the implementation and the 
+SPU	/ Tool		specification of the hardware.
+				Took a look to No$ specs, other specs on the net, read source from various emulator.
+				Ended up also installing Avocado. It was easy to build and now I will have an emulator with full source,
+				easier to build than PCSXR.

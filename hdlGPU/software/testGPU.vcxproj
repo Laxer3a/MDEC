@@ -170,6 +170,10 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\rtl\obj_dir\VdirectCacheDoublePort.cpp" />
+    <ClCompile Include="..\rtl\obj_dir\VdirectCacheDoublePort__Syms.cpp" />
+    <ClCompile Include="..\rtl\obj_dir\VGPUPipeWrapCtrl.cpp" />
+    <ClCompile Include="..\rtl\obj_dir\VGPUPipeWrapCtrl__Syms.cpp" />
     <ClCompile Include="testBench_dither.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Disabled</Optimization>
       <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Default</BasicRuntimeChecks>
@@ -189,6 +193,7 @@
       <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Default</BasicRuntimeChecks>
     </ClCompile>
     <ClCompile Include="..\rtl\obj_dir\VblendUnit__Syms.cpp" />
+    <ClCompile Include="testBench_GPUPipe.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

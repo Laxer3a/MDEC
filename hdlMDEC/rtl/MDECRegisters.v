@@ -35,7 +35,7 @@ module MDECRegisters (
 	reg			fifoIN_rd;
 	wire 		fifoIN_full,fifoIN_empty;
 	wire		fifoIN_hasData = !fifoIN_empty;
-	wire [31:0]	fifoIN_output;
+	wire [31:0]	fifoIN_outputReal;
 	
 	// TODO : we assume that FIFO output the last read value always, even if read signal is not called.
 	Fifo #(.DEPTH_WIDTH(5),.DATA_WIDTH(32))
@@ -47,7 +47,7 @@ module MDECRegisters (
 		.wr_data_i		(i_valueIn),	// Data In
 		.wr_en_i		(writeReg0),	// Write Signal
 
-		.rd_data_o		(fifoIN_output),// Data Out
+		.rd_data_o		(fifoIN_outputReal),// Data Out
 		.rd_en_i		(fifoIN_rd),	// Read signal
 
 		.full_o			(fifoIN_full),
@@ -65,11 +65,11 @@ module MDECRegisters (
 	reg			regAllowDMA0,regAllowDMA1;
 	
 	// --- State Machine ---
-	reg [2:0]	state;
-	reg [2:0]	nextState;
+	reg [3:0]	state;
+	reg [3:0]	nextState;
 	
 	// First value is DC, Other values are AC.
-	parameter	WAIT_COMMAND=3'd0, LOAD_STREAMW=3'd1, LOAD_STREAML=3'd2, LOAD_STREAMH=3'd3, LOAD_COS=3'd4, LOAD_LUMA=3'd5, LOAD_CHROMA=3'd6;
+	parameter	WAIT_COMMAND=4'd0, LOAD_STREAMW=4'd1, LOAD_STREAML=4'd2, LOAD_STREAMH=4'd3, LOAD_COS=4'd4, LOAD_LUMA=4'd5, LOAD_CHROMA=4'd6, WAIT_IDCTEND=4'd7, WAIT_IDCTEND_H=4'd8;
 	// ---------------------
 	reg			pRegSelect;
 	
@@ -140,9 +140,30 @@ module MDECRegisters (
 	begin
 		isFIFOInDataValid <= fifoIN_rd;
 	end
-		
-	wire isCommandStreamValid = isCommandStream & isFIFOInDataValid;
-	wire validLoad            = allowLoad & fifoIN_hasData;
+
+	/*
+	reg [31:0] regFifoOut;
+	always @(posedge i_clk)
+	begin
+		if (isFIFOInDataValid & storeFIFOOut2Reg) begin
+			regFifoOut <= fifoIN_output;
+		end
+	end
+
+		writeCoefOutToREG 	?
+		selectREGtoIDCT   	?
+		storeFIFOOut2Reg	?
+		useFIFOReg			?
+//	assign writeCoefOutToREG    = ;
+//	wire storeFIFOOut2Reg		= 0; // (!allowLoad & isFIFOInDataValid);	// When current valid output is VALID but IDCT dont accept values anymore.
+	*/
+	
+	wire [31:0] fifoIN_output	= /*useFIFOReg ? regFifoOut : */ fifoIN_outputReal;
+	
+	wire isCommandStreamValid	= isCommandStream & isFIFOInDataValid;
+	wire validLoad				= (!commandBusy)  & fifoIN_hasData;
+	wire endMatrix;
+	
 	always @(*)
 	begin
         case (state)
@@ -157,17 +178,43 @@ module MDECRegisters (
 			fifoIN_rd			= validLoad; // Stream do not load in advance.
 			decrementCounter	= 2'd0;
 			if (isFIFOInDataValid & (isCommandStream | isCommandQuant | isCommandCosTbl)) begin
-				nextState = isCommandStream ? (validLoad ? LOAD_STREAML : LOAD_STREAMW) : (isCommandQuant ? LOAD_LUMA : LOAD_COS);
+				if (isCommandStream) begin
+					if (commandBusy) begin
+						// If IDCT is working, can not load a matrix, put in a wait state...
+						nextState = WAIT_IDCTEND;
+					end else begin
+						// If IDCT is not working, and valid data, load the value...
+						nextState = fifoIN_hasData ? LOAD_STREAML : LOAD_STREAMW;
+					end
+				end else begin
+					nextState = (isCommandQuant ? LOAD_LUMA : LOAD_COS);
+				end
 			end else begin
 				nextState = WAIT_COMMAND;
 			end
 		end
+		WAIT_IDCTEND:
+		begin
+			if (!commandBusy && !endMatrix) begin
+				fifoIN_rd	= validLoad;
+				nextState	= fifoIN_hasData ? LOAD_STREAML : LOAD_STREAMW;
+			end else begin
+				fifoIN_rd	= 1'b0;
+				nextState	= WAIT_IDCTEND;
+			end
+		end
+		WAIT_IDCTEND_H:
+		begin
+			fifoIN_rd	= 1'b0;
+			if ((!commandBusy) & (!endMatrix)) begin	// DO NOT CHECK IF THERE IS STILL DATA... We read the SECOND PART of U32. And may be the LAST word.
+														// It is LOAD_STREAMH to check and do the job.
+				nextState	= LOAD_STREAMH;
+			end else begin
+				nextState	= WAIT_IDCTEND_H;
+			end
+		end
 		LOAD_STREAMW:	// STATE 1 : LOAD_STREAM_WAIT.
 		begin
-			//
-			// Do NOT launch a READ here.
-			// We arrive where the data has been LOADED already... or not if FIFO is empty.
-			// 
 			fifoIN_rd			= validLoad;
 			nextState			= validLoad ? LOAD_STREAML : LOAD_STREAMW;
 			decrementCounter	= 2'd0;	// No data available in this state.
@@ -177,35 +224,44 @@ module MDECRegisters (
 			// Data IS ALWAYS valid : Read initiated by W or H.
 			fifoIN_rd			= 1'b0;
 			decrementCounter	= 2'b00;
-			if (allowLoad) begin
-				nextState		= LOAD_STREAMH;
+// For now, we do not stop the FIFO anymore, we use IDCT busy. And can NOT load during pass 2 anymore.
+//			if (allowLoad) begin
+//				nextState		= LOAD_STREAMH;
+//			end else begin
+//				// Loop until accept Half Word.
+//				nextState		= LOAD_STREAML;
+//			end
+			if (endMatrix) begin
+				nextState	= WAIT_IDCTEND_H;
 			end else begin
-				// Loop until accept Half Word.
-				nextState		= LOAD_STREAML;
+				nextState	= validLoad ? LOAD_STREAMH : LOAD_STREAML;
 			end
 		end
 		LOAD_STREAMH: // STATE 3.
 		begin
-			if (allowLoad) begin
+// For now, we do not stop the FIFO anymore, we use IDCT busy. And can NOT load during pass 2 anymore.
+//			if (allowLoad) begin
 				decrementCounter= 2'b01;
 				fifoIN_rd		= validLoad;
 				if (isLastHalfWord) begin
 					nextState 	= WAIT_COMMAND;
 				end else begin
 					if (validLoad) begin
-						nextState	= LOAD_STREAML;
+						nextState	= endMatrix ? WAIT_IDCTEND : LOAD_STREAML;
 					end else begin
 						// Wait until data or allow is possible...
 						nextState	= LOAD_STREAMW;
 					end
 				end
-			end else begin
-				// Loop until accept Half Word.
-				fifoIN_rd			= 1'b0;
-				nextState			= LOAD_STREAMH;
-				decrementCounter	= 2'b00;
-			end
+//			end else begin
+//				// Loop until accept Half Word.
+//				fifoIN_rd			= 1'b0;
+//				nextState			= LOAD_STREAMH;
+//				decrementCounter	= 2'b00;
+//			end
 		end
+		
+		
 		LOAD_COS:
 		begin
 			fifoIN_rd			= fifoIN_hasData;
@@ -273,12 +329,11 @@ module MDECRegisters (
 
 	// ---- Stream Loading ----
 	
-	wire        writeStream	= (isLoadStL || isLoadStH) && allowLoad;		// Use FIFO last output, even if data is not asked.
+	wire        writeStream	= (isLoadStL || isLoadStH) /* && allowLoad <--- do not have FIFO lock for now */;		// Use FIFO last output, even if data is not asked.
 	// FIRST BLOCK is LSB, SECOND BLOCK IS LSB
 	// TODO change name of state L/H by FIRST/SECOND.
 	wire [15:0] streamIn	=  isLoadStL ? fifoIN_output[15:0] : fifoIN_output[31:16];
-	wire allowLoad;
-
+	
 	MDECore mdecInst (
 		// System
 		.clk			(i_clk),
@@ -291,7 +346,10 @@ module MDECRegisters (
 		// RLE Stream
 		.i_dataWrite	(writeStream),
 		.i_dataIn		(streamIn),
-		.o_allowLoad	(allowLoad),
+		.o_endMatrix	(endMatrix),
+//		.o_allowLoad	(allowLoad),
+//		.writeCoefOutToREG	(writeCoefOutToREG),
+//		.selectREGtoIDCT	(selectREGtoIDCT),
 		
 		// Loading of COS Table (Linear, no zigzag)
 		.i_cosWrite		(i_cosWrite),

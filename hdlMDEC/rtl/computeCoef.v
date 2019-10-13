@@ -35,8 +35,8 @@ module computeCoef (
 	input	[2:0]			i_blockNum,
 	input					i_matrixComplete,
 
-	// IDCT Busy side
-	input					i_freezePipe,
+// IDCT Busy side
+//	input					i_freezePipe,
 
 	// Quant Table Loading
 	input					i_quantWrt,
@@ -87,21 +87,6 @@ module computeCoef (
 	// => Store the Quant Table result on pipe(True when 01 transition)
 	// => Use stored result (TRUE) on 10 transition (non piped !)
 	//
-	always @(posedge i_clk) begin
-		pFreeze 		<= i_freezePipe;
-	end
-
-	always @(posedge i_clk) begin
-		storeQuantVal <= Reg1W;
-		useQuantStore <= useReg2;
-	end
-	
-	reg		pFreeze;
-	reg		storeQuantVal;
-	reg		useQuantStore;
-	wire	Reg1W   		= (!pFreeze)					| (!i_nrst);	// We also make sure we invalidate data in the pipe if RESET.
-	wire	Reg2W   		= (!pFreeze &  i_freezePipe)	| (!i_nrst);	// We also make sure we invalidate data in the pipe if RESET.
-	wire	useReg2 		= ( pFreeze & !i_freezePipe);
 	// -------------------------------------------------------------------
 
 	// -------------------------------------------------------------------
@@ -124,7 +109,6 @@ module computeCoef (
 	//
 	// OUTPUT
 	reg  [6:0] valueQuant;
-	reg  [6:0] storedQuant;
 	// -------------------------------------------------------------------
 	// Internal stuff
 	reg  [27:0] QuantTbl[31:0];
@@ -158,14 +142,6 @@ module computeCoef (
 		default : valueQuant = fullValueQuant[27:21];
 		endcase
 	end
-
-	// [Storage of valueQuant if we can't use it (pipeline freeze)
-	always @ (posedge i_clk)
-	begin
-		if (storeQuantVal) begin
-			storedQuant <= valueQuant;
-		end
-	end
 	// -------------------------------------------------------------------
 	
 	
@@ -198,14 +174,12 @@ module computeCoef (
 
 	always @(posedge i_clk)
 	begin
-		if (Reg1W) begin
-			pWrite			<= i_dataWrt & i_nrst;
-			pIndex			<= i_index;
-			pBlk			<= i_blockNum;
-			pMatrixComplete	<= i_matrixComplete & i_nrst;
-			pFullBlkType	<= i_fullBlockType;
-			pMultF          <= multF[15:0];
-		end
+		pWrite			<= i_dataWrt;			// Already done in streamInput ( & i_nrst )
+		pIndex			<= i_index;
+		pBlk			<= i_blockNum;
+		pMatrixComplete	<= i_matrixComplete;	// Already done in streamInput ( & i_nrst );
+		pFullBlkType	<= i_fullBlockType;
+		pMultF          <= multF[15:0];
 	end
 	
 	// -------------------------------------------------------------------
@@ -218,8 +192,7 @@ module computeCoef (
 	//
 	wire signed [23:0] outCalc;
 	reg  signed [11:0] pOutCalc;
-	wire         [6:0] LocalQuantValue	= useQuantStore ? storedQuant : valueQuant;
-	wire signed [ 7:0] quant			= pFullBlkType  ? 8'd1 : { 1'b0, LocalQuantValue };
+	wire signed [ 7:0] quant			= pFullBlkType  ? 8'd1 : { 1'b0, valueQuant };
 
 	// Spec says in No$PSX => (signed10bit(n AND 3FFh)*qt[k]*q_scale+4)/8
 	
@@ -234,33 +207,15 @@ module computeCoef (
 	
 	wire [11:0] roundedOddTowardZeroExceptMinus1;
 	
-	reg       ppWrite;
-	reg [5:0] ppIndex;
-	reg [2:0] ppBlk;
-	reg       ppMatrixComplete;
+	wire [11:0] outSelCalc 	= roundedOddTowardZeroExceptMinus1;
 
-	always @(posedge i_clk)
-	begin
-		if (Reg2W) begin
-			ppWrite				<= pWrite & i_nrst;
-			ppIndex				<= pIndex;
-			ppBlk   			<= pBlk;
-			ppMatrixComplete	<= pMatrixComplete & i_nrst;
-			pOutCalc			<= roundedOddTowardZeroExceptMinus1;
-		end
-	end
-	
-	wire      	outWrite			= useReg2 ? ppWrite 			: pWrite;
-	wire [5:0]	outIndex			= useReg2 ? ppIndex 			: pIndex;
-	wire [2:0]	outBlk				= useReg2 ? ppBlk				: pBlk;
-	wire      	outMatrixComplete	= useReg2 ? ppMatrixComplete	: pMatrixComplete;
-	wire [11:0] outSelCalc 			= useReg2 ? pOutCalc			: roundedOddTowardZeroExceptMinus1;
-
-	wire   outWriteSignal   = outWrite & i_nrst & (!i_freezePipe);
+//  NOT HANDLED ANYMORE... for now.
+//	wire   cancelOutput     =  & (!i_freezePipe);
+	wire   outWriteSignal   = pWrite & i_nrst;
 	assign o_write    		= outWriteSignal;
-	assign o_writeIdx 		= outIndex;
-	assign o_blockNum 		= outBlk;
+	assign o_matrixComplete = pMatrixComplete & i_nrst;
+	assign o_writeIdx 		= pIndex;
+	assign o_blockNum 		= pBlk;
 	// 12 bit : -2048..+2047
 	assign o_coefValue		= outWriteSignal ? outSelCalc : 12'd999; // TODO DEBUG, TO REMOVE.
-	assign o_matrixComplete = outMatrixComplete;	
 endmodule

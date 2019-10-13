@@ -218,7 +218,7 @@ module RGB2Fifo(
 	wire isFifoFull;
 	Fifo
 	#(
-		.DEPTH_WIDTH	(5),
+		.DEPTH_WIDTH	(16),	// TODO Restore to 32 or 64 item...
 		.DATA_WIDTH		(32)
 	)
 	Fifo_inst

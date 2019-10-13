@@ -90,6 +90,8 @@ int testBlendUnit() {
 	return 1;
 }
 
+/*
 int main() {
 	testBlendUnit();
 }
+*/

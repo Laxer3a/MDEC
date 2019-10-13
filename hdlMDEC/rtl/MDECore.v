@@ -13,7 +13,10 @@ module MDECore (
 	// RLE Stream
 	input			i_dataWrite,
 	input [15:0]	i_dataIn,
-	output			o_allowLoad,
+	output			o_endMatrix,
+//	output			o_allowLoad,
+//	input			writeCoefOutToREG,
+//	input			selectREGtoIDCT,
 	
 	// Loading of COS Table (Linear, no zigzag)
 	input			i_cosWrite,
@@ -45,17 +48,18 @@ module MDECore (
 	assign o_stillIDCT	= busyIDCT;
 
 	// ---------------- Directly to state machine and FIFO pusher -------
-	wire	canLoadMatrix;	// From IDCT direct to FIFO state machine.
-	assign	o_allowLoad				= canLoadMatrix;
-	wire	freezeStreamAndCompute	= !canLoadMatrix;
+//	wire	canLoadMatrix;	// From IDCT direct to FIFO state machine.
+//	assign	o_allowLoad				= canLoadMatrix;
+//	wire	freezeStreamAndCompute	= !canLoadMatrix;
 	// ------------------------------------------------------------------
+	
+	wire bDataWrite = i_dataWrite;
 	
 	streamInput streamInput_inst(
 		.clk				(clk),
 		.i_nrst				(i_nrst),
-		.i_dataWrite		(i_dataWrite),
+		.bDataWrite			(bDataWrite),			// Never write if pipeline is frozen.
 		.i_dataIn			(i_dataIn),
-		.i_freezePipe		(freezeStreamAndCompute),
 		
 		.i_YOnly			(YOnly),
 		.o_dataWrt			(dataWrt_b),
@@ -68,6 +72,8 @@ module MDECore (
 		.o_blockNum			(blockNum_b),			// Need to propagate info with data, easier for control logic.
 		.o_blockComplete	(blockComplete_b)
 	);
+	
+	assign o_endMatrix = blockComplete_b;
 	
 	wire 			dataWrt_b;
 	wire [9:0]		dataOut_b;
@@ -94,7 +100,7 @@ module MDECore (
 		.i_blockNum			(blockNum_b),
 		.i_matrixComplete	(blockComplete_b),
 		
-		.i_freezePipe		(freezeStreamAndCompute),
+//		.i_freezePipe		(freezeStreamAndCompute),
 
 		// Quant Table Loading
 		.i_quantWrt			(i_quantWrt),
@@ -115,18 +121,44 @@ module MDECore (
 	wire [2:0]	blockNum_c, writeValueBlock;
 	wire [11:0]	coefValue_c;
 	wire		matrixComplete_c;
+
+	/*
+	reg			REGwrite_c;
+	reg [5:0]	REGwriteIdx_c;
+	reg [2:0]	REGblockNum_c;
+	reg [11:0]	REGcoefValue_c;
+	reg			REGmatrixComplete_c;
+	
+	always @ (posedge clk)
+	begin
+		if (writeCoefOutToREG)
+		begin
+			REGwrite_c			<= write_c;
+			REGwriteIdx_c		<= writeIdx_c;
+			REGblockNum_c		<= blockNum_c;
+			REGcoefValue_c		<= coefValue_c;
+			REGmatrixComplete_c	<= matrixComplete_c;
+		end
+	end
+	*/
+
+	wire		write_c2			= /* selectREGtoIDCT ? REGwrite_c			: */ write_c;
+	wire [5:0]	writeIdx_c2			= /* selectREGtoIDCT ? REGwriteIdx_c		: */ writeIdx_c;
+	wire [2:0]	blockNum_c2			= /* selectREGtoIDCT ? REGblockNum_c		: */ blockNum_c;
+	wire [11:0]	coefValue_c2		= /* selectREGtoIDCT ? REGcoefValue_c		: */ coefValue_c;
+	wire		matrixComplete_c2	= /* selectREGtoIDCT ? REGmatrixComplete_c	: */ matrixComplete_c;
 	
 	IDCT IDCTinstance (
 		// System
 		.clk				(clk),
 		.i_nrst				(i_nrst),
 		// Coefficient input
-		.i_write			(write_c),
-		.i_writeIdx			(writeIdx_c),
-		.i_blockNum			(blockNum_c),
-		.i_coefValue		(coefValue_c),
-		.i_matrixComplete	(matrixComplete_c),
-		.o_canLoadMatrix	(canLoadMatrix),
+		.i_write			(write_c2),
+		.i_writeIdx			(writeIdx_c2),
+		.i_blockNum			(blockNum_c2),
+		.i_coefValue		(coefValue_c2),
+		.i_matrixComplete	(matrixComplete_c2),
+//		.o_canLoadMatrix	(canLoadMatrix),
 
 		// Loading of COS Table (Linear, no zigzag)
 		.i_cosWrite			(i_cosWrite),

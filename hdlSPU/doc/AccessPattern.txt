@@ -1,0 +1,263 @@
+=============================================================
+Analysis from SPU DRAM adress bus with logic analyzer.
+
+				Mostly done by Laxer3a.
+				Data provided & help/support by ElectronAsh.
+=============================================================
+
+0. At first :
+-------------------------------------------------------------
+	It seems logical that,
+	- given the 44100 Hz speed of producting samples.
+	- given that the CPU 33.8 Mhz clock of the PSX gives exactly 768 cycles per sample for the whole system.
+	- given that there are 24 channels + reverb + write back of channel 1 and 3.
+	- given that the CPU/DMA must be able to upload data without disturbing the playback.
+	
+	=> There was probably a fixed timed slot for each piece of work.
+	=> Unused setup just 'run', data is just 'nullified' somewhere in the data pipeline.
+	=> CD Write most likely occurs all the time but are just nullified too.
+	=> Reverb probably work all the time, just ignored when not used.
+
+	= State machine still does the work at the same timing for everything.
+
+	An initial estimate (ignoring CD / write back and reverb) gives :
+	
+	A 32 cycles budget per channel = 768 / 24
+	
+	Obviously, it is lower per channel, the remaining budget given to the other things.
+	
+	Note that while the budget is 32/24 cycle per channel, we need to divide by TWO because
+	we need to process LEFT and RIGHT channel.
+	So some part of the system actually have half time to do the work.
+	
+	There is also the issue of WHEN can the CPU/DMA upload things to the chip while it does not stop playing.
+	Obviously, it can not be a priority thing, and if we want to keep the state machine simple,
+	there are time slot for SPU work and slot for memory update.
+	
+	Spec from No$PSX, adapted from 8 byte adress to 16 bit word adress (shift >> 1)
+	Adress as 16 bit word :
+		00000h-001FFh  CD Audio left  (1Kbyte) ;\CD Audio before Volume processing
+		00200h-003FFh  CD Audio right (1Kbyte) ;/signed 16bit samples at 44.1kHz
+		00400h-005FFh  Voice 1 mono   (1Kbyte) ;\Voice 1 and 3 after ADSR processing
+		00600h-007FFh  Voice 3 mono   (1Kbyte) ;/signed 16bit samples at 44.1kHz	
+		00800h-03FFFh  ADPCM / REVERB Area
+		
+1. Grabbed raw data from a PSX motherboard (solder, connect, sample BIOS audio boot)
+-------------------------------------------------------------
+	A huge thanks to ElectronAsh for doing the hardwork.
+	A key stone for this analysis.
+	Provided a sample of raw data of around 300,000 cycles 
+	during the playstation BIOS boot when audio is used. (near 8ms of data)
+	
+2. Reexported the data from raw siggrok capture data to VCD format,
+-------------------------------------------------------------
+   then wrote a parser simulating the SDRAM access pattern (RAS/CAS).
+   Started to differentiate the read/write and full adresses.
+   Little struggle because was comparing stupid byte vs word adress,
+   but also because looking at adresses at first looked random.
+   Or I was expecting more 'linear patterns'...
+   
+3. Modifed Avocado emulator and dumped the BIOS boot SPU ADPCM read pattern.
+-------------------------------------------------------------
+	Wanted to find which channels were active, what the ADPCM block setup was.
+	Did find out what channel were used...
+	But in the end did not help that much.
+	
+4. Managed to seperate read and write, look at them with EXCEL (made a graph)
+-------------------------------------------------------------
+	Basically trying to get a heatmap of the memory usage.
+
+5. Modified importer to export propert clock cycles instead of nanoseconds.
+-------------------------------------------------------------
+	Annotated correctly based on the addresses too. (READ/WRITE or ADPCM/CD/VOICE)
+
+6. Finally have now a proper block for 768 cycles that looks like this :
+-------------------------------------------------------------
+
+IMPORTANT NOTE :	I do not know HOW we cut in the 768 cycle pattern.
+					We just do know that there is the 24 channels to compute.
+					That there is 4 write due to Voice1/3 + CD L/R channel.
+					That Reverb work is also done.
+					
+					But in which order really does not matter much.
+					The only order that matters is :
+					1/ Write of channel 1 and 3 must obviously occurs after the channel
+					has been computed.
+					2/ Most likely reverb does work after all channels are done ?
+						So it is probably the 24 channels
+						Then writes for CD and Channel 1/3
+						Then reverb.
+						
+	Please look at the end for the remaining questions :
+
+	
+Format :
+@4666 LOAD COL 119 => Adr 000b19 READ ADPCM
+  |     |       |            |     +------  READ / WRITE and ADPCM / REVERB or other work categorized by ADDRESS.
+  |     |       |            +------------ 	Complete adress from RAS/CAS setup
+  |     |       +------------------------- 	9 bit value
+  |     +---------------------------------  LOAD COLUMN : After ROW adress of 9 bit is setup,
+  |                                         adress of 9 bit for COLUMN create a full adress.
+  +---------------------------------------  Cycle number in the sample.
+  
+====================================
+    44.100 Khz Sample (768 clocks).
+====================================
+====================================
+    22.050 Khz REVERB SPEED.(44.1 Khz Left, then Right)
+====================================
+
+// 1  <=== Most likely 13 actually....
+@4610 LOAD COL 118 => Adr 000b18 READ ADPCM 
+@4618 LOAD COL 119 => Adr 000b19 READ ADPCM +  8 Cycle
+@4626 LOAD COL 30 => Adr 005c30 READ ADPCM  + 16 Cycle
+// 2
+@4634 LOAD COL 118 => Adr 000b18 READ ADPCM + 24 Cycle
+@4642 LOAD COL 119 => Adr 000b19 READ ADPCM + 32 Cycle
+@4650 LOAD COL 30 => Adr 005c30 READ ADPCM  ...
+// 3
+@4658 LOAD COL 118 => Adr 000b18 READ ADPCM Read 16 bit...
+@4666 LOAD COL 119 => Adr 000b19 READ ADPCM Then next 16 bit...
+@4674 LOAD COL 30 => Adr 005c30 READ ADPCM
+// 4
+@4682 LOAD COL 118 => Adr 000b18 READ ADPCM
+@4690 LOAD COL 119 => Adr 000b19 READ ADPCM
+@4698 LOAD COL 30 => Adr 005c30 READ ADPCM
+// 5
+@4706 LOAD COL 118 => Adr 000b18 READ ADPCM
+@4714 LOAD COL 119 => Adr 000b19 READ ADPCM
+@4722 LOAD COL 30 => Adr 005c30 READ ADPCM
+// 6
+@4730 LOAD COL 118 => Adr 000b18 READ ADPCM
+@4738 LOAD COL 119 => Adr 000b19 READ ADPCM
+@4746 LOAD COL 30 => Adr 005c30 READ ADPCM
+// 7
+@4754 LOAD COL 118 => Adr 000b18 READ ADPCM
+@4762 LOAD COL 119 => Adr 000b19 READ ADPCM
+@4770 LOAD COL 30 => Adr 005c30 READ ADPCM
+// 8
+@4778 LOAD COL 118 => Adr 000b18 READ ADPCM
+@4786 LOAD COL 119 => Adr 000b19 READ ADPCM
+@4794 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 9			
+@4802 LOAD COL 118 => Adr 000b18 READ ADPCM
+@4810 LOAD COL 119 => Adr 000b19 READ ADPCM
+@4818 LOAD COL 30 => Adr 005c30 READ ADPCM
+// 10
+@4826 LOAD COL 118 => Adr 000b18 READ ADPCM
+@4834 LOAD COL 119 => Adr 000b19 READ ADPCM
+@4842 LOAD COL 30 => Adr 005c30 READ ADPCM
+// 11  <=== Most likely 23 actually...
+@4850 LOAD COL 120 => Adr 005b20 READ ADPCM Read 16 bit...
+@4858 LOAD COL 125 => Adr 005b25 READ ADPCM Then +10 byte next read. (5 half word)
+@4866 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// Special stuff -----------------------------------
+@4874 LOAD COL b3 => Adr 0000b3 WRITE [CD LEFT]
+@4882 LOAD COL b3 => Adr 0002b3 WRITE [CD RIGHT]
+@4890 LOAD COL b3 => Adr 0004b3 WRITE [VOICE 1]
+@4898 LOAD COL b3 => Adr 0006b3 WRITE [VOICE 3]
+//--------------------------------------------------
+
+// Reverb Stuff-------------------------------------
+@4906 LOAD COL 9b  => Adr 03d09b READ REVERB
+@4914 LOAD COL 12a => Adr 03e32a READ REVERB
+@4922 LOAD COL 157 => Adr 039357 READ REVERB
+@4930 LOAD COL 12b => Adr 03e32b WRITE REVERB
+@4938 LOAD COL 18a => Adr 03bf8a READ REVERB
+@4946 LOAD COL 23  => Adr 03dc23 READ REVERB
+@4954 LOAD COL 18b => Adr 03bf8b WRITE REVERB
+@4962 LOAD COL db  => Adr 03d6db READ REVERB
+@4970 LOAD COL a3  => Adr 03b4a3 READ REVERB
+@4978 LOAD COL 1ab => Adr 03afab READ REVERB
+@4986 LOAD COL 5f  => Adr 03865f READ REVERB
+@4994 LOAD COL 1ff => Adr 03ebff READ REVERB
+@5002 LOAD COL 153 => Adr 039353 WRITE REVERB
+@5010 LOAD COL c3  => Adr 03f4c3 WRITE REVERB
+//--------------------------------------------------
+
+// 12	<=== Most likely Channel 1 here instead ?
+@5066 LOAD COL 138 => Adr 005538 READ ADPCM
+@5074 LOAD COL 13a => Adr 00553a READ ADPCM
+@5082 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 13
+@5090 LOAD COL 8 => Adr 005808 READ ADPCM
+@5098 LOAD COL 9 => Adr 005809 READ ADPCM
+@5106 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 14
+@5114 LOAD COL 150 => Adr 005550 READ ADPCM
+@5122 LOAD COL 152 => Adr 005552 READ ADPCM
+@5130 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 15
+@5138 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5146 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5154 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 16
+@5162 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5170 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5178 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 17
+@5186 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5194 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5202 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 18
+@5210 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5218 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5226 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 19
+@5234 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5242 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5250 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 20
+@5258 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5266 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5274 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 21
+@5282 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5290 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5298 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 22
+@5306 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5314 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5322 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 23
+@5330 LOAD COL 118 => Adr 000b18 READ ADPCM
+@5338 LOAD COL 11a => Adr 000b1a READ ADPCM
+@5346 LOAD COL 30 => Adr 005c30 READ ADPCM
+
+// 24 <=== Channel 12 here....
+@5354 LOAD COL 118 => Adr 000b18 READ ADPCM  ...
+@5362 LOAD COL 11a => Adr 000b1a READ ADPCM  ...
+@5370 LOAD COL 30 => Adr 005c30 READ ADPCM   +760
+
+
+We still have a few 'mystery' :
+
+- READ with adress >= 00800h can be anything actually...
+	I supposed :
+	- by the 'regularity' of the structure what is ADPCM and REVERB.
+	- that REVERB does the job in one chunk.
+	
+- Unused channel still decode... I bet it is taking any addresses and just do the job.
+	Why those values ? (may be setup at start ? Our sample is short and not from PSX boot)
+	
+- Each channel does 3 memory access (Seen as 005c30)
+	Need to do a proper analysis.
+	Wasted READ ?
+	Usefull time for REVERB (need to check each step of computation and see how it applies to current log)
+	
+- HOW DO THE CPU / DMA upload audio samples without bothering the playback.
+	Is possible that 8 cycle are cut into 4 cycles. (0..3 reserved to SPU work, 4..7 reserved for data write from outside)
+	=> 50% would be reserved for WRITE that simply did not happen during Ash's data sampling session.

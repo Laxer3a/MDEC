@@ -1,0 +1,55 @@
+SPU :
+--------------------------------------------------------------------------
+- Same frequency as CPU		, which is 768x44100.
+- 24 VOICE produce audio	, which is 768 / 24 = 32 cycles maximum to do the job.
+- In some part, work has to be done for L and R CHANNEL part, which reduce to 16 cycles maximum to do the job.
+
+=> So we have a repetitive work 						@every 768 cycles
+	Go through each VOICE 								@every  32 cycles
+	For some part, do the job twice (L/R) per CHANNEL	@every  16 cycles
+--------------------------------------------------------------------------
+- What are the memory access pattern ?
+	An ADPCM block for one VOICE is 16 byte.(It holds BOTH CHANNEL data)
+	Feels strange for the HW to load varying part (could be)
+	and maintain state. Loading would be variable depending on the sample accessed.
+	
+- HW implementation could also cache the current ADPCM block per VOICE.
+	384 byte of RAM for 24 channels.
+	
+	Problem with that design :
+	1 - There is STILL the worst case where suddenly 24 VOICEs are started at once.
+	2 - What if audio data change ? Not a cache, don't detect adress line, compare and update.
+	
+=> So, for now I am personnaly enclined to think that :
+- They decided to save MEMORY SPACE by using ADPCM.
+- They decided they could sacrifice MEMORY BANDWIDTH and reload a full 16 byte (8 read access) to decode a single audio sample.
+
+	So, whatever the memory technology, they would then transfer 16,934,400 byte per second for the audio ADPCM Voices.
+	Which, due to the 16 bit bus, would result in 8,467,200 read command with a 33,868,800 Hz clock.
+	= 4 Clock per read in average.
+--------------------------------------------------------------------------
+	Other problem :
+	- CPU/DMA can upload some audio too, and MUST not stop the audio.
+	
+	- Reverb need some share of the pie too.
+	
+		Reverb work only @22 Khz and there is obviously a reason for it :
+		1 - Allow the same buffer size to work twice longer in time.
+			Reverb is also a kind low pass filter, high frequency don't survive. Wasted resource @44 Khz.
+		2 - Bandwidth limitation for the Audio RAM resource.
+		
+	
+	=> A= DMA/CPU is stopped with higher priority audio access ?
+	or B= Whole bandwidth is CLEARLY SPLITTED OVER TIME for each role (my opinion)
+	
+WORK :
+	- Analyze what amount of bandwidth is needed for REVERB (Read / Write)
+	- Get log from RAM chip with a logic analyzer.
+		- Map the log to the datasheet and figure exact pattern usage.
+	
+Note :
+	RAM Spec :
+	http://www.citylan.it/wiki/images/5/5a/Mb814260.pdf
+	
+	Do not support BURST but does support FAST page mode.
+	Probably can get data every two cycle ?

@@ -1,0 +1,505 @@
+laxer3a09/20/2019
+	I am trying to figure out the condition to read a HEADER for an adpcm block.
+	1/ Previous block is full (decode complete) and we want to read the next sample (not the same block anymore)
+	2/ First time we play (can trick by making it look like condition 1/)
+	Then deciding the  address is the following 
+	1/ StartAdr if new block
+	2/ CurrAdr += 16 if next block (16 byte -> 8 half word but that's an impl. detail)
+	3/ loopAdr if reach end and loop enabled
+	How does a block stop playing ? (how to detect end of stream ?
+	From what I can understand the end flag is at the last packet. So we know that when we have finished the packet, end of story.
+ 
+ja.czekanski09/20/2019
+	my implementation decodes whole block at once (16 bytes), I don't think it would be helpful for you
+	but I should implement sample by sample decoding someday to have proper IRQ emulation
+ 
+laxer3a09/20/2019
+	No it is not, but I am trying to figure out how you look at the bit.
+	one thing as an example
+	there is 24 registers for RepeatAdress
+	so I supposed that user setup the loop point
+	But I see in your code that if the packet as a START point flag, you can override that ?
+	so there are TWO ways ?
+	...
+	if (flags & ADPCM::Flag::Start) {
+	   voice.repeatAddress = voice.currentAddress;
+	}
+	...
+ 
+ja.czekanski09/20/2019
+	I think I know what you're asking about
+	keyOn method has comment about repeatAddress behaviour
+ 
+laxer3a09/20/2019
+	Key on was coming after :slight_smile:
+	But key on/off is at the ADSR stage
+	does it control the ADPCM decoding ?!
+	I would have tought that ADSR just control the volume independantly from the stream decoded.
+ 
+ja.czekanski09/20/2019
+	I think SPU read and decodes samples regardles of voice flags
+	there isn't a way to turn off a voice
+ 
+laxer3a09/20/2019
+	In the ADPCM header there are the flags so they control ADPCM playing right ?
+ 
+ja.czekanski09/20/2019
+	correct
+ 
+laxer3a09/20/2019
+	So if the user setup RepeatAdr
+	and there are no start flag in any ADPCM packet, then it will repeat according to SPU register setup, correct ?
+ 
+ja.czekanski09/20/2019
+	Yes
+	that's what Final Fantasy does
+	and it doesn't loop samples if you do not emulate this behaviour
+ 
+laxer3a09/20/2019
+	But if there is a START in the ADPCM stream
+	it overrides the user setup
+	and use the current packet adress as a new RepeatAddress
+ 
+ja.czekanski09/20/2019
+	flags in header works exactly the same way as Nocash documented them
+	the quirk I'm talking about is with KeyOn behaviour
+	you can override address during sample playback
+	and header could do it as well
+ 
+laxer3a09/20/2019
+	Well, I am trying to get the basic behavior here because... the No$ doc is not really easy to understand tbh.
+	when you mean override address, you mean the RepeatAdress
+ 
+ja.czekanski09/20/2019
+	correct
+ 
+laxer3a09/20/2019
+	So what is the issue with KeyOn ?
+ 
+ja.czekanski09/20/2019
+	if game writes to repeat address and then issue a keyOn then according to documentation you would load repeatAddress with startAddress
+	but it's not what happens
+ 
+laxer3a09/20/2019
+	Yeah that is supposed to start playing the stream right ? keyOn -> activate playing
+ 
+ja.czekanski09/20/2019
+	repeatAddress isn't overwritten by keyOn
+	yeah
+	one sec, let me grab the docs
+	1F801D88h - Voice 0..23 Key ON (Start Attack/Decay/Sustain) (KON) (W)
+
+	Starts the ADSR Envelope, and automatically initializes ADSR Volume to zero, and copies Voice Start Address to Voice Repeat Address.
+	That isn't true
+	last part
+ 
+laxer3a09/20/2019
+	I'll try to write a memo... the doc are JUST horrible.
+	no it should do Start Adress -> current Adress
+	basically just starting to play right ?
+	load start adress into the voice address counter
+
+ja.czekanski09/20/2019
+	currentAddress = startAddress is done everytime keyOn is issued
+ 
+laxer3a09/20/2019
+	Yes and only that right ?
+ 
+ja.czekanski09/20/2019
+	but repeatAddress is loaded with startAddress only when repeat address wasn't written manually
+ 
+laxer3a09/20/2019
+	Ok... I think I got it
+	if START Flag was set IN THE STREAM then KeyOn will load the repeatAdress with start adress ?
+ 
+ja.czekanski09/20/2019
+	no, forget about adpcm samples for now
+	actually this quirk isn't important for basic implementation
+ 
+laxer3a09/20/2019
+	Ok... but then how do you detect 'wasn't written manually' ?
+ 
+ja.czekanski09/20/2019
+	I have separate flag which is set when doing IO write to Voice repeatAddress
+ 
+laxer3a09/20/2019
+	yeah... sure, but you need to RESET it at some point (that was hidden in my question :slight_smile: )
+ 
+ja.czekanski09/20/2019
+	KeyOn check this flag and resets it
+	   if (!ignoreLoadRepeatAddress) {
+			repeatAddress._reg = startAddress._reg;
+			ignoreLoadRepeatAddress = false;
+		}
+	works good enough
+ 
+laxer3a09/20/2019
+	So basically, each time you launch a play, it reset the flag
+	and when the user setup a new stream, it must setup the repeat adress else repeat adress will be setup at the beginning
+ 
+ja.czekanski09/20/2019
+	If he don't write the repeat address (which is OK during normal SPU usage) then repeatAddress is set from adpcm header bits
+	Well, it is set regardless
+	The issue is: Final Fantasy has looping samples
+	but doesn't use Start bit in ADPCM headers
+	but set them repeatAddress manually
+ 
+laxer3a09/20/2019
+	yeah. So it loops correctly by the point set by the user right ?
+ 
+ja.czekanski09/20/2019
+	yes
+ 
+laxer3a09/20/2019
+	and if the user did not set those and there is no repeat flag in the stream, the repeat point is set to the beginning of the stream by default using the flag.
+	Basically it is a mecanism to ensure we can loop if there is a LOOP flag at the end but nobody did anything to make it work.
+ 
+ja.czekanski09/20/2019
+	spu loops by looking at END flag
+ 
+laxer3a09/20/2019
+	Yeah... but no loop point WAS SET.
+	
+ja.czekanski09/20/2019
+	it isn't concerned if repeataddress was loaded previously
+	if it was zero before - it will jump to zero
+	bits in header are just a simple state machine
+	void Voice::parseFlags(uint8_t flags) {
+		flagsParsed = true;
+
+		if (flags & ADPCM::Flag::Start) {
+			repeatAddress = currentAddress;
+		}
+
+		if (flags & ADPCM::Flag::End) {
+			// Jump to Repeat address AFTER playing current sample
+			loopEnd = true;
+			loadRepeatAddress = true;
+
+			if (!(flags & ADPCM::Flag::Repeat) && mode != Mode::Noise) {
+				adsrVolume._reg = 0;
+				keyOff();
+			}
+		}
+	}
+ 
+laxer3a09/20/2019
+	Yeah I have copied your code (inlined it inside the main loop, did not want to move around reading the source)
+ 
+ja.czekanski09/20/2019
+	one thing to watch out - END flag works for the next block
+ 
+laxer3a09/20/2019
+	holy shit...
+ 
+ja.czekanski09/20/2019
+	that's why I work on blocks, not samples
+	easier to manage it
+ 
+laxer3a09/20/2019
+	Yeah but I do not have a choice...
+	Ok let me write the logic at my pace, and I will send you the memo ok ?
+ 
+ja.czekanski09/20/2019
+	sure thing
+ 
+laxer3a09/20/2019
+	I can't focus with pressure to answer perfectly in real time :slight_smile:
+	But thanks anyway.
+	One little question : about the REPEAT flag
+	there is START which defines the looping point
+	END which says NEXT PACKET is last
+	REPEAT that says : when we reach end, please loop.
+	Am i correct ?
+ 
+ja.czekanski09/20/2019
+	no, it's confusing :D
+	clear END  - read next block after this block
+	set END - jump to repeatAddress after this block
+ 
+laxer3a09/20/2019
+	ENDATNEXT_ORLOOPNOW
+ 
+ja.czekanski09/20/2019
+	and when END is set
+	REPEAT == 0 - envelope Release
+	REPEAT == 1 - do nothing, just jump
+	naming of these flags in Nocash is very confusing
+ 
+laxer3a09/20/2019
+	No$ naming sucks... let's make them LONG
+	and explicit
+ 
+ja.czekanski09/20/2019
+	if I were to name them:
+	Start - SetRepeatToCurrent
+	End - JumpToRepeat (Continue if false)
+	!Repeat - Release envelope
+ 
+laxer3a09/20/2019
+	Ok... my turn :
+ 
+ja.czekanski09/20/2019
+	I haven't looked at SPU for almost a year, I have to remind myself all these things
+ 
+laxer3a09/20/2019
+	Start - SetLoopPointHere
+	End   - JumpToLoopPointWhenComplete else continue for 1 last block.
+	Am i correct for those two ?
+ 
+ja.czekanski09/20/2019
+	else continue for 1 last block. ?
+ 
+laxer3a09/20/2019
+	If END is not set
+ 
+ja.czekanski09/20/2019
+	no, just continue normally then
+	
+laxer3a09/20/2019
+	it continue to play the stream and increment forever ?
+ 
+ja.czekanski09/20/2019
+	Yes
+ 
+laxer3a09/20/2019
+	like looping through memory etc... ?
+ 
+ja.czekanski09/20/2019
+	if you want to silence a channel - loop if over silent block
+ 
+laxer3a09/20/2019
+	I would have thought it just stopped :slight_smile:
+ 
+ja.czekanski09/20/2019
+	like Start and End at the same time, where ADPCM samples are zero
+	or play garbage but set volume to zero
+	I added Off ADSR step to prevent unecessary sample processing
+ 
+laxer3a09/20/2019
+	Start - SetLoopPointHere   (0x4)
+	End - JumpToLoopPointWhenComplete else continue to next block (0x1)
+ 
+ja.czekanski09/20/2019
+	exactly
+	maybe reading developer docs would be clearer than reversed console documentation
+ 
+laxer3a09/20/2019
+	Do you have them ? Could not find them...
+	I searched for it.
+ 
+ja.czekanski09/20/2019
+	http://www.psxdev.net/downloads.html
+ 
+laxer3a09/20/2019
+	Sure... there was like 200 pdf
+ 
+ja.czekanski09/20/2019
+	have fun :wink:
+ 
+laxer3a09/20/2019
+	do you know the document name in particular. Went through all of them I think, could not find it.
+ 
+ja.czekanski09/20/2019
+	Attachment file type: acrobat
+	LIBOVR46.PDF
+	1.85 MB
+	huh, there's pdf which mentiones manual repeatAddress setting
+	Attachment file type: acrobat
+	SPURAM.PDF
+	9.45 KB
+	"Use dynamic looping to lengthen sound effects"
+	
+laxer3a09/20/2019
+	Yeah... but those are C wrapper on top of registers
+	Basic sound library chap. 16 right ?
+ 
+ja.czekanski09/20/2019
+	Attachment file type: acrobat
+	scee_dev.pdf
+	541.86 KB
+	yes
+	this document has some interesting bits about sound and SPU
+ 
+laxer3a09/20/2019
+	I have seen this one too... I mean... nobody at Sony wrote a proper register documentation :slight_smile: It is amazing...
+ 
+ja.czekanski09/20/2019
+	They didn't allow programmers to do that
+ 
+laxer3a09/20/2019
+	Yeah that makes sense...
+	And this is why we have terrible docs nowadays :smile:
+	Ok, anyway :
+	Start - SetLoopPointHere   (0x4)
+	End - JumpToLoopPointWhenComplete else continue to next block (0x1)
+	So for bit 2
+	you said :
+	END is set
+	REPEAT == 0 - envelope Release
+	REPEAT == 1 - do nothing, just jump
+ 
+ja.czekanski09/20/2019
+	correct
+ 
+laxer3a09/20/2019
+	So, END and REPEAT must be set in the SAME block ?
+	REPEAT is basically an operand/parameter of END mode, and ignored for other cases ?
+ 
+ja.czekanski09/20/2019
+	yes, REPEAT on it's own does nothing
+	I trust Nocash here, I haven't tested it if it's actually modifying registers
+ 
+laxer3a09/20/2019
+	Ok that was the question I wanted to ask at the beginning but it was good to clarify everything :wink:
+	So, now on the behavior of REPEAT when END = 1
+	if 0, then R mode of ADSR is activated
+	else it stays in S probably...
+ 
+ja.czekanski09/20/2019
+	I think it may still be in Attack or Decay phase
+	
+laxer3a09/20/2019
+	Ah yeah indeed sorry
+ 
+ja.czekanski09/20/2019
+	and just checked - if I respect REPEAT  regardless of END - sound is completely broken
+ 
+laxer3a09/20/2019
+	Yeah you do
+	I think
+	yeah you check only in END
+ 
+ja.czekanski09/20/2019
+	yes, but I checked what happens if I do this check outside of END
+	and some samples aren't playing
+ 
+laxer3a09/20/2019
+	Ah yeah if data is not massaged correctly, it can be hell
+	// Repeat- (1) DontTouchADSR Or (0) KickR_ADSR. (0= Active only when END=1   (0x2)
+	Ok thanks. I will continue my doc and logic a bit.
+	Thank you so much.
+	(I'll promise I'll "pay you back" helping with the rasterizer later :wink: )
+ 
+ja.czekanski09/20/2019
+	I think I need to give myself a break for this weekend
+ 
+laxer3a09/20/2019
+	About the PSX you mean ?
+ 
+ja.czekanski09/20/2019
+	yeah
+	I don't want to work on this project because I have to, but because I want to
+	 
+laxer3a09/20/2019
+	Well, I am not going to throw you a stone ;-)
+	I may still ask you a few things, but answer when you can... 
+	Now, I bet you spend a lot of time on the emulator too.
+ 
+ja.czekanski09/20/2019
+	testing hardware was fun stuff
+	Not trusting documentation might be a good thing
+	No$PSX isn't a most compatible emulator
+	it even fails to boot test programs
+	and it's closed source so good luck finding out why it fails
+ 
+laxer3a09/20/2019
+	Yeah. I really hate his mindset. Like assembly is the only way to have good and efficent code
+	But I admit, he write better docs than other people, even those are far from perfect. And he checks many details too.
+	All his emulators are all written in pure assembly if I understand correctly...
+	But building from source code a FPGA is worse... :frowning:
+	you cant translate software as is, so you need to rethink everything.
+ 
+ja.czekanski09/20/2019
+	One small thing - you might wanna look at older docs sometimes
+	http://hitmen.c02.at/html/psx_docs.html
+
+	Nocash merged some of them info psx-spx, but some parts are easier to understand in these older docs (GPU command encoding for example)
+	Home of the Hitmen
+	Homepage of the Demo Scene Group Hitmen
+ 
+laxer3a09/20/2019
+	Ah yeah I have seen those
+	I just copy paste our talk about the KeyOn stuff, I will try to figure out the whole thing and make a small and clear doc about the whole behavior.
+	I am cleaning and trying to make it concise
+ 
+ja.czekanski09/20/2019
+	sure
+ 
+laxer3a09/20/2019
+	See you later. And sorry again for wasting your time  m(    __  )m
+ 
+ja.czekanski09/20/2019
+	no worries :slight_smile:
+ 
+laxer3a09/20/2019
+	Stupid question again, sorry, is KeyOn a single write flag ? Like a  0-1-0 type of flag ?
+	basically after you write to it, it reset to zero automatically right ?
+	(or at least until the channel is processed of course)
+ 
+ja.czekanski09/20/2019
+	Write 1 to trigger, 0 - do nothing
+	You shouldn't read this register
+ 
+laxer3a09/20/2019
+	Yeah I should not :slight_smile:
+	But if you set it, and it executed each time, it will loop at sample 0 forever
+	so it must be kicked once
+	supposedly the flag is reset when the channel is producing a sample.
+	Same with keyOFF I suppose
+ 
+ja.czekanski09/20/2019
+	I only check this register during io write
+	And last result can be read
+	Might test this on real hw as well
+ 
+laxer3a09/20/2019
+	Interesting , let me check your implementation...
+ 
+ja.czekanski09/20/2019
+	Screenshot (20 Sep 2019 17:18:34)
+
+ 
+laxer3a09/20/2019
+	Difficult to do that in HW
+	It is most likely a flag kicked and when the sample is output the system look at the flag and decide
+	and reset it.
+	(internally or not... could that the user data stay as is if read from CPU, it is possible to implement a copy anyway)
+	Each time we do keyOn, we restart ADSR, and play thing... so if we kick it with the cpu all the time, it will kind of do a weird loop
+	keyOff kick the R if it was playing... if keyOFF is already playing... does it does nothing ?
+ 
+ja.czekanski09/20/2019
+	I suppose?
+ 
+laxer3a09/20/2019
+	Funnily I have the impression that the HW probably use ENDX flag to check...
+	I mean KeyOn or KeyOff are a one time thing
+	but they could stay as is
+	because ENDX is basically telling if a sample is playing or not.
+ 
+laxer3a09/20/2019
+	(my ENDX comment was wrong, it is set to 0 on reset and play but only on END=1.
+	And we renamed END to "JumpToLoopPointWhenComplete")
+
+	So there was your comment like this :
+	ja.czekanskiToday at 4:21 PM
+	one thing to watch out - END flag works for the next block
+
+	should have said :
+	one thing to watch out - END flag works at the end of THIS block.
+
+	That's a detail but in HW, it changes everything ;-)
+	Ok I think I got everything figured out. Need to go out and do stuff too. See you !
+ 
+ja.czekanski09/22/2019
+	I pushed sources for tests we were running 
+	https://github.com/JaCzekanski/ps1-tests
+	GitHub
+	JaCzekanski/ps1-tests
+	Contribute to JaCzekanski/ps1-tests development by creating an account on GitHub.
+
+	might be useful for you to get started when you receive your hardware
+ 
+laxer3a09/22/2019
+	Thanks !
+ 

@@ -10,6 +10,7 @@ With
 dx20 = x2-x0	dy20 = y2-y0
 dx10 = x1-x0	dy10 = y1-y0
 	 
+	 D = a*d - b*c
 
 	Reverse Matrix to give displacement in texture from screen space.
 	Texture Space = [ d/D]  [-b/D]
@@ -59,3 +60,16 @@ then	deltaC for horizontal +1 = [( dy10  * C20) - (dy20 * C10)] / D
 	// In screen space :
 
 then	deltaC for vertical   +1 = [(-dx10  * C20) + (dx20 * C10)] / D
+
+	Analysis about bit needed :
+	--------------------------------
+	
+	deltaX/Y is 10 bit max.
+	Cmn is 8 bit or 9 bit (component or UV)
+	
+	Result in [9*10 + 9*10] -> around 21 bit then / D, divided by a 21 bit number too.
+	
+	The interpolator need to have 9.10 bit at least of precision
+	
+	Implementation of division : FAST RECIPROCAL ?
+	

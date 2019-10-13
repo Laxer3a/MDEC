@@ -65,29 +65,29 @@ module CLUT_Cache(
 				// It will be guaranteed by the state machine.
 				// So we just rewrite the LOADED flag 8 times.
 				case (writeIdx[6:3])
-				9'd0  : Loaded[ 0] <= 1'b1;
-				9'd1  : Loaded[ 1] <= 1'b1;
-				9'd2  : Loaded[ 2] <= 1'b1;
-				9'd3  : Loaded[ 3] <= 1'b1;
-				9'd4  : Loaded[ 4] <= 1'b1;
-				9'd5  : Loaded[ 5] <= 1'b1;
-				9'd6  : Loaded[ 6] <= 1'b1;
-				9'd7  : Loaded[ 7] <= 1'b1;
-				9'd8  : Loaded[ 8] <= 1'b1;
-				9'd9  : Loaded[ 9] <= 1'b1;
-				9'd10 : Loaded[10] <= 1'b1;
-				9'd11 : Loaded[11] <= 1'b1;
-				9'd12 : Loaded[12] <= 1'b1;
-				9'd13 : Loaded[13] <= 1'b1;
-				9'd14 : Loaded[14] <= 1'b1;
-				9'd15 : Loaded[15] <= 1'b1;
+				4'd0  : Loaded[ 0] <= 1'b1;
+				4'd1  : Loaded[ 1] <= 1'b1;
+				4'd2  : Loaded[ 2] <= 1'b1;
+				4'd3  : Loaded[ 3] <= 1'b1;
+				4'd4  : Loaded[ 4] <= 1'b1;
+				4'd5  : Loaded[ 5] <= 1'b1;
+				4'd6  : Loaded[ 6] <= 1'b1;
+				4'd7  : Loaded[ 7] <= 1'b1;
+				4'd8  : Loaded[ 8] <= 1'b1;
+				4'd9  : Loaded[ 9] <= 1'b1;
+				4'd10 : Loaded[10] <= 1'b1;
+				4'd11 : Loaded[11] <= 1'b1;
+				4'd12 : Loaded[12] <= 1'b1;
+				4'd13 : Loaded[13] <= 1'b1;
+				4'd14 : Loaded[14] <= 1'b1;
+				4'd15 : Loaded[15] <= 1'b1;
 				endcase
 			end
 		end
 	end
 	
-	assign isHit1		= Loaded[readIdx1[7:3]];
-	assign isHit2		= Loaded[readIdx2[7:3]];
+	assign isHit1		= Loaded[readIdx1[7:4]];
+	assign isHit2		= Loaded[readIdx2[7:4]];
 	wire [31:0] vA		= CLUTStorage[pRaddrA[7:1]];
 	wire [31:0] vB		= CLUTStorage[pRaddrB[7:1]];
 	assign colorEntry1	= pRaddrA[0] ? vA[31:16] : vA[15:0];
