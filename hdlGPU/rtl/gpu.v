@@ -667,7 +667,7 @@ begin
 		loadAllRGB				<= 0;
 		loadClutPage			<= 0;
 		loadTexPage				<= 0;
-		bIssuePrimitive			<= canOutputTriangle;
+		bIssuePrimitive			<= canOutputTriangle; // TODO : work for VRAM Copy, VRAM Fill, etc... probably different flag.
 		nextCondUseFIFO			<= 0;
 		
 		// TODO : all bIssuePrimitive can issue ONLY ONCE. Make sure state machine does not LOOP. Make sure that it does not skip rendering if primitive is busy... (ie canOutputTriangle)
