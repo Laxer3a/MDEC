@@ -1,3 +1,4 @@
+#if 0
 //----------------------------------------------------------------------------
 // Test for full range of values => RGB 16 millions
 // Test for all screen space combination (x 0..3, y 0..3)
@@ -444,3 +445,4 @@ int testPipeline() {
 int main() {
 	testPipeline();
 }
+#endif

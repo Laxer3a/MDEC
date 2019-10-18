@@ -2,20 +2,33 @@ module gpu(
 	input			clk,
 	input			i_nrst,
 	
-	input			cpuAddress,
+	input			gpuAdrA2, // Called A2 because multiple of 4
 	input			gpuSel,
 	output			ack,
 	
 	output			IRQRequest,
 	
-	input			cpuWrite,
+	// Video output...
+	output	[7:0]	red,
+	output	[7:0]	green,
+	output	[7:0]	blue,
+	output			hSync,
+	output			vSync, // cSync pin exist in real HW : hSync | vSync most likely
+	output			hBlank,
+	output			vBlank,
+	
+	// TODO Memory interface here...
+	
+	input			write,
+	input			read,
 	input 	[31:0]	cpuDataIn,
 	output	[31:0]	cpuDataOut
 );
 
-wire writeFifo	= (cpuAddress == 0) & gpuSel & cpuWrite;
-wire writeGP1	= (cpuAddress == 1) & gpuSel & cpuWrite;
-assign ack		= !isFifoFull;
+wire writeFifo		= !gpuAdrA2 & gpuSel & write;
+wire writeGP1		=  gpuAdrA2 & gpuSel & write;
+assign ack			= !isFifoFull;
+assign cpuDataOut	=  gpuAdrA2 & gpuSel & read ? reg1Out : 32'd0; // TODO other register output read... 
 
 assign IRQRequest = GPU_REG_IRQSet;
 
@@ -48,14 +61,24 @@ Fifo_inst
 // TODO DMA Stuff
 wire gpuReadyReceiveDMA, gpuReadySendToCPU, gpuReceiveCmdReady, dmaDataRequest;
 
-assign reg1Out = { 
+assign gpuReceiveCmdReady	= !isFifoFull;
+assign gpuReadyReceiveDMA	= !isFifoFull; // TODO later when doing DMA tranfer...
+
+wire [31:0] reg1Out = { 
+					// Default : 1480.2.000h
+					
+					// Default 1
 					GPU_DisplayEvenOddLinesInterlace,	// 31
-					GPU_REG_DMADirection,			// 29-30
-					gpuReadyReceiveDMA,				// 28
+					GPU_REG_DMADirection,				// 29-30
+					gpuReadyReceiveDMA,					// 28
+					
+					// default 4
 					gpuReadySendToCPU,				// 27
 					gpuReceiveCmdReady,				// 26
 					dmaDataRequest,					// 25
 					GPU_REG_IRQSet,					// 24
+
+					// default 80
 					GPU_REG_DisplayDisabled,		// 23
 					GPU_REG_IsInterlaced,			// 22
 					GPU_REG_BufferRGB888,			// 21
@@ -63,10 +86,12 @@ assign reg1Out = {
 					GPU_REG_VerticalResolution,		// 19 (0=240, 1=480, when Bit22=1)
 					GPU_REG_HorizResolution,		// 17-18 (0=256, 1=320, 2=512, 3=640)
 					GPU_REG_HorizResolution368,		// 16 (0=256/320/512/640, 1=368)
+					// default 2
 					GPU_REG_TextureDisable,			// 15
 					GPU_REG_ReverseFlag,			// 14
-					GPU_REG_CurrentInterlaceField,	// 13
+					(GPU_REG_CurrentInterlaceField & GPU_REG_IsInterlaced) | (!GPU_REG_IsInterlaced),	// 13
 					GPU_REG_CheckMaskBit,			// 12
+					// default 000
 					GPU_REG_ForcePixel15MaskSet,	// 11
 					GPU_REG_DrawDisplayAreaOn,		// 10
 					GPU_REG_DitherOn,				// 9
@@ -105,9 +130,9 @@ reg               GPU_REG_IsInterlaced;
 reg               GPU_REG_BufferRGB888;
 reg               GPU_REG_VideoMode;
 reg               GPU_REG_VerticalResolution;
-reg         [0:1] GPU_REG_HorizResolution;	parameter XRES_256=2'd0, XRES_320=2'd1, XRES_512=2'd2, XRES_640=2'd3;
+reg         [1:0] GPU_REG_HorizResolution;	parameter XRES_256=2'd0, XRES_320=2'd1, XRES_512=2'd2, XRES_640=2'd3;
 reg               GPU_REG_HorizResolution368;
-reg         [0:1] GPU_REG_DMADirection;		parameter DMADIR_OFF=2'd0, DMADIR_FIFO=2'd1, DMADIR_C2G=2'd2, DMADIR_G2C=2'd3;
+reg         [1:0] GPU_REG_DMADirection;		parameter DMADIR_OFF=2'd0, DMADIR_FIFO=2'd1, DMADIR_C2G=2'd2, DMADIR_G2C=2'd3;
 reg			[9:0] GPU_REG_DispAreaX;
 reg			[8:0] GPU_REG_DispAreaY;
 reg			[11:0] GPU_REG_RangeX0;
@@ -121,36 +146,37 @@ reg					GPU_REG_CurrentInterlaceField; // TODO
 // For RECT Commands.
 parameter SIZE_VAR	= 2'd0, SIZE_1x1 = 2'd1, SIZE_8x8 = 2'd2, SIZE_16x16 = 2'd3;
 
-wire signed [12:0]	fifoDataOutY	= fifoDataOut[27:16] + GPU_REG_OFFSETY; // TODO proper addition with sign ext.
-wire signed [12:0]	fifoDataOutX	= fifoDataOut[11: 0] + GPU_REG_OFFSETX;
+//                  13 bit signed  12 bit signed        
+wire signed [12:0]	fifoDataOutY= fifoDataOut[27:16] + { GPU_REG_OFFSETY[10], GPU_REG_OFFSETY };
+wire signed [12:0]	fifoDataOutX= fifoDataOut[11: 0] + { GPU_REG_OFFSETX[10], GPU_REG_OFFSETX };
 
-wire [7:0]	fifoDataOutUR	= fifoDataOut[ 7: 0]; // Same cut for R and U coordinate.
-wire [7:0]	fifoDataOutVG	= fifoDataOut[15: 8]; // Same cut for G and V coordinate.
-wire [7:0]	fifoDataOutB	= fifoDataOut[23:16];
-wire [10:0] fifoDataOutW	= fifoDataOut[10: 0];
-wire [ 9:0] fifoDataOutH    = fifoDataOut[25:16];
-wire [14:0] fifoDataOutClut	= fifoDataOut[30:16];
-wire [9:0]	fifoDataOutTex	= {fifoDataOut[11],fifoDataOut[8:0]};
-wire [9:0]  fifoDataOutWidth = fifoDataOut[ 9: 0];
-wire [8:0]  fifoDataOutHeight= fifoDataOut[24:16];
+wire [7:0]	fifoDataOutUR		= fifoDataOut[ 7: 0]; // Same cut for R and U coordinate.
+wire [7:0]	fifoDataOutVG		= fifoDataOut[15: 8]; // Same cut for G and V coordinate.
+wire [7:0]	fifoDataOutB		= fifoDataOut[23:16];
+wire [10:0] fifoDataOutW		= fifoDataOut[10: 0];
+wire [ 9:0] fifoDataOutH    	= fifoDataOut[25:16];
+wire [14:0] fifoDataOutClut		= fifoDataOut[30:16];
+wire [9:0]	fifoDataOutTex		= {fifoDataOut[11],fifoDataOut[8:0]};
+wire [9:0]  fifoDataOutWidth	= fifoDataOut[ 9: 0];
+wire [8:0]  fifoDataOutHeight	= fifoDataOut[24:16];
 
 wire [7:0] command			= storeCommand ? fifoDataOut[31:24] : RegCommand;
 
 reg [7:0] RegCommand;
 reg  FifoDataValid;
 
-wire cmdGP1  	= writeGP1 & (cpuDataIn[29:27] == 3'd0); // Short cut for most commands.
-
-wire rstGPU  	= (cmdGP1   & (cpuDataIn[26:24] == 3'd0)) | (i_nrst == 0);
-wire rstCmd  	= cmdGP1   & (cpuDataIn[26:24] == 3'd1);
-wire rstIRQ  	= cmdGP1   & (cpuDataIn[26:24] == 3'd2);
-wire setDisp 	= cmdGP1   & (cpuDataIn[26:24] == 3'd3);
-wire setDmaDir	= cmdGP1   & (cpuDataIn[26:24] == 3'd4);
-wire setDispArea   = cmdGP1 & (cpuDataIn[26:24] == 3'd5);
-wire setDispRangeX = cmdGP1 & (cpuDataIn[26:24] == 3'd6);
-wire setDispRangeY = cmdGP1 & (cpuDataIn[26:24] == 3'd7);
-wire setDisplayMode= writeGP1 & (cpuDataIn[29:24] == 6'd8);
-wire getGPUInfo = writeGP1 & (cpuDataIn[29:28] == 2'd1); // 0h1X command.
+wire cmdGP1			= writeGP1 & (cpuDataIn[29:27] == 3'd0); // Short cut for most commands.
+wire rstGPU  		=(cmdGP1   & (cpuDataIn[26:24] == 3'd0)) | (i_nrst == 0);
+wire rstCmd  		= cmdGP1   & (cpuDataIn[26:24] == 3'd1);
+wire rstIRQ  		= cmdGP1   & (cpuDataIn[26:24] == 3'd2);
+wire setDisp 		= cmdGP1   & (cpuDataIn[26:24] == 3'd3);
+wire setDmaDir		= cmdGP1   & (cpuDataIn[26:24] == 3'd4);
+wire setDispArea	= cmdGP1   & (cpuDataIn[26:24] == 3'd5);
+wire setDispRangeX	= cmdGP1   & (cpuDataIn[26:24] == 3'd6);
+wire setDispRangeY	= cmdGP1   & (cpuDataIn[26:24] == 3'd7);
+wire setDisplayMode	= writeGP1 & (cpuDataIn[29:24] == 6'd8);
+// Command GP1-09 not supported.
+wire getGPUInfo		= writeGP1 & (cpuDataIn[29:28] == 2'd1); // 0h1X command.
 
 	// TODO implement getGPUInfo.
 
@@ -165,8 +191,8 @@ begin
 		GPU_REG_TexBasePageY <= 1'b0;
 		GPU_REG_Transparency <= 2'd0;
 		GPU_REG_TexFormat    <= 2'd0; // TODO ??
-		GPU_REG_DitherOn     <= 2'd0; // TODO ??
-		GPU_REG_DrawDisplayAreaOn <= 1'b1; // Default ?
+		GPU_REG_DitherOn     <= 1'd0; // TODO ??
+		GPU_REG_DrawDisplayAreaOn <= 1'b0; // Default by GP1(00h) definition.
 		GPU_REG_TextureDisable <= 1'b0;
 		GPU_REG_TextureXFlip <= 1'b0;
 		GPU_REG_TextureYFlip <= 1'b0;
@@ -180,24 +206,24 @@ begin
 		GPU_REG_DrawAreaY1   <= 10'd1023; // TODO ??? 8:0 on old GPU.
 		GPU_REG_ForcePixel15MaskSet <= 0;
 		GPU_REG_CheckMaskBit		<= 0;
-		
+		GPU_REG_CurrentInterlaceField <= 1; // Odd field by default (bit 14 = 1 on reset)
 		GPU_REG_IRQSet				<= 0;
 		GPU_REG_DisplayDisabled		<= 1;
+		GPU_REG_DMADirection		<= 2'b00; // Off
 		GPU_REG_IsInterlaced		<= 0;
 		GPU_REG_BufferRGB888		<= 0;
 		GPU_REG_VideoMode			<= 0;
 		GPU_REG_VerticalResolution	<= 0;
 		GPU_REG_HorizResolution		<= 2'b0;
 		GPU_REG_HorizResolution368	<= 0;
-		
 		GPU_REG_ReverseFlag			<= 0;
 		
 		GPU_REG_DispAreaX			<= 10'd0;
 		GPU_REG_DispAreaY			<=  9'd0;
-		GPU_REG_RangeX0				<= 12'd0;
-		GPU_REG_RangeX1				<= 12'd0;
-		GPU_REG_RangeY0				<= 10'd0;
-		GPU_REG_RangeY1				<= 10'd0;
+		GPU_REG_RangeX0				<= 12'h200;	// 200h
+		GPU_REG_RangeX1				<= 12'hC00;	// 200h + 256x10
+		GPU_REG_RangeY0				<= 10'h10;	//  10h
+		GPU_REG_RangeY1				<= 10'h100; //  10h + 240
 	end else begin
 		if (loadE5Offsets) begin
 			GPU_REG_OFFSETX <= fifoDataOut[10: 0];
@@ -271,40 +297,40 @@ end
 // [Command Type]
 wire bIsPolyCommand			= (command[7:5]==3'b001);
 wire bIsRectCommand			= (command[7:5]==3'b011);
-wire bIsLineCommand			= (command[7:5]==3'b101);
+wire bIsLineCommand			= (command[7:5]==3'b010);
 wire bIsForECommand			= (command[7:5]==3'b111);
 wire bIsCopyVVCommand		= (command[7:5]==3'b100);
 wire bIsCopyCVCommand		= (command[7:5]==3'b101);
 wire bIsCopyVCCommand		= (command[7:5]==3'b110);
 wire bIsFillCommand			= bIsBase0x & bIsBase02;
 
-wire bIsBase0x              = (command[7:5]==3'b000);
-	wire bIsBase01     			= (command[4:0]==5'd1  );
-	wire bIsBase02     			= (command[4:0]==5'd2  );
-	wire bIsBase1F     			= (command[4:0]==5'd31 );
+wire bIsBase0x				= (command[7:5]==3'b000);
+	wire bIsBase01			= (command[4:0]==5'd1  );
+	wire bIsBase02			= (command[4:0]==5'd2  );
+	wire bIsBase1F			= (command[4:0]==5'd31 );
 	
-wire bIsTerminator			= (fifoDataOut[31:28] == 5'd5) && (fifoDataOut[15:12] == 5'd5);
-wire bIsValidVertex			= !bIsTerminator;
+// End line command if special marker or SECOND vertex when not a multiline command...
+wire bIsTerminator			= (fifoDataOut[31:28] == 4'd5) & (fifoDataOut[15:12] == 4'd5);
+wire bIsMultiLineTerminator = (bIsLineCommand & bIsMultiLine & bIsTerminator);
 
 wire bIsPrimitiveLoaded;	// TODO : Execute next stage
 
 // [All attribute of commands]
-wire bIsRenderAttrib		= bIsForECommand & (!command[4]) && (command[3:0]!=3'b000) && (command[3:0]!=3'b111); // E1..E6 Only
-wire bIsNop         		= (bIsBase0x & (!(bIsBase01 | bIsBase02 | bIsBase1F))) // Reject 01,02,1F
-							| (bIsForECommand & (!bIsRenderAttrib));                            // Reject E1~E6
+wire bIsRenderAttrib		= (bIsForECommand & (!command[4]) & (!command[3])) & (command[2:0]!=3'b000) & (command[2:0]!=3'b111); // E*, range 0..7 -> Select E1..E6 Only
+wire bIsNop         		= (bIsBase0x & (!(bIsBase01 | bIsBase02 | bIsBase1F)))	// Reject 01,02,1F
+							| (bIsForECommand & (!bIsRenderAttrib));				// Reject E1~E6
 wire bIsPolyOrRect  		= (bIsPolyCommand | bIsRectCommand);
 
 // Line are not textured
-wire bUseTexture    		= bIsPolyOrRect &  command[2]; 										// Avoid texture fetching if we do LINE.
-wire bNoTexture				= !bUseTexture;
-// Rectangle no dither.
-wire bDither				= GPU_REG_DitherOn & (!bIsRectCommand);
 wire bIgnoreColor   		= bUseTexture   & !command[0];
 wire bSemiTransp    		= command[1];
-wire bOpaque        		= !bSemiTransp;
+wire bUseTexture    		= bIsPolyOrRect &  command[2]; 										// Avoid texture fetching if we do LINE, Compute proper color for FILL.
 wire bIs4PointPoly  		= command[3] & bIsPolyCommand;
 wire bIsMultiLine   		= command[3] & bIsLineCommand;
 wire bIsPerVtxCol   		= (bIsPolyCommand | bIsLineCommand) & command[4];
+// Rectangle no dither.
+wire bDither				= GPU_REG_DitherOn & (!bIsRectCommand);
+wire bOpaque        		= !bSemiTransp;
 
 wire rejectVertex			= (fifoDataOutX[12] != fifoDataOutX[11]) | (fifoDataOutY[12] != fifoDataOutY[11]); // Primitive with offset out of range -1024..+1023
 wire resetReject			= 0/*[TODO] Why ?*/;
@@ -347,29 +373,122 @@ reg  [8:0] RegSizeH,RegSY0,RegSY1;
 
 // FIFO is empty or next stage still busy processing the last primitive.
 
-reg [2:0] vertCnt;
+reg [1:0] vertCnt;
+reg       isFirstVertex;
 always @(posedge clk)
 begin
-	if (resetVertexCounter | rstGPU) begin
-		vertCnt = 2'b00;
+	if (resetVertexCounter /* | rstGPU | rstCmd : Done by STATE RESET. */) begin
+		vertCnt			= 2'b00;
+		isFirstVertex	= 1;
 	end else begin
 		vertCnt = vertCnt + increaseVertexCounter;
+		if (increaseVertexCounter) begin
+			isFirstVertex	= 0;
+		end
 	end
 end
 
-wire canOutputTriangle	= (vertCnt >= 2'd2) ? (bCanPushPrimitive & bIsPolyCommand) : 1'b0;
+wire isPolyFinalVertex	= ((bIs4PointPoly & (vertCnt == 2'd3)) | (!bIs4PointPoly & (vertCnt == 2'd2)));
+wire canEmitTriangle	= (vertCnt >= 2'd2);	// 2 or 3 for any tri or quad primitive. intermediate or final.
+wire bNotFirstVert		= !isFirstVertex;		// Can NOT use counter == 0. Won't work in MULTILINE. (0/1/2/0/1/2/....)
+
+wire canIssueWork       = (currWorkState == NOT_WORKING_DEFAULT_STATE);
+
+reg [3:0] currWorkState;	parameter 	NOT_WORKING_DEFAULT_STATE = 4'd0, 
+										LINE_START = 4'd1, LINE_DRAW = 4'd2, LINE_END = 4'd3,
+										RECT_START = 4'd4,
+										FILL_START = 4'd5,
+										COPY_START = 4'd6,
+										TRIANGLE_START = 4'd7,
+										TMP_1 = 4'd8,
+										TMP_2 = 4'd9,
+										TMP_3 = 4'd10,
+										TMP_4 = 4'd11;
+reg [3:0] nextWorkState;
 
 always @(posedge clk)
 begin
-	if (rstGPU) begin
-		currState <= DEFAULT_STATE;
+	if (rstGPU | rstCmd) begin
+		currState 		<= DEFAULT_STATE;
+		currWorkState	<= NOT_WORKING_DEFAULT_STATE;
 	end else begin
-		currState <= nextState;
+		currState		<= nextState;
+		currWorkState	<= nextWorkState;
 	end
 end
 
-wire isPolyFinalVertex	= ((bIs4PointPoly & (vertCnt == 2'd3)) | (!bIs4PointPoly & canOutputTriangle));
-wire bNotFirstVert		= (vertCnt != 2'd0);
+always @(*)
+begin
+	case (currWorkState)
+	NOT_WORKING_DEFAULT_STATE:
+	begin
+		case (issuePrimitive)
+		ISSUE_TRIANGLE:	nextWorkState = TRIANGLE_START;
+		ISSUE_RECT:		nextWorkState = RECT_START;
+		ISSUE_LINE:		nextWorkState = LINE_START;
+		ISSUE_FILL:		nextWorkState = FILL_START;
+		ISSUE_COPY:		nextWorkState = COPY_START;
+		default:		nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		endcase
+	end
+	
+	// TODO : Handle primitive rejection inside this state machine and jump directly to NOT_WORKING_DEFAULT_STATE.
+	
+	
+	// --------------------------------------------------------------------
+	//   FILL VRAM STATE MACHINE
+	// --------------------------------------------------------------------
+	FILL_START:
+	begin
+		nextWorkState = TMP_1;
+	end
+	// --------------------------------------------------------------------
+	//   COPY VRAM STATE MACHINE
+	// --------------------------------------------------------------------
+	COPY_START:
+	begin
+		nextWorkState = TMP_1;
+	end
+	// --------------------------------------------------------------------
+	//   TRIANGLE STATE MACHINE
+	// --------------------------------------------------------------------
+	TRIANGLE_START:
+	begin
+		nextWorkState = TMP_1;
+	end
+	// --------------------------------------------------------------------
+	//   RECT STATE MACHINE
+	// --------------------------------------------------------------------
+	RECT_START:
+	begin
+		nextWorkState = TMP_1;
+	end
+	// --------------------------------------------------------------------
+	//   LINE STATE MACHINE
+	// --------------------------------------------------------------------
+	LINE_START:
+	begin
+		nextWorkState = LINE_DRAW;
+	end
+	LINE_DRAW:
+	begin
+		nextWorkState = LINE_END;
+	end
+	LINE_END:
+	begin
+		nextWorkState = TMP_1;
+	end
+	// --- TEMP DEBUG STUFF ---
+	TMP_1: begin nextWorkState = TMP_2; end
+	TMP_2: begin nextWorkState = TMP_3; end
+	TMP_3: begin nextWorkState = TMP_4; end
+	TMP_4: begin nextWorkState = NOT_WORKING_DEFAULT_STATE; end
+	default:
+	begin
+		nextWorkState = NOT_WORKING_DEFAULT_STATE;
+	end
+	endcase
+end
 
 reg resetVertexCounter;
 reg increaseVertexCounter;
@@ -389,7 +508,8 @@ reg loadTexPage;
 reg loadSize;
 reg loadCoord1,loadCoord2;
 reg [1:0] loadSizeParam;
-reg bIssuePrimitive;
+reg [4:0] issuePrimitive;	parameter	NO_ISSUE = 5'd0, ISSUE_TRIANGLE = 5'b000001,ISSUE_RECT = 5'b00010,ISSUE_LINE = 5'b00100,ISSUE_FILL = 5'b01000,ISSUE_COPY = 5'b10000;
+wire [4:0] issuePrimitiveReal;
 
 parameter	DEFAULT_STATE		=4'd0,
 			LOAD_COMMAND		=4'd1,
@@ -412,236 +532,277 @@ begin
 	case (currState)
 	DEFAULT_STATE:
 	begin
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		loadCoord1				<= 0; loadCoord2	<= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 1;
-		increaseVertexCounter	<= 0;
-		storeCommand			<= 0;
-		loadUV					<= 0;
-		loadRGB					<= 0;
-		loadVertices			<= 0;
-		loadAllRGB				<= 0;
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		loadSize				<= 0; loadSizeParam <= 2'b0;
-		bIssuePrimitive			<= 0;
-		nextCondUseFIFO			<= 1;
-		nextLogicalState		<= LOAD_COMMAND; // Need FIFO
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 1;
+		increaseVertexCounter	= 0;
+		storeCommand			= 0;
+		loadUV					= 0;
+		loadRGB					= 0;
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		issuePrimitive			= NO_ISSUE;
+		nextCondUseFIFO			= 1;
+		nextLogicalState		= LOAD_COMMAND; // Need FIFO
 	end
 	// Step 0A
 	LOAD_COMMAND:				// Here we do NOT check data validity : if we arrive in this state, we know the data is available from the FIFO, and GPU accepts commands.
 	begin
-		loadCoord1				<= 0; loadCoord2	<= 0;
-		resetVertexCounter 		<= 0;
-		increaseVertexCounter	<= 0;
-		storeCommand       		<= 1;
-		loadUV					<= 0;
-		loadRGB					<= 1; // Work for all command, just ignored.
-		loadVertices			<= 0;
-		loadAllRGB				<= (bIgnoreColor) ? 1'b1 : (!bIsPerVtxCol);
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		loadSize				<= 0; loadSizeParam <= 2'b0;
-		setIRQ					<= bIsBase0x & bIsBase1F;
-		rstTextureCache			<= bIsBase0x & bIsBase01;
-		bIssuePrimitive			<= 0;
-		nextCondUseFIFO			<= 1;
+		loadCoord1				= 0; loadCoord2	= 0;
+		resetVertexCounter 		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 1;
+		loadUV					= 0;
+		loadRGB					= 1; // Work for all command, just ignored.
+		loadVertices			= 0;
+		loadAllRGB				= (bIgnoreColor) ? 1'b1 : (!bIsPerVtxCol);
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		setIRQ					= bIsBase0x & bIsBase1F;
+		rstTextureCache			= bIsBase0x & bIsBase01;
+		issuePrimitive			= NO_ISSUE;
+
+		 // TODO : Can optimize later by using LOAD_COMMAND instead and loop...
+		 // For now any command reading is MINIMUM EVERY 2 CYCLES.
+		 
+		// E1~E6
 		if (bIsRenderAttrib) begin
-			nextLogicalState	<= DEFAULT_STATE;
-			loadE5Offsets		<= (command[2:0] == 3'd5);
-			loadTexPageE1		<= (command[2:0] == 3'd1);
-			loadTexWindowSetting<= (command[2:0] == 3'd2);
-			loadDrawAreaTL		<= (command[2:0] == 3'd3);
-			loadDrawAreaBR		<= (command[2:0] == 3'd4);
-			loadMaskSetting		<= (command[2:0] == 3'd6);
+			nextLogicalState	= DEFAULT_STATE;
+			nextCondUseFIFO		= 0;
+			
+			loadE5Offsets		= (command[2:0] == 3'd5);
+			loadTexPageE1		= (command[2:0] == 3'd1);
+			loadTexWindowSetting= (command[2:0] == 3'd2);
+			loadDrawAreaTL		= (command[2:0] == 3'd3);
+			loadDrawAreaBR		= (command[2:0] == 3'd4);
+			loadMaskSetting		= (command[2:0] == 3'd6);
 		end else begin
+			// [02/8x~9X/Ax~Bx/Cx~Dx]
 			if (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand) begin
-				nextLogicalState	<= LOAD_XY1;
+				nextLogicalState	= LOAD_XY1;
+				nextCondUseFIFO		= 1;
 			end else begin
-				nextLogicalState	<= VERTEX_LOAD; // Need FIFO // TODO Handle E1~E6/01~02/8x/Ax/Cx
+				 // Case E0/E7/E8~EF
+				 // Case 00/03~1E/01 Handled.
+				if (bIsNop | bIsBase0x) begin
+					nextLogicalState	= DEFAULT_STATE;
+					nextCondUseFIFO		= 0;
+				end else begin
+				// 2x/3x/4x/5x/6x/7x
+					nextLogicalState	= VERTEX_LOAD;
+					nextCondUseFIFO		= 1;
+				end
 			end
 		
-			loadE5Offsets 		<= 0;
-			loadTexPageE1		<= 0;
-			loadTexWindowSetting <= 0;
-			loadDrawAreaTL		<= 0;
-			loadDrawAreaBR		<= 0;
-			loadMaskSetting		<= 0;
+			loadE5Offsets 		= 0;
+			loadTexPageE1		= 0;
+			loadTexWindowSetting = 0;
+			loadDrawAreaTL		= 0;
+			loadDrawAreaBR		= 0;
+			loadMaskSetting		= 0;
 		end
 	end
 	LOAD_XY1:
 	begin
-		loadCoord1				<= 1; loadCoord2	<= 0;
+		loadCoord1				= 1; loadCoord2	= 0;
 		// bIsCopyVVCommand		Top Left Corner   (YyyyXxxxh) then WIDTH_HEIGHT_STATE
 		// bIsCopyCVCommand		Source Coord      (YyyyXxxxh) then LOAD_X2
 		// bIsCopyVCCommand		Destination Coord (YyyyXxxxh) then WIDTH_HEIGHT_STATE
 		// bIsFillCommand		Top Left Corner   (YyyyXxxxh) then WIDTH_HEIGHT_STATE
 		
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 0;
-		increaseVertexCounter	<= 0;
-		storeCommand       		<= 0;
-		loadUV					<= 0;
-		loadRGB					<= 0;
-		loadVertices			<= 0;
-		loadAllRGB				<= 0;
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		loadSize				<= 0; loadSizeParam <= 2'b0;
-		bIssuePrimitive			<= 0;
-		nextCondUseFIFO			<= 1;
-		nextLogicalState		<= bIsCopyCVCommand ? LOAD_XY2 :  WIDTH_HEIGHT_STATE;
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= 0;
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		issuePrimitive			= NO_ISSUE;
+		nextCondUseFIFO			= 1;
+		nextLogicalState		= bIsCopyCVCommand ? LOAD_XY2 :  WIDTH_HEIGHT_STATE;
 	end
 	LOAD_XY2:
 	begin
-		loadCoord1				<= 0; loadCoord2	<= 1;
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 0;
-		increaseVertexCounter	<= 0;
-		storeCommand       		<= 0;
-		loadUV					<= 0;
-		loadRGB					<= 0;
-		loadVertices			<= 0;
-		loadAllRGB				<= 0;
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		loadSize				<= 0; loadSizeParam <= 2'b0;
-		bIssuePrimitive			<= 0;
-		nextCondUseFIFO			<= 1;
-		nextLogicalState		<= WIDTH_HEIGHT_STATE;
+		loadCoord1				= 0; loadCoord2	= 1;
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= 0;
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		issuePrimitive			= NO_ISSUE;
+		nextCondUseFIFO			= 1;
+		nextLogicalState		= WIDTH_HEIGHT_STATE;
 	end
 	// Step 0B
 	COLOR_LOAD:
 	begin
 		//
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		loadCoord1				<= 0; loadCoord2	<= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 0;
-		increaseVertexCounter	<= 0;
-		storeCommand       		<= 0;
-		loadUV					<= 0;
-		loadRGB					<= FifoDataValid;
-		loadVertices			<= 0;
-		loadAllRGB				<= 0;
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		loadSize				<= 0; loadSizeParam <= 2'b0;
-		bIssuePrimitive			<= 0;
-		nextCondUseFIFO			<= !(bIsLineCommand & bIsTerminator); // Do not request anymore data if we reached TERMINATOR.
-		nextLogicalState		<=  (bIsLineCommand & bIsTerminator) ? DEFAULT_STATE : VERTEX_LOAD;
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= FifoDataValid;
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		issuePrimitive			= NO_ISSUE;
+		// Special case to test TERMINATOR (comes instead of COLOR value !!!)
+		nextCondUseFIFO			= !(bIsLineCommand & bIsTerminator);
+		nextLogicalState		=  (bIsLineCommand & bIsTerminator) ? DEFAULT_STATE : VERTEX_LOAD;
 	end
 	// Step 1
 	VERTEX_LOAD:
 	begin
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		loadCoord1				<= 0; loadCoord2	<= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 0;
-		increaseVertexCounter	<= FifoDataValid & (!bUseTexture) & (bIsValidVertex);	// go to next vertex if do not need UVs.
-		storeCommand       		<= 0;
-		loadUV					<= 0;
-		loadRGB					<= 0;
-		loadVertices			<= FifoDataValid & (bIsValidVertex | !bIsLineCommand);	// Check if not TERMINATOR if line, or is not a line vertex.
-		loadAllRGB				<= 0;
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		
-		if (!bUseTexture) begin
-			// Next Vertex ? Last Vertex ? Need to push primitive ?
-			if (bIsPolyCommand) begin // Sure Polygon command 
-				// Issue a triangle primitive.
-				bIssuePrimitive <= canOutputTriangle;
-			end else begin // Line/Polyline, Rect.
-				// Issue a line primitive.
-				bIssuePrimitive <= bIsLineCommand & bCanPushPrimitive & bNotFirstVert;
-			end
-		end else begin
-			bIssuePrimitive <= 0;
-		end
-
 		if (bIsRectCommand) begin
 			// Command original 27-28 Rect Size   (0=Var, 1=1x1, 2=8x8, 3=16x16) (Rectangle only)
 			if (command[4:3]==2'd0) begin
-				loadSize			<= 0; loadSizeParam <= 2'b0;
-				nextCondUseFIFO		<= 1;
-				nextLogicalState	<= WIDTH_HEIGHT_STATE;
+				nextCondUseFIFO		= 1;
+				loadSize			= 0; loadSizeParam = 2'b0;
+				nextLogicalState	= WIDTH_HEIGHT_STATE;
+				issuePrimitive		= NO_ISSUE;
 			end else begin
-				nextCondUseFIFO		<= 0;
-				loadSize			<= 1; loadSizeParam	<= command[4:3];
-				nextLogicalState	<= WAIT_COMMAND_COMPLETE;
+				if (bUseTexture) begin
+					nextCondUseFIFO		= 1;
+					loadSize			= 0; loadSizeParam	= 2'b0;
+					nextLogicalState	= UV_LOAD;
+					issuePrimitive		= NO_ISSUE;
+				end else begin
+					nextCondUseFIFO		= 0;
+					loadSize			= 1; loadSizeParam	= command[4:3];
+					nextLogicalState	= WAIT_COMMAND_COMPLETE;
+					issuePrimitive		= ISSUE_RECT;
+				end
 			end
 		end else begin
-			loadSize			<= 0; loadSizeParam <= 2'b0;
+			loadSize			= 0; loadSizeParam = 2'b0;
 			if (bUseTexture) begin
-				nextCondUseFIFO		<= 1;
-				nextLogicalState	<= UV_LOAD;
+				nextCondUseFIFO		= 1;
+				nextLogicalState	= UV_LOAD;
+				issuePrimitive		= NO_ISSUE;
 			end else begin
-				// End command if it is a terminator line
+				// End command if it is a terminator line or 2 vertex line only
 				// Or a 4 point polygon or 3 point polygon.
-				if ((bIsLineCommand & bIsTerminator) | (bIsPolyCommand & isPolyFinalVertex)) begin
-					nextCondUseFIFO		<= 0;	// Instead of FIFO state, it uses
-					nextLogicalState	<= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+
+				// MUST check 'canIssueWork' because the following test check ONLY THE VERTEX COUNTERS related.
+				// and when entering the first emitted primitive, counter increments and VALIDATE the state change
+				// WHILE the command is still working... So we miss emitting the SECOND TRIANGLE OR MULTILINES remaining.
+				if ( canIssueWork & FifoDataValid &
+							((bIsLineCommand & ((bIsMultiLine & bIsTerminator)|(!bIsMultiLine & (vertCnt == 2'd1))))	// Polyline with FINAL VERTEX or Line with second vertex.
+							|(bIsPolyCommand & isPolyFinalVertex))
+					) begin
+					nextCondUseFIFO		= 0;	// Instead of FIFO state, it uses
+					nextLogicalState	= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+					if (bIsPolyCommand) begin // Sure Polygon command 
+						// Issue a triangle primitive.
+						issuePrimitive	= ISSUE_TRIANGLE;
+					end else begin
+						// Line/Polyline
+						issuePrimitive	= ISSUE_LINE;
+					end
 				end else begin
 					if (bIsPerVtxCol) begin
-						nextCondUseFIFO		<= 1;
-						nextLogicalState	<= COLOR_LOAD; // 
+						nextCondUseFIFO		= 1;
+						nextLogicalState	= COLOR_LOAD;	// Next Vertex stuff...
+						issuePrimitive		= NO_ISSUE;
 					end else begin
-						nextCondUseFIFO		<= 1;
-						nextLogicalState	<= VERTEX_LOAD;
+						// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
+						// Can not issue if data is not valid.
+						if (FifoDataValid & bIsPolyCommand & canEmitTriangle) begin
+							issuePrimitive		= ISSUE_TRIANGLE;
+						end else begin
+							if (FifoDataValid & bIsLineCommand & bIsMultiLine & bNotFirstVert) begin // Remain the case of intermediate line ONLY (single 2 vertex line handled in upper logic)
+								issuePrimitive	= ISSUE_LINE;
+							end else begin
+								issuePrimitive	= NO_ISSUE;
+							end
+						end
+						
+						nextCondUseFIFO		= (issuePrimitive == NO_ISSUE);
+						nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
 					end
 				end
 			end
 		end
-
-		// TODO : isTerminator & isLineCommand & isPolyLine & !bIsPerVtxCol
-		// TODO : issue poly primitive if last == 3 or last == 4 and increaseVertexCounter.
-		//			Do not issue if rejectPrimitive=1 ! (Skip)
-		// TODO : issue as swap if mode 4 pts.
+		
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
 		//
+		// TRICKY DETAIL : When emitting multiple primitive, load the next vertex ONLY WHEN THE EMITTED COMMAND IS COMPLETED.
+		//                 So we check (issuePrimitive == NO_ISSUE) when requesting next vertex.
+		increaseVertexCounter	= FifoDataValid & (!bUseTexture);	// go to next vertex if do not need UVs, don't care if invalid vertex... cause no issues. PUSH NEW VERTEX ONLY IF NOT BUSY RENDERING.
+		loadVertices			= FifoDataValid & (!bIsMultiLineTerminator); // Check if not TERMINATOR + line + multiline, else vertices are valid.
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
 	end
 	UV_LOAD:
 	begin
 		//
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		loadCoord1				<= 0; loadCoord2	<= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 0;
-		increaseVertexCounter	<= FifoDataValid & (!bIsRectCommand);	// go to next vertex if do not need UVs.
-		storeCommand       		<= 0;
-		loadUV					<= FifoDataValid;
-		loadRGB					<= 0;
-		loadVertices			<= 0;
-		loadAllRGB				<= 0;
-		loadClutPage			<= isV0; // first entry is Clut info.
-		loadTexPage				<= isV1; // second entry is TexPage.
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= FifoDataValid & canIssueWork & (!bIsRectCommand);	// go to next vertex if do not need UVs.
+		storeCommand       		= 0;
+		loadUV					= FifoDataValid & canIssueWork;
+		loadRGB					= 0;
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= isV0; // first entry is Clut info.
+		loadTexPage				= isV1; // second entry is TexPage.
 
 		// do not issue primitive if Rectangle or 1st/2nd vertex UV.
-		bIssuePrimitive			<= canOutputTriangle;
 		
 		if (bIsRectCommand) begin
 			// 27-28 Rect Size   (0=Var, 1=1x1, 2=8x8, 3=16x16) (Rectangle only)
+			loadSizeParam			= command[4:3]; // Optimization, same as commented version.
+			issuePrimitive			= (command[4:3]!=2'd0) ? ISSUE_RECT : NO_ISSUE;
 			if (command[4:3]==2'd0) begin
-				loadSize			<= 0; loadSizeParam <= 2'b0;
-				nextCondUseFIFO		<= 1;
-				nextLogicalState	<= WIDTH_HEIGHT_STATE;
+				loadSize			= 0; // loadSizeParam <= 2'b0;
+				nextCondUseFIFO		= 1;
+				nextLogicalState	= WIDTH_HEIGHT_STATE;
 			end else begin
-				nextCondUseFIFO		<= 0;
-				loadSize			<= 1; loadSizeParam	<= command[4:3];
-				nextLogicalState	<= WAIT_COMMAND_COMPLETE;
+				loadSize			= 1; // loadSizeParam	<= command[4:3];
+				nextCondUseFIFO		= 0;
+				nextLogicalState	= WAIT_COMMAND_COMPLETE;
 			end
 		end else begin
-			loadSize			<= 0; loadSizeParam <= 2'b0;
+			loadSize			= 0; loadSizeParam = 2'b0;
 			// Not a line, only textured Poly (quad or triangle)
+			issuePrimitive		= isPolyFinalVertex ? ISSUE_TRIANGLE : NO_ISSUE;
 			if (isPolyFinalVertex) begin // 3rd final point ? 4th final point ?
-				nextCondUseFIFO		<= 0;
-				nextLogicalState	<= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+				nextCondUseFIFO		= 0;
+				nextLogicalState	= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
 			end else begin
-				nextCondUseFIFO		<= 1;
-				nextLogicalState	<= bIsPerVtxCol ? COLOR_LOAD : VERTEX_LOAD;
+				nextCondUseFIFO		= 1;
+				nextLogicalState	= bIsPerVtxCol ? COLOR_LOAD : VERTEX_LOAD;
 			end
 		end
 	end
@@ -652,80 +813,78 @@ begin
 		// We can use 4 lines equation instead of 3.
 		// Visually difference can't be made. And pixel pipeline is nearly the same.
 		// TODO ?; // Loop to generate 4 vertices... Add w/h to Vertex and UV.
-		loadSize				<= 1; loadSizeParam <= SIZE_VAR;
+		loadSize				= 1; loadSizeParam = SIZE_VAR;
 		
 		// TODO, just set here to avoid latching.
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		loadCoord1				<= 0; loadCoord2	<= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 0;
-		increaseVertexCounter	<= 0;
-		storeCommand       		<= 0;
-		loadUV					<= 0;
-		loadRGB					<= 0;
-		loadVertices			<= 0;
-		loadAllRGB				<= 0;
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		bIssuePrimitive			<= canOutputTriangle; // TODO : work for VRAM Copy, VRAM Fill, etc... probably different flag.
-		nextCondUseFIFO			<= 0;
-		
-		// TODO : all bIssuePrimitive can issue ONLY ONCE. Make sure state machine does not LOOP. Make sure that it does not skip rendering if primitive is busy... (ie canOutputTriangle)
-		//				But should never because we have WAIT_COMMAND_COMPLETE now in the state machine.
-		
-		nextLogicalState		<= WAIT_COMMAND_COMPLETE;
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= 0;
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		issuePrimitive			= (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand) ? ISSUE_COPY : (bIsRectCommand ? ISSUE_RECT : ISSUE_FILL);
+		nextCondUseFIFO			= 0;
+		nextLogicalState		= WAIT_COMMAND_COMPLETE;
 	end
 	WAIT_COMMAND_COMPLETE:
 	begin
 		// (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand)
 		
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		loadCoord1				<= 0; loadCoord2	<= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 0;
-		increaseVertexCounter	<= 0;
-		storeCommand       		<= 0;
-		loadUV					<= 0;
-		loadRGB					<= 0;
-		loadVertices			<= 0;
-		loadAllRGB				<= 0;
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		loadSize				<= 0; loadSizeParam <= 2'b0;
-		bIssuePrimitive			<= 0;
-		nextCondUseFIFO			<= 0;
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= 0;
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		issuePrimitive			= NO_ISSUE;
+		nextCondUseFIFO			= 0;
 		
-		nextLogicalState		<= DEFAULT_STATE;
+		nextLogicalState		=  canIssueWork ? DEFAULT_STATE : WAIT_COMMAND_COMPLETE;
 	end
 	default:
 	begin
-		loadE5Offsets			<= 0; loadTexPageE1 <= 0; loadTexWindowSetting <= 0; loadDrawAreaTL <= 0; loadDrawAreaBR <= 0; loadMaskSetting <= 0;
-		loadCoord1				<= 0; loadCoord2	<= 0;
-		setIRQ					<= 0;
-		resetVertexCounter		<= 0;
-		increaseVertexCounter	<= 0;
-		storeCommand       		<= 0;
-		loadUV					<= 0;
-		loadRGB					<= 0;
-		loadVertices			<= 0;
-		loadAllRGB				<= 0;
-		loadClutPage			<= 0;
-		loadTexPage				<= 0;
-		loadSize				<= 0; loadSizeParam <= 2'b0;
-		bIssuePrimitive			<= 0;
-		nextCondUseFIFO			<= 0;
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= 0;
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		issuePrimitive			= NO_ISSUE;
+		nextCondUseFIFO			= 0;
 		
-		nextLogicalState		<= DEFAULT_STATE;
+		nextLogicalState		= DEFAULT_STATE;
 	end
 	endcase
 end
+// TODO OPTIMIZE : can probably compute nextCondUseFIFO outside with : (nextLogicalState != WAIT_COMMAND_COMPLETE) & (nextLogicalState != DEFAULT_STATE)
 
 // WE Read from the FIFO when FIFO has data, but also when the GPU is not busy rendering, else we stop loading commands...
 // By blocking the state machine, we also block all the controls more easily. (Vertex loading, command issue, etc...)
-wire canReadFIFO	= isFifoNotEmpty & (!bCanPushPrimitive);
-wire readFifo		= (nextCondUseFIFO & canReadFIFO);
+wire canReadFIFO			= isFifoNotEmpty & canIssueWork;
+wire readFifo				= (nextCondUseFIFO & canReadFIFO);
+assign nextState			= ((!nextCondUseFIFO) | readFifo) ? nextLogicalState : currState;
+assign issuePrimitiveReal	= canIssueWork ? issuePrimitive : NO_ISSUE;
 
-assign nextState	= ((!nextCondUseFIFO) | readFifo) ? nextLogicalState : currState;
 
 
 
@@ -745,6 +904,7 @@ wire isV2 =  (!bIsLineCommand) & (vertCnt == 2'd2);
 wire [8:0] componentFuncR	= bUseTexture    ? { fifoDataOutUR,1'b0 } : { 1'b0, fifoDataOutUR };
 wire [8:0] componentFuncG	= bUseTexture    ? { fifoDataOutVG,1'b0 } : { 1'b0, fifoDataOutVG };
 wire [8:0] componentFuncB	= bUseTexture    ? {  fifoDataOutB,1'b0 } : { 1'b0,  fifoDataOutB };
+wire bNoTexture				= !bUseTexture;
 wire [8:0] componentFuncRA	= componentFuncR + { 8'b00000000, fifoDataOutUR[7] & bNoTexture};
 wire [8:0] componentFuncGA	= componentFuncG + { 8'b00000000, fifoDataOutVG[7] & bNoTexture};
 wire [8:0] componentFuncBA	= componentFuncB + { 8'b00000000, fifoDataOutB [7] & bNoTexture};
@@ -755,11 +915,11 @@ wire [8:0] loadComponentB	= bIgnoreColor   ? 9'b100000000 : componentFuncBA;
 
 // TODO : SWAP bit. for loading 4th, line segment.
 //
-reg bPipeIssuePrimitive;
+reg bPipeIssueTrianglePrimitive;
 
 always @(posedge clk)
 begin
-	bPipeIssuePrimitive <= bIssuePrimitive;
+	bPipeIssueTrianglePrimitive <= (issuePrimitiveReal == ISSUE_TRIANGLE);
 	if (isV0 & loadVertices) RegX0 <= fifoDataOutX;
 	if (isV0 & loadVertices) RegY0 <= fifoDataOutY;
 	if (isV0 & loadUV	   ) RegU0 <= fifoDataOutUR;
@@ -832,11 +992,11 @@ end
 // ---------------------------------------------------------------------------------------------------------------------
 
 // 4 Compare, got min,max and middle.
-wire [1:0]	min01ID   = (RegY0 < RegY1) ? 2'd0 : 2'd1;
-wire [12:0] min01V   = min01ID ? RegY0 : RegY1;
-wire [1:0]	TopID     = (RegY2 < min01V) ? 2'd2 : min01ID;
-wire cmp02          = (RegY2 < RegY0);
-wire cmp12          = (RegY2 < RegY1);
+wire 		min01ID		= (RegY0 < RegY1);
+wire [12:0] min01V		= min01ID ? RegY0 : RegY1;
+wire [1:0]	TopID		= (RegY2 < min01V) ? 2'd2 : { 1'b0, min01ID} ;
+wire cmp02				= (RegY2 < RegY0);
+wire cmp12				= (RegY2 < RegY1);
 reg  [1:0]	BottomID;
 reg  [1:0]	MiddleID;
 
@@ -844,10 +1004,10 @@ reg  [1:0]	MiddleID;
 always @(*)
 begin
 	case (TopID)
-	2'd2: begin BottomID <= { 1'b0,!min01ID[0]};   MiddleID <= { 1'b0, min01ID[0]}; end 	 // max01ID is opposite.
-	2'd1: begin BottomID <= cmp02 ? 2'd0 : 2'd2; MiddleID <= cmp02 ? 2'd2 : 2'd0; end // top is 1, who is bottom ? 0 or 2 ?
-	2'd0: begin BottomID <= cmp12 ? 2'd1 : 2'd2; MiddleID <= cmp12 ? 2'd1 : 2'd2; end // top is 0, who is bottom ? 1 or 2 ?
-	default: begin BottomID <= 2'b00; MiddleID <= 2'b00; end	// Impossible case
+	2'd2: begin BottomID = { 1'b0,!min01ID };   MiddleID = { 1'b0, min01ID }; end 	 // max01ID is opposite.
+	2'd1: begin BottomID = cmp02 ? 2'd0 : 2'd2; MiddleID = cmp02 ? 2'd2 : 2'd0; end // top is 1, who is bottom ? 0 or 2 ?
+	2'd0: begin BottomID = cmp12 ? 2'd1 : 2'd2; MiddleID = cmp12 ? 2'd1 : 2'd2; end // top is 0, who is bottom ? 1 or 2 ?
+	default: begin BottomID = 2'b00; MiddleID = 2'b00; end	// Impossible case
 	endcase
 end
 
@@ -863,7 +1023,7 @@ reg  [9:0] PrimTx;
 // [Load Remapped Vertices info]
 always @(posedge clk)
 begin
-	if (bPipeIssuePrimitive) begin // Need to load AFTER all Reg* are set (induce 1 clock delay)
+	if (bPipeIssueTrianglePrimitive) begin // Need to load AFTER all Reg* are set (induce 1 clock delay)
 		case (TopID)
 		2'b00 : begin VtxX0 = RegX0; VtxY0 = RegY0; VtxU0 = RegU0; VtxV0 = RegV0; VtxR0 = RegR0; VtxG0 = RegG0; VtxB0 = RegB0; end
 		2'b01 : begin VtxX0 = RegX1; VtxY0 = RegY1; VtxU0 = RegU1; VtxV0 = RegV1; VtxR0 = RegR1; VtxG0 = RegG1; VtxB0 = RegB1; end
@@ -886,9 +1046,6 @@ begin
 		PrimClut = RegC;
 	end
 end
-
-// TODO : Here we reject primitive if they size is too big....
-wire bCanPushPrimitive; // GPU busy / Triangle setup busy ?...
 
 // TODO bAcceptPrimitive flag for previous stage.
 // Triangle setup.
