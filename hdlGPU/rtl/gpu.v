@@ -680,7 +680,7 @@ begin
 			if (command[4:3]==2'd0) begin
 				nextCondUseFIFO		= 1;
 				loadSize			= 0; loadSizeParam = 2'b0;
-				nextLogicalState	= WIDTH_HEIGHT_STATE;
+				nextLogicalState	= (bUseTexture) ? UV_LOAD : WIDTH_HEIGHT_STATE;
 				issuePrimitive		= NO_ISSUE;
 			end else begin
 				if (bUseTexture) begin
@@ -698,8 +698,10 @@ begin
 		end else begin
 			loadSize			= 0; loadSizeParam = 2'b0;
 			if (bUseTexture) begin
+				// Condition with 'FifoDataValid' necessary :
+				// => If not done, state machine skip the 4th vertex loading to load directly 4th texture without loading the coordinates. (fifo not valid as we waited for primitive to complete)
 				nextCondUseFIFO		= 1;
-				nextLogicalState	= UV_LOAD;
+				nextLogicalState	= FifoDataValid ? UV_LOAD : VERTEX_LOAD;
 				issuePrimitive		= NO_ISSUE;
 			end else begin
 				// End command if it is a terminator line or 2 vertex line only
@@ -722,13 +724,11 @@ begin
 						issuePrimitive	= ISSUE_LINE;
 					end
 				end else begin
-					if (bIsPerVtxCol) begin
-						nextCondUseFIFO		= 1;
-						nextLogicalState	= COLOR_LOAD;	// Next Vertex stuff...
-						issuePrimitive		= NO_ISSUE;
-					end else begin
-						// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
-						// Can not issue if data is not valid.
+					// No need to check for canIssueWork because we emit the FIRST TRIANGLE in this case, so we know that the canIssueWork = 1.
+					
+					// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
+					// Can not issue if data is not valid.
+					if (canIssueWork) begin
 						if (FifoDataValid & bIsPolyCommand & canEmitTriangle) begin
 							issuePrimitive		= ISSUE_TRIANGLE;
 						end else begin
@@ -738,7 +738,14 @@ begin
 								issuePrimitive	= NO_ISSUE;
 							end
 						end
-						
+					end else begin
+						issuePrimitive	= NO_ISSUE;
+					end
+				
+					if (bIsPerVtxCol) begin
+						nextCondUseFIFO		= 1;
+						nextLogicalState	= FifoDataValid ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
+					end else begin
 						nextCondUseFIFO		= (issuePrimitive == NO_ISSUE);
 						nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
 					end
@@ -769,7 +776,7 @@ begin
 		loadCoord1				= 0; loadCoord2	= 0;
 		setIRQ					= 0;
 		resetVertexCounter		= 0;
-		increaseVertexCounter	= FifoDataValid & canIssueWork & (!bIsRectCommand);	// go to next vertex if do not need UVs.
+		increaseVertexCounter	= FifoDataValid & canIssueWork & (!bIsRectCommand);	// Increase vertex counter only when in POLY MODE (LINE never reach here, RECT is the only other)
 		storeCommand       		= 0;
 		loadUV					= FifoDataValid & canIssueWork;
 		loadRGB					= 0;
@@ -794,15 +801,31 @@ begin
 				nextLogicalState	= WAIT_COMMAND_COMPLETE;
 			end
 		end else begin
-			loadSize			= 0; loadSizeParam = 2'b0;
-			// Not a line, only textured Poly (quad or triangle)
-			issuePrimitive		= isPolyFinalVertex ? ISSUE_TRIANGLE : NO_ISSUE;
-			if (isPolyFinalVertex) begin // 3rd final point ? 4th final point ?
-				nextCondUseFIFO		= 0;
-				nextLogicalState	= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+			loadSize 				= 0; loadSizeParam = 2'b0;
+			
+			// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
+			// Can not issue if data is not valid.
+			if (FifoDataValid & bIsPolyCommand & canEmitTriangle & canIssueWork) begin
+				issuePrimitive	= ISSUE_TRIANGLE;
 			end else begin
-				nextCondUseFIFO		= 1;
-				nextLogicalState	= bIsPerVtxCol ? COLOR_LOAD : VERTEX_LOAD;
+				issuePrimitive	= NO_ISSUE;
+			end
+			
+			if (isPolyFinalVertex) begin // Is it the final vertex of the command ? (3rd / 4th depending on command)
+				// Allow to complete UV LOAD of last vertex and go to COMPLETE
+				// only if we can push the triangle and that the incoming FIFO data is valid.
+				nextCondUseFIFO		= !(canIssueWork & FifoDataValid);	// Instead of FIFO state, it uses
+				nextLogicalState	=  (canIssueWork & FifoDataValid) ? WAIT_COMMAND_COMPLETE : UV_LOAD;	// For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+			end else begin
+				if (bIsPerVtxCol) begin
+					nextCondUseFIFO		= 1;
+					nextLogicalState	= FifoDataValid ? COLOR_LOAD : UV_LOAD; // Next Vertex or stay current vertex until loaded.
+				end else begin
+					// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
+					// Can not issue if data is not valid.
+					nextCondUseFIFO		= (issuePrimitive == NO_ISSUE);
+					nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
+				end
 			end
 		end
 	end
@@ -1076,5 +1099,8 @@ end
 // TODO : When testing inside pixel, compute the screen space pixel adress 1 cycle sooner, IF Stencil compare ACTIVATED AND compare the Stencil cache result = 1. CAN early REJECT pixel.
 //			Note take care of that logic for line / rect too.
 
+//	assign red   = (|PrimTx)   ? VtxX2 + VtxX1 + VtxX0 : VtxR0 + VtxR1 + VtxR2;
+//	assign green = (|PrimClut) ? VtxY2 + VtxY1 + VtxY0 : VtxG0 + VtxG1 + VtxG2;
+//	assign blue  = (|RegSizeW & |RegSizeH) ? VtxU2 + VtxU1 + VtxU0 : VtxB0 + VtxB1 + VtxB2;
 endmodule
 
