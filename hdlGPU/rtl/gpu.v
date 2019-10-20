@@ -503,7 +503,7 @@ reg	 [10:0] counterX;
 always @(posedge clk)
 begin
 	// TODO : for now counter works only for FILL 16 pixels jump.
-	counterX = (decrementH_ResetXCounter) ? 11'd0 : counterX + 11'd16;
+	counterX = (decrementH_ResetXCounter) ? 11'd0 : counterX + { 6'd0 ,incrementXCounter, 4'd0 };
 end
 
 always @(*)
@@ -541,7 +541,7 @@ begin
 	FILL_LINE:
 	begin
 		// Forced to decrement at each step in X
-		if (RegSizeW==counterX) begin
+		if (RegSizeW==counterX) begin // TODO OPTIMIZE can shave ONE loop => use RegSizeW-1 compare and writeCommand=1 instead (bigger circuit), need to check about start Size == 0 issue.
 			writeCommand = 0;
 			nextWorkState = FILL_START;
 		end else begin
@@ -1129,6 +1129,10 @@ begin
 		if (loadCoord2) begin
 			RegSX1 = fifoDataOutWidth;
 			RegSY1 = fifoDataOutHeight;
+		end
+	end else begin
+		if (decrementH_ResetXCounter) begin
+			RegSizeH = RegSizeH - 10'd1;
 		end
 	end
 end
