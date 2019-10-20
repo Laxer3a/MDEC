@@ -467,16 +467,18 @@ wire bNotFirstVert		= !isFirstVertex;		// Can NOT use counter == 0. Won't work i
 wire canIssueWork       = (currWorkState == NOT_WORKING_DEFAULT_STATE);
 
 reg [3:0] currWorkState;	parameter 	NOT_WORKING_DEFAULT_STATE = 4'd0, 
-										LINE_START = 4'd1, LINE_DRAW = 4'd2, LINE_END = 4'd3,
-										RECT_START = 4'd4,
-										FILL_START = 4'd5,
-										COPY_START = 4'd6,
-										TRIANGLE_START = 4'd7,
-										FILL_LINE  = 4'd8,
-										TMP_1 = 4'd9,
-										TMP_2 = 4'd10,
-										TMP_3 = 4'd11,
-										TMP_4 = 4'd12; //13,14,15
+										LINE_START		= 4'd1, LINE_DRAW = 4'd2, LINE_END = 4'd3,
+										RECT_START		= 4'd4,
+										FILL_START		= 4'd5,
+										COPY_START		= 4'd6,
+										TRIANGLE_START	= 4'd7,
+										FILL_LINE  		= 4'd8,
+										COPYCV_START 	= 4'd9,
+										COPYVC_START 	= 4'd10,
+										TMP_1 = 4'd11,
+										TMP_2 = 4'd12,
+										TMP_3 = 4'd13,
+										TMP_4 = 4'd14; //15
 reg [3:0] nextWorkState;
 
 always @(posedge clk)
@@ -516,7 +518,15 @@ begin
 		ISSUE_RECT:		nextWorkState = RECT_START;
 		ISSUE_LINE:		nextWorkState = LINE_START;
 		ISSUE_FILL:		nextWorkState = FILL_START;
-		ISSUE_COPY:		nextWorkState = COPY_START;
+		ISSUE_COPY:		
+			if (bIsCopyVVCommand) begin
+				nextWorkState = COPY_START;
+			end else if (bIsCopyCVCommand) begin
+				nextWorkState = COPYCV_START;
+			end else begin
+				// bIsCopyVCCommandbegin obviously...
+				nextWorkState = COPYVC_START;
+			end
 		default:		nextWorkState = NOT_WORKING_DEFAULT_STATE;
 		endcase
 	end
@@ -541,6 +551,9 @@ begin
 	FILL_LINE:
 	begin
 		// Forced to decrement at each step in X
+		
+		// [FILL COMMAND : [000][Adr 15 bit][15 Bit BGR]  = 33 bit
+		
 		if (RegSizeW==counterX) begin // TODO OPTIMIZE can shave ONE loop => use RegSizeW-1 compare and writeCommand=1 instead (bigger circuit), need to check about start Size == 0 issue.
 			writeCommand = 0;
 			nextWorkState = FILL_START;
@@ -554,6 +567,43 @@ begin
 	// --------------------------------------------------------------------
 	COPY_START:
 	begin
+		// 1.May need to reassembly 16 bit pixel into 32 bit write due to alignement.
+		// 2.May need to repacket into into 8x32 bit packet for write.
+		//		[Must be done at FIFO outside]
+		// =>	A. Outside will have TWO memory of 16 pixel. (ODD / EVEN PIXELS)
+		//   	B. Burst load will be 16 pixels.
+		//		C. Read Command are :
+		//			Read  [store to +0/+16 offset][15 bit adr][16 bit mask from Stencil & Valid pixel mask]
+		//			[READ ARE ALWAYS 32 BYTE ALIGNED, ALSO ALIGNED IN STORE (0/16 pixels)]
+		//			Write [OffsetX        (4 bit)][15 bit adr][16 bit mask from Stencil & Valid pixel mask] 
+		//			[WRITE ARE ALWAYS 32 BYTE ALIGNED, BUT READ IN THE STORE is PIXEL INDEX BASED]
+		//
+		// [BSTORE COMMAND : [001][Adr 15 bit][Store 1 Bit (0/16)][16 Bit Mask] = 35 bit
+		// [BWRITE COMMAND : [010][Adr 15 bit][Store 4 Bit Offset][16 Bit Mask] = 38 bit
+		//
+		// 3. + Handle masking with CACHE.
+		//		Read  from STENCIL CACHE.
+		//		Write to   STENCIL CACHE.
+		// 4. State machine for pixel block size and copy...
+		// 5. Handle that SourceY < DestY or > Desty (copy order must be different !)
+		nextWorkState = TMP_1;
+	end
+	// --------------------------------------------------------------------
+	//   COPY CPU TO VRAM.
+	// --------------------------------------------------------------------
+	COPYCV_START:
+	begin
+		// [PSTORE COMMAND: [011][Index 5 bit][32 bit pixel][2 Bit Mask]
+		// Use BWRITE command once line are completed :-) Can reuse BURSTed command.
+		nextWorkState = TMP_1;
+	end
+	// --------------------------------------------------------------------
+	//   COPY VRAM TO CPU.
+	// --------------------------------------------------------------------
+	COPYVC_START:
+	begin
+		// [PREAD COMMAND: [100][Index 5 bit] -> Next cycle have 16 bit through special port.
+		// Use BSTORE Command for burst loading.
 		nextWorkState = TMP_1;
 	end
 	// --------------------------------------------------------------------
@@ -561,6 +611,7 @@ begin
 	// --------------------------------------------------------------------
 	TRIANGLE_START:
 	begin
+		// Triangle use PSTORE COMMAND. (2 pix per clock)
 		nextWorkState = TMP_1;
 	end
 	// --------------------------------------------------------------------
@@ -568,6 +619,7 @@ begin
 	// --------------------------------------------------------------------
 	RECT_START:
 	begin
+		// Rect use PSTORE COMMAND. (2 pix per clock)
 		nextWorkState = TMP_1;
 	end
 	// --------------------------------------------------------------------
@@ -579,6 +631,9 @@ begin
 	end
 	LINE_DRAW:
 	begin
+		// [PREAD  COMMAND: [101][Adress 19 bit] ---> Wait for pixel value...
+		// [PWRITE COMMAND: [110][Adress 19 bit][16 bit]
+		// Use for BG Read, not pushed from this state machine but by pipeline DEEPER but use the SAME FIFO interface.
 		nextWorkState = LINE_END;
 	end
 	LINE_END:
@@ -736,7 +791,7 @@ begin
 		loadSize				= 0; loadSizeParam = 2'b0;
 		issuePrimitive			= NO_ISSUE;
 		nextCondUseFIFO			= 1;
-		nextLogicalState		= bIsCopyCVCommand ? LOAD_XY2 :  WIDTH_HEIGHT_STATE;
+		nextLogicalState		= bIsCopyVVCommand ? LOAD_XY2 :  WIDTH_HEIGHT_STATE;
 	end
 	LOAD_XY2:
 	begin
