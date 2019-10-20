@@ -669,8 +669,8 @@ begin
 		loadSize				= 0; loadSizeParam = 2'b0;
 		issuePrimitive			= NO_ISSUE;
 		// Special case to test TERMINATOR (comes instead of COLOR value !!!)
-		nextCondUseFIFO			= !(bIsLineCommand & bIsTerminator);
-		nextLogicalState		=  (bIsLineCommand & bIsTerminator) ? DEFAULT_STATE : VERTEX_LOAD;
+		nextCondUseFIFO			= !(bIsLineCommand & bIsMultiLine & bIsTerminator);
+		nextLogicalState		=  (bIsLineCommand & bIsMultiLine & bIsTerminator) ? DEFAULT_STATE : VERTEX_LOAD;
 	end
 	// Step 1
 	VERTEX_LOAD:
@@ -721,7 +721,8 @@ begin
 						issuePrimitive	= ISSUE_TRIANGLE;
 					end else begin
 						// Line/Polyline
-						issuePrimitive	= ISSUE_LINE;
+						// If 5xxx5xxx do not issue a LINE.
+						issuePrimitive	= (bIsMultiLine & bIsTerminator) ? NO_ISSUE : ISSUE_LINE;
 					end
 				end else begin
 					// No need to check for canIssueWork because we emit the FIRST TRIANGLE in this case, so we know that the canIssueWork = 1.

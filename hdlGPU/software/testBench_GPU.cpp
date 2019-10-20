@@ -140,6 +140,19 @@ command commandArray[] = {
 	{ 1,	0x08000000 | (1<<3) | (1<<4) | (1<<6) | (1<<7) },
 	{ 1,	0x08000000  },
 	*/
+	
+	//
+	// Test 00..1F [Done]
+	// Test 20..2F
+	// Test 30..3F
+	// Test 40..4F
+	// Test 50..5F
+	// Test 60..6F
+	// Test 70..7F
+	// Test 80..8F
+	// Test 90..9F
+	//
+	//
 	/*
 	{ 0,    0x01000000 },
 	{ 0,    0x01000000 },	// Reset Cache
@@ -177,18 +190,535 @@ command commandArray[] = {
 	{ 0,    0x1F000000 },
 	*/
 	/*
-	{ 0,    0x20AABBCC },		// Polygon, 3 ptts, opaque
+		C = Command
+		V = Load Vertex
+		T = Load Texture Info
+		L = Load coLors.
+		* = Emit Primitive
+	*/
+#if 0
+	// CVVV*
+	{ 0,    0x20AABBCC },		// Polygon, 3 pts, opaque
 		{ 0,    0x00110001 },
 		{ 0,    0x00320022 },
 		{ 0,    0x00530043 },
-	*/
-	/*
+	{ 0,    0x21AABBCC },		// Polygon, 3 pts, opaque ( texture-blending disabled over non textured...)
+		{ 0,    0x00110001 },
+		{ 0,    0x00320022 },
+		{ 0,    0x00530043 },
+	{ 0,    0x22AABBCC },		// Polygon, 3 pts, semi transp
+		{ 0,    0x00110001 },
+		{ 0,    0x00320022 },
+		{ 0,    0x00530043 },
+	{ 0,    0x23AABBCC },		// Polygon, 3 pts, semi transp ( texture-blending disabled over non textured...)
+		{ 0,    0x00110001 },
+		{ 0,    0x00320022 },
+		{ 0,    0x00530043 },
+	// CVTVTVT*
+	{ 0,    0x24AABBCC },		// Polygon, 3 pts, opaque, texture blending
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+	{ 0,    0x25AABBCC },		// Polygon, 3 pts, opaque, raw texture
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+	{ 0,    0x26AABBCC },		// Polygon, 3 pts, semi, texture blending
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+	{ 0,    0x27AABBCC },		// Polygon, 3 pts, semi, raw texture
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+	// CVVV*V*
 	{ 0,    0x28AABBCC },		// Polygon, 4 pts, opaque
 		{ 0,    0x00910081 },
 		{ 0,    0x00B200A2 },
 		{ 0,    0x00D300C3 },
 		{ 0,    0xFFF3FFE3 },
+	{ 0,    0x29AABBCC },		// Polygon, 4 pts, opaque ( texture-blending disabled over non textured...)
+		{ 0,    0x00910081 },
+		{ 0,    0x00B200A2 },
+		{ 0,    0x00D300C3 },
+		{ 0,    0xFFF3FFE3 },
+	{ 0,    0x2AAABBCC },		// Polygon, 4 pts, semi transp
+		{ 0,    0x00910081 },
+		{ 0,    0x00B200A2 },
+		{ 0,    0x00D300C3 },
+		{ 0,    0xFFF3FFE3 },
+	{ 0,    0x2BAABBCC },		// Polygon, 4 pts, semi transp ( texture-blending disabled over non textured...)
+		{ 0,    0x00910081 },
+		{ 0,    0x00B200A2 },
+		{ 0,    0x00D300C3 },
+		{ 0,    0xFFF3FFE3 },
+
+	// CVTVTVT*VT*
+	{ 0,    0x2CAABBCC },		// Polygon, 4 pts, opaque, texture blending
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+		{ 0,    0x00740064 },
+		{ 0,    0xFFFAF5F9 },
+	{ 0,    0x2DAABBCC },		// Polygon, 4 pts, opaque, raw texture
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+		{ 0,    0x00740064 },
+		{ 0,    0xFFFAF5F9 },
+	{ 0,    0x2EAABBCC },		// Polygon, 4 pts, semi, texture blending
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+		{ 0,    0x00740064 },
+		{ 0,    0xFFFAF5F9 },
+	{ 0,    0x2FAABBCC },		// Polygon, 4 pts, semi, raw texture
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+		{ 0,    0x00740064 },
+		{ 0,    0xFFFAF5F9 },
+
+	// CVLVLV*
+	{ 0,    0x30AABBCC },		// Polygon, 3 pts, opaque
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFA2B1C0 },	// L
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFEA5B4C3 },	// L
+		{ 0,    0x00530043 },	// V
+	{ 0,    0x31AABBCC },		// Polygon, 3 pts, opaque ( texture-blending disabled over non textured...)
+		{ 0,    0x00110001 },
+		{ 0,    0xFFA2B1C0 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFEA5B4C3 },
+		{ 0,    0x00530043 },
+	{ 0,    0x32AABBCC },		// Polygon, 3 pts, semi transp
+		{ 0,    0x00110001 },
+		{ 0,    0xFFA2B1C0 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFEA5B4C3 },
+		{ 0,    0x00530043 },
+	{ 0,    0x33AABBCC },		// Polygon, 3 pts, semi transp ( texture-blending disabled over non textured...)
+		{ 0,    0x00110001 },
+		{ 0,    0xFFA2B1C0 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFEA5B4C3 },
+		{ 0,    0x00530043 },
+	// CVTLVTLVT*
+	{ 0,    0x34AABBCC },		// Polygon, 3 pts, opaque, texture blending
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0xFFA2B1C0 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0xFEA5B4C3 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+	{ 0,    0x35AABBCC },		// Polygon, 3 pts, opaque, raw texture
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0xFFA2B1C0 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0xFEA5B4C3 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+	{ 0,    0x36AABBCC },		// Polygon, 3 pts, semi, texture blending
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0xFFA2B1C0 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0xFEA5B4C3 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+	{ 0,    0x37AABBCC },		// Polygon, 3 pts, semi, raw texture
+		{ 0,    0x00110001 },
+		{ 0,    0xFFF3F2F1 },
+		{ 0,    0xFFA2B1C0 },
+		{ 0,    0x00320022 },
+		{ 0,    0xFFF6F5F4 },
+		{ 0,    0xFEA5B4C3 },
+		{ 0,    0x00530043 },
+		{ 0,    0xFFF8F5F7 },
+	// CVLVLV*LV*
+	{ 0,    0x38AABBCC },		// Polygon, 4 pts, semi transp
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFA2B1C0 },	// L
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFEA5B4C3 },	// L
+		{ 0,    0x00530043 },	// V
+		{ 0,    0xFEA5B4C4 },	// L
+		{ 0,    0x00770064 },	// V
+	{ 0,    0x39AABBCC },		// Polygon, 4 pts, semi transp
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFA2B1C0 },	// L
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFEA5B4C3 },	// L
+		{ 0,    0x00530043 },	// V
+		{ 0,    0xFEA5B4C4 },	// L
+		{ 0,    0x00770064 },	// V
+	{ 0,    0x3AAABBCC },		// Polygon, 4 pts, semi transp
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFA2B1C0 },	// L
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFEA5B4C3 },	// L
+		{ 0,    0x00530043 },	// V
+		{ 0,    0xFEA5B4C4 },	// L
+		{ 0,    0x00770064 },	// V
+	{ 0,    0x3BAABBCC },		// Polygon, 4 pts, semi transp ( texture-blending disabled over non textured...)
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFA2B1C0 },	// L
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFEA5B4C3 },	// L
+		{ 0,    0x00530043 },	// V
+		{ 0,    0xFEA5B4C4 },	// L
+		{ 0,    0x00770064 },	// V
+
+	// CVTLVTLVT*LVT*
+	{ 0,    0x3CAABBCC },		// Polygon, 4 pts, opaque, texture blending
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFF3F2F1 },	// T
+		{ 0,    0xFFA2B1C0 },	// C
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFFF6F5F4 },	// T
+		{ 0,    0xFEA5B4C3 },	// C
+		{ 0,    0x00530043 },	// V
+		{ 0,    0xFFF9F8F7 },	// T
+		{ 0,    0xFDA8B7C6 },	// C
+		{ 0,    0x00740064 },	// V
+		{ 0,    0xFFFCFBFA },	// T
+	{ 0,    0x3DAABBCC },		// Polygon, 4 pts, opaque, raw texture
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFF3F2F1 },	// T
+		{ 0,    0xFFA2B1C0 },	// C
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFFF6F5F4 },	// T
+		{ 0,    0xFEA5B4C3 },	// C
+		{ 0,    0x00530043 },	// V
+		{ 0,    0xFFF9F8F7 },	// T
+		{ 0,    0xFDA8B7C6 },	// C
+		{ 0,    0x00740064 },	// V
+		{ 0,    0xFFFCFBFA },	// T
+	{ 0,    0x3EAABBCC },		// Polygon, 4 pts, semi, texture blending
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFF3F2F1 },	// T
+		{ 0,    0xFFA2B1C0 },	// C
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFFF6F5F4 },	// T
+		{ 0,    0xFEA5B4C3 },	// C
+		{ 0,    0x00530043 },	// V
+		{ 0,    0xFFF9F8F7 },	// T
+		{ 0,    0xFDA8B7C6 },	// C
+		{ 0,    0x00740064 },	// V
+		{ 0,    0xFFFCFBFA },	// T
+	{ 0,    0x3FAABBCC },		// Polygon, 4 pts, semi, raw texture
+		{ 0,    0x00110001 },	// V
+		{ 0,    0xFFF3F2F1 },	// T
+		{ 0,    0xFFA2B1C0 },	// C
+		{ 0,    0x00320022 },	// V
+		{ 0,    0xFFF6F5F4 },	// T
+		{ 0,    0xFEA5B4C3 },	// C
+		{ 0,    0x00530043 },	// V
+		{ 0,    0xFFF9F8F7 },	// T
+		{ 0,    0xFDA8B7C6 },	// C
+		{ 0,    0x00740064 },	// V
+		{ 0,    0xFFFCFBFA },	// T
+#endif
+	/*
+	// CVV*
+	{0, 0x40080808},	// 40/41/42/43/44/45/46/47
+		{0, 0x00010002},
+		{0, 0x00040003},
 	*/
+	// CVV*V*...V*S
+	{0, 0x48080808},	// 48/49/4A/4B/4C/4D/4E/4F
+		{0, 0x00010002},
+		{0, 0x00040003},	// Line 1
+		{0, 0x00060005},	// Line 2
+		{0, 0x50005000},	// [Stop]
+
+	// CVLV*
+	{0, 0x50080808},	// 50/51/52/53/54/55/56/57
+		{0, 0x00010002}, // XY
+		{0, 0x00AABBCC}, // COL
+		{0, 0x00040003}, // XY
+
+	// CVLV*LV*...LV*S
+	{0, 0x58080808},	// 58/59/5A/5B/5C/5D/5E/5F
+		{0, 0x00010002}, // XY
+		{0, 0x00AABBCC}, // COL
+		{0, 0x00040003}, // XY
+		{0, 0x00DDEEFF}, // COL
+		{0, 0x00060005}, // XY
+		{0, 0x00112233}, // COL
+		{0, 0x00080007}, // XY
+		{0, 0x50005000}, // COL
+#if 0
+	/*
+	GP0(60h) -  (opaque)
+	61
+	GP0(62h) - Monochrome Rectangle (variable size) (semi-transparent)
+	63
+	(3rd) Width+Height      (YsizXsizh) (variable size only) (max 1023x511)
+	*/
+	// Monochrome Rectangle (variable size)
+	{0, 0x60080808}, // 61/62/63
+	{0, 0x00010002},
+	{0, 0x001F003F},
+
+	{0, 0x61080808},
+	{0, 0x00010002},
+	{0, 0x001F003F},
+
+	{0, 0x62080808},
+	{0, 0x00010002},
+	{0, 0x001F003F},
+
+	{0, 0x63080808},
+	{0, 0x00010002},
+	{0, 0x001F003F},
+
+	/*
+	GP0(68h) - Monochrome Rectangle (1x1) (Dot) (opaque)
+	69
+	GP0(6Ah) - Monochrome Rectangle (1x1) (Dot) (semi-transparent)
+	6B
+	GP0(70h) - Monochrome Rectangle (8x8) (opaque)
+	71
+	GP0(72h) - Monochrome Rectangle (8x8) (semi-transparent)
+	73
+	GP0(78h) - Monochrome Rectangle (16x16) (opaque)
+	79
+	GP0(7Ah) - Monochrome Rectangle (16x16) (semi-transparent)
+	7B
+
+	1st  Color+Command     (CcBbGgRrh)
+	2nd  Vertex            (YyyyXxxxh)
+	*/
+
+	{0, 0x68080808},	// 69/6A/6B/70/71/72/73/78/79/7A/7B
+		{0, 0x00010002},
+
+	{0, 0x69080808},
+		{0, 0x00010002},
+
+	{0, 0x6A080808},
+		{0, 0x00010002},
+
+	{0, 0x6B080808},
+		{0, 0x00010002},
+
+	{0, 0x70080808},
+		{0, 0x00010002},
+
+	{0, 0x71080808},
+		{0, 0x00010002},
+
+	{0, 0x72080808},
+		{0, 0x00010002},
+
+	{0, 0x73080808},
+		{0, 0x00010002},
+
+	{0, 0x78080808},
+		{0, 0x00010002},
+
+	{0, 0x79080808},
+		{0, 0x00010002},
+
+	{0, 0x7A080808},
+		{0, 0x00010002},
+
+	{0, 0x7B080808},
+		{0, 0x00010002},
+
+	/*
+	GP0(64h) - Textured Rectangle, variable size, opaque, texture-blending
+	GP0(65h) - Textured Rectangle, variable size, opaque, raw-texture
+	GP0(66h) - Textured Rectangle, variable size, semi-transp, texture-blending
+	GP0(67h) - Textured Rectangle, variable size, semi-transp, raw-texture
+	(4th) Width+Height      (YsizXsizh) (variable size only) (max 1023x511)
+	*/
+
+	{0, 0x64080808},	// 65/66/67
+		{0, 0x00010002},
+		{0, 0xCCCCDDEE},
+		{0, 0x001F003F},
+
+	{0, 0x65080808},
+		{0, 0x00010002},
+		{0, 0xCCCCDDEE},
+		{0, 0x001F003F},
+
+	{0, 0x66080808},
+		{0, 0x00010002},
+		{0, 0xCCCCDDEE},
+		{0, 0x001F003F},
+
+	{0, 0x67080808},
+		{0, 0x00010002},
+		{0, 0xCCCCDDEE},
+		{0, 0x001F003F},
+
+	/*
+	GP0(6Ch) - Textured Rectangle, 1x1 (nonsense), opaque, texture-blending
+	GP0(6Dh) - Textured Rectangle, 1x1 (nonsense), opaque, raw-texture
+	GP0(6Eh) - Textured Rectangle, 1x1 (nonsense), semi-transp, texture-blending
+	GP0(6Fh) - Textured Rectangle, 1x1 (nonsense), semi-transp, raw-texture
+	GP0(74h) - Textured Rectangle, 8x8, opaque, texture-blending
+	GP0(75h) - Textured Rectangle, 8x8, opaque, raw-texture
+	GP0(76h) - Textured Rectangle, 8x8, semi-transparent, texture-blending
+	GP0(77h) - Textured Rectangle, 8x8, semi-transparent, raw-texture
+	GP0(7Ch) - Textured Rectangle, 16x16, opaque, texture-blending
+	GP0(7Dh) - Textured Rectangle, 16x16, opaque, raw-texture
+	GP0(7Eh) - Textured Rectangle, 16x16, semi-transparent, texture-blending
+	GP0(7Fh) - Textured Rectangle, 16x16, semi-transparent, raw-texture
+
+	1st  Color+Command     (CcBbGgRrh) (color is ignored for raw-textures)
+	2nd  Vertex            (YyyyXxxxh) (upper-left edge of the rectangle)
+	3rd  Texcoord+Palette  (ClutYyXxh) (for 4bpp Textures Xxh must be even!)
+	*/
+
+	{0, 0x6C080808},	// 6D/6E/6F/74/75/76/77/7C/7D/7E/7F
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x6D080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x6E080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x6F080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x74080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x75080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x76080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x77080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x7C080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x7D080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x7E080808},	
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+
+	{0, 0x7F080808},
+		{0, 0x00010002},	
+		{0, 0xCCCCDDEE},
+#endif
+#if 0
+	// E0~FF except E1~E6
+	{0, 0xE0000000},
+	{0, 0xE7000000},
+	{0, 0xE8000000},
+	{0, 0xE9000000},
+	{0, 0xEA000000},
+	{0, 0xEB000000},
+	{0, 0xEC000000},
+	{0, 0xED000000},
+	{0, 0xEE000000},
+	{0, 0xEF000000},
+	{0, 0xF0000000},
+	{0, 0xF1000000},
+	{0, 0xF2000000},
+	{0, 0xF3000000},
+	{0, 0xF4000000},
+	{0, 0xF5000000},
+	{0, 0xF6000000},
+	{0, 0xF7000000},
+	{0, 0xF8000000},
+	{0, 0xF9000000},
+	{0, 0xFA000000},
+	{0, 0xFB000000},
+	{0, 0xFC000000},
+	{0, 0xFD000000},
+	{0, 0xFE000000},
+	{0, 0xFF000000},
+	// E1-E6
+	{0, 0xE100FFFF},
+	{0, 0xE20FFFFF},
+	{0, 0xE3FFFFFF},
+	{0, 0xE4FFFFFF},
+	{0, 0xE5FFFFFF},
+	{0, 0xE6000001},
+	{0, 0xE6000010},
+	{0, 0xE6000000},
+#endif
+
+
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+	{ 0,    0x0000FFFF },
+
 	{ 0,    0x0000FFFF },
 	{ 0,    0x07000000 },
 	{ 0,    0x07000000 },
@@ -223,6 +753,63 @@ void pushCommands() {
 	if (currCycleCount == waitCycle) {
 		currCycleCount = 0;
 	}
+}
+
+enum STATE {
+	DEFAULT_STATE		= 0,
+	LOAD_COMMAND		= 1,
+	COLOR_LOAD			= 2,
+	VERTEX_LOAD			= 3,
+	UV_LOAD				= 4,
+	WIDTH_HEIGHT_STATE	= 5,
+	LOAD_XY1			= 6,
+	LOAD_XY2			= 7,
+	WAIT_COMMAND_COMPLETE =  8
+};
+
+enum WORK_STATE {
+	NOT_WORKING_DEFAULT_STATE = 0,
+	LINE_START = 1,
+	// LINE_DRAW = 4'd2, LINE_END = 4'd3,
+	RECT_START = 4,
+	FILL_START = 5,
+	COPY_START = 6,
+	TRIANGLE_START = 7,
+	/*
+	TMP_1 = 4'd8,
+	TMP_2 = 4'd9,
+	TMP_3 = 4'd10,
+	TMP_4 = 4'd11;
+	*/
+};
+
+void checkGPUState() {
+	static int cycleCount = 0;
+	printf("@%i ", cycleCount++);
+	switch ((STATE)mod->gpu__DOT__currState) {
+	case DEFAULT_STATE:			printf("DEFAULT_STATE "); break;
+	case LOAD_COMMAND:			printf("LOAD_COMMAND [0x%x]", mod->gpu__DOT__command); break;
+	case COLOR_LOAD:			printf("  COLOR_LOAD (L:%i Value:%x) ",mod->gpu__DOT__loadRGB,mod->gpu__DOT__fifoDataOut); break;
+	case VERTEX_LOAD:			if (mod->gpu__DOT__loadVertices) { printf("  VERTEX_LOAD "); } else { printf("  (VERTEX LOAD WAIT COMPLETE) "); } 
+								printf("(L:%i Value:%x) ",mod->gpu__DOT__loadVertices,mod->gpu__DOT__fifoDataOut);
+								break;
+	case UV_LOAD:				if (mod->gpu__DOT__loadUV) { printf("  UV_LOAD (L:%i Value:%x) ",mod->gpu__DOT__loadUV,mod->gpu__DOT__fifoDataOut);  } else { printf("  (UV LOAD WAIT COMPLETE) "); } break;
+	case WIDTH_HEIGHT_STATE:	printf("  WIDTH_HEIGHT_STATE (L:%i Value:%x) ",mod->gpu__DOT__loadSize,mod->gpu__DOT__fifoDataOut); break;
+	case LOAD_XY1:				printf("  LOAD_XY1 "); break;
+	case LOAD_XY2:				printf("  LOAD_XY2 "); break;
+	case WAIT_COMMAND_COMPLETE:	printf("  WAIT_COMMAND_COMPLETE "); break;
+	}
+
+	switch ((WORK_STATE)mod->gpu__DOT__currWorkState) {
+	case LINE_START: printf("LINE START "); break;
+	case RECT_START: printf("RECT START "); break;
+	case FILL_START: printf("FILL START "); break;
+	case COPY_START: printf("COPY START "); break;
+	case TRIANGLE_START: printf("TRIANGLE START "); break;
+	case NOT_WORKING_DEFAULT_STATE: break;
+	default: printf("(FAKE) PRIMITIVE RENDER... "); break;
+	}
+	printf("\n");
 }
 
 int testGPU() {
@@ -526,6 +1113,7 @@ int testGPU() {
 	while (true) {
 		pushCommands();
 		clock();
+		checkGPUState();
 	}
 	clock();
 	clock();
