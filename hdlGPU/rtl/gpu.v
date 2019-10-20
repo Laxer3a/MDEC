@@ -28,7 +28,22 @@ module gpu(
 wire writeFifo		= !gpuAdrA2 & gpuSel & write;
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
 assign ack			= !isFifoFull;
-assign cpuDataOut	=  gpuAdrA2 & gpuSel & read ? reg1Out : 32'd0; // TODO other register output read... 
+assign cpuDataOut	=  gpuAdrA2 & gpuSel & read ? reg1Out : regGpuInfo; // TODO other register output read... (regGpuInfo not selected when using READ VRAM to CPU)
+always @(*)
+begin
+	if (gpuSel & read) begin
+		// Register +4 Read
+		if (gpuAdrA2) begin
+			cpuDataOut	=  reg1Out;
+		end else begin
+		// Register +0 Read
+		// TODO : if has 0xCX command, then return proper VRAM values...
+			cpuDataOut	=  regGpuInfo;
+		end
+	end else begin
+		cpuDataOut	=  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
+	end
+end
 
 assign IRQRequest = GPU_REG_IRQSet;
 
@@ -178,12 +193,68 @@ wire setDisplayMode	= writeGP1 & (cpuDataIn[29:24] == 6'd8);
 // Command GP1-09 not supported.
 wire getGPUInfo		= writeGP1 & (cpuDataIn[29:28] == 2'd1); // 0h1X command.
 
-	// TODO implement getGPUInfo.
+/*	GP1(10h) - Get GPU Info
+	GP1(11h..1Fh) - Mirrors of GP1(10h), Get GPU Info
+	After sending the command, the result can be read (immediately) from GPUREAD register (there's no NOP or other delay required) (namely GPUSTAT.Bit27 is used only for VRAM-Reads, but NOT for GPU-Info-Reads, so do not try to wait for that flag).
+	  0-23  Select Information which is to be retrieved (via following GPUREAD)
+	On Old 180pin GPUs, following values can be selected:
+	  00h-01h = Returns Nothing (old value in GPUREAD remains unchanged)
+	  02h     = Read Texture Window setting  ;GP0(E2h) ;20bit/MSBs=Nothing
+	  03h     = Read Draw area top left      ;GP0(E3h) ;19bit/MSBs=Nothing
+	  04h     = Read Draw area bottom right  ;GP0(E4h) ;19bit/MSBs=Nothing
+	  05h     = Read Draw offset             ;GP0(E5h) ;22bit
+	  06h-07h = Returns Nothing (old value in GPUREAD remains unchanged)
+	  08h-FFFFFFh = Mirrors of 00h..07h
+	On New 208pin GPUs, following values can be selected:
+	  00h-01h = Returns Nothing (old value in GPUREAD remains unchanged)
+	  02h     = Read Texture Window setting  ;GP0(E2h) ;20bit/MSBs=Nothing
+	  03h     = Read Draw area top left      ;GP0(E3h) ;20bit/MSBs=Nothing
+	  04h     = Read Draw area bottom right  ;GP0(E4h) ;20bit/MSBs=Nothing
+	  05h     = Read Draw offset             ;GP0(E5h) ;22bit
+	  06h     = Returns Nothing (old value in GPUREAD remains unchanged)
+	  07h     = Read GPU Type (usually 2)    ;see "GPU Versions" chapter		/// EXTENSION GPU
+	  08h     = Unknown (Returns 00000000h) (lightgun on some GPUs?)
+	  09h-0Fh = Returns Nothing (old value in GPUREAD remains unchanged)
+	  10h-FFFFFFh = Mirrors of 00h..0Fh
+ */
+reg [31:0] gpuInfoMux;
+reg [31:0] regGpuInfo;
+always @(*)
+begin
+	case (cpuDataIn[3:0])	// NEW GPU SPEC, 2:0 on OLD GPU
+	4'd0:
+		gpuInfoMux = regGpuInfo;
+	4'd1:
+		gpuInfoMux = regGpuInfo;
+	4'd2:
+		// Texture Window Setting.
+		gpuInfoMux = { 12'd0, GPU_REG_WindowTextureOffsetY, GPU_REG_WindowTextureOffsetX, GPU_REG_WindowTextureMaskY,GPU_REG_WindowTextureMaskX };
+	4'd3:
+		// Draw Top Left
+		gpuInfoMux = { 12'd0, GPU_REG_DrawAreaY0,GPU_REG_DrawAreaX0}; // 20 bit on new GPU, 19 bit on OLD GPU.
+	4'd4:
+		// Draw Bottom Right
+		gpuInfoMux = { 12'd0, GPU_REG_DrawAreaY1,GPU_REG_DrawAreaX1};
+	4'd5:
+		// Draw Offset
+		gpuInfoMux = { 10'd0, GPU_REG_OFFSETY, GPU_REG_OFFSETX };
+	4'd6:
+		gpuInfoMux = regGpuInfo;
+	4'd7:
+		gpuInfoMux = 32'h00000002;
+	4'd8:
+		gpuInfoMux = 32'd0;
+	default:	// 0x9..F
+		gpuInfoMux = regGpuInfo;
+	endcase
+end
 
-	// [TODO List of primitive that are implemented and one that are not. Maintain an excel spreadsheet of those]
-	
 always @(posedge clk)
 begin
+	if (getGPUInfo) begin
+		regGpuInfo = gpuInfoMux;
+	end
+
 	if (rstGPU) begin
 		GPU_REG_OFFSETX      <= 11'd0;
 		GPU_REG_OFFSETY      <= 11'd0;
@@ -367,9 +438,10 @@ reg  [7:0] RegU2;
 reg  [7:0] RegV2;
 reg [14:0] RegC ;
 reg  [9:0] RegTx;
-reg  [9:0] RegSizeW,RegSX0,RegSX1;
-reg  [8:0] RegSizeH,RegSY0,RegSY1;
-
+reg  [9:0] RegSX0,RegSX1;
+reg [10:0] RegSizeW;
+reg  [8:0] RegSY0,RegSY1;
+reg [ 9:0] RegSizeH;
 
 // FIFO is empty or next stage still busy processing the last primitive.
 
@@ -400,10 +472,11 @@ reg [3:0] currWorkState;	parameter 	NOT_WORKING_DEFAULT_STATE = 4'd0,
 										FILL_START = 4'd5,
 										COPY_START = 4'd6,
 										TRIANGLE_START = 4'd7,
-										TMP_1 = 4'd8,
-										TMP_2 = 4'd9,
-										TMP_3 = 4'd10,
-										TMP_4 = 4'd11;
+										FILL_LINE  = 4'd8,
+										TMP_1 = 4'd9,
+										TMP_2 = 4'd10,
+										TMP_3 = 4'd11,
+										TMP_4 = 4'd12; //13,14,15
 reg [3:0] nextWorkState;
 
 always @(posedge clk)
@@ -415,6 +488,22 @@ begin
 		currState		<= nextState;
 		currWorkState	<= nextWorkState;
 	end
+end
+
+// When line start, ask to decrement 
+wire decrementH_ResetXCounter	= (currWorkState == FILL_START);
+wire incrementXCounter			= (currWorkState == FILL_LINE);		// TODO : May be wait for FIFO full also ?
+// TODO : push into FIFO only if valid...
+
+wire [10:0] fullX               = RegSizeW + { 1'b0, RegSX0 };
+wire  [9:0] fullY               = RegSizeH + { 1'b0, RegSY0 };
+wire [18:0] adrWord				= { fullY[8:0],fullX[9:0] };
+reg         writeCommand;
+reg	 [10:0] counterX;
+always @(posedge clk)
+begin
+	// TODO : for now counter works only for FILL 16 pixels jump.
+	counterX = (decrementH_ResetXCounter) ? 11'd0 : counterX + 11'd16;
 end
 
 always @(*)
@@ -438,9 +527,27 @@ begin
 	// --------------------------------------------------------------------
 	//   FILL VRAM STATE MACHINE
 	// --------------------------------------------------------------------
-	FILL_START:
+	FILL_START:	// Actually FILL LINE START.
 	begin
-		nextWorkState = TMP_1;
+		writeCommand = 0;
+		if (RegSizeH == 0) begin
+			nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		end else begin
+			// Next Cycle H=H-1, and we can parse from H-1 to 0 for each line...
+			// Reset X Counter.
+			nextWorkState = FILL_LINE;
+		end
+	end
+	FILL_LINE:
+	begin
+		// Forced to decrement at each step in X
+		if (RegSizeW==counterX) begin
+			writeCommand = 0;
+			nextWorkState = FILL_START;
+		end else begin
+			writeCommand = 1;
+			nextWorkState = FILL_LINE;
+		end
 	end
 	// --------------------------------------------------------------------
 	//   COPY VRAM STATE MACHINE
@@ -661,7 +768,7 @@ begin
 		increaseVertexCounter	= 0;
 		storeCommand       		= 0;
 		loadUV					= 0;
-		loadRGB					= FifoDataValid;
+		loadRGB					= 1;
 		loadVertices			= 0;
 		loadAllRGB				= 0;
 		loadClutPage			= 0;
@@ -744,7 +851,7 @@ begin
 					end
 				
 					if (bIsPerVtxCol) begin
-						nextCondUseFIFO		= 1;
+						nextCondUseFIFO		= 1; // TODO : Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
 						nextLogicalState	= FifoDataValid ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
 					end else begin
 						nextCondUseFIFO		= (issuePrimitive == NO_ISSUE);
@@ -762,7 +869,7 @@ begin
 		// TRICKY DETAIL : When emitting multiple primitive, load the next vertex ONLY WHEN THE EMITTED COMMAND IS COMPLETED.
 		//                 So we check (issuePrimitive == NO_ISSUE) when requesting next vertex.
 		increaseVertexCounter	= FifoDataValid & (!bUseTexture);	// go to next vertex if do not need UVs, don't care if invalid vertex... cause no issues. PUSH NEW VERTEX ONLY IF NOT BUSY RENDERING.
-		loadVertices			= FifoDataValid & (!bIsMultiLineTerminator); // Check if not TERMINATOR + line + multiline, else vertices are valid.
+		loadVertices			= (!bIsMultiLineTerminator); // Check if not TERMINATOR + line + multiline, else vertices are valid.
 		storeCommand       		= 0;
 		loadUV					= 0;
 		loadRGB					= 0;
@@ -779,7 +886,7 @@ begin
 		resetVertexCounter		= 0;
 		increaseVertexCounter	= FifoDataValid & canIssueWork & (!bIsRectCommand);	// Increase vertex counter only when in POLY MODE (LINE never reach here, RECT is the only other)
 		storeCommand       		= 0;
-		loadUV					= FifoDataValid & canIssueWork;
+		loadUV					= canIssueWork;
 		loadRGB					= 0;
 		loadVertices			= 0;
 		loadAllRGB				= 0;
@@ -944,70 +1051,85 @@ reg bPipeIssueTrianglePrimitive;
 always @(posedge clk)
 begin
 	bPipeIssueTrianglePrimitive <= (issuePrimitiveReal == ISSUE_TRIANGLE);
-	if (isV0 & loadVertices) RegX0 <= fifoDataOutX;
-	if (isV0 & loadVertices) RegY0 <= fifoDataOutY;
-	if (isV0 & loadUV	   ) RegU0 <= fifoDataOutUR;
-	if (isV0 & loadUV      ) RegV0 <= fifoDataOutVG;
-	if ((isV0|loadAllRGB) & loadRGB) begin
-		RegR0 <= loadComponentR;
-		RegG0 <= loadComponentG;
-		RegB0 <= loadComponentB;
-	end
+	if (FifoDataValid) begin
+		if (isV0 & loadVertices) RegX0 <= fifoDataOutX;
+		if (isV0 & loadVertices) RegY0 <= fifoDataOutY;
+		if (isV0 & loadUV	   ) RegU0 <= fifoDataOutUR;
+		if (isV0 & loadUV      ) RegV0 <= fifoDataOutVG;
+		if ((isV0|loadAllRGB) & loadRGB) begin
+			RegR0 <= loadComponentR;
+			RegG0 <= loadComponentG;
+			RegB0 <= loadComponentB;
+		end
+			
+		if (isV1 & loadVertices) RegX1 <= fifoDataOutX;
+		if (isV1 & loadVertices) RegY1 <= fifoDataOutY;
+		if (isV1 & loadUV	   ) RegU1 <= fifoDataOutUR;
+		if (isV1 & loadUV      ) RegV1 <= fifoDataOutVG;
+		if ((isV1|loadAllRGB) & loadRGB) begin
+			RegR1 <= loadComponentR;
+			RegG1 <= loadComponentG;
+			RegB1 <= loadComponentB;
+		end
 		
-	if (isV1 & loadVertices) RegX1 <= fifoDataOutX;
-	if (isV1 & loadVertices) RegY1 <= fifoDataOutY;
-	if (isV1 & loadUV	   ) RegU1 <= fifoDataOutUR;
-	if (isV1 & loadUV      ) RegV1 <= fifoDataOutVG;
-	if ((isV1|loadAllRGB) & loadRGB) begin
-		RegR1 <= loadComponentR;
-		RegG1 <= loadComponentG;
-		RegB1 <= loadComponentB;
-	end
-	
-	if (isV2 & loadVertices) RegX2 <= fifoDataOutX;
-	if (isV2 & loadVertices) RegY2 <= fifoDataOutY;
-	if (isV2 & loadUV	   ) RegU2 <= fifoDataOutUR;
-	if (isV2 & loadUV      ) RegV2 <= fifoDataOutVG;
-	if ((isV2|loadAllRGB) & loadRGB) begin
-		RegR2 <= loadComponentR;
-		RegG2 <= loadComponentG;
-		RegB2 <= loadComponentB;
-	end
-	
-	if (loadTexPage)  RegTx <= fifoDataOutTex;
-	if (loadClutPage) RegC  <= fifoDataOutClut;
-//	Better load and add W to RegX0,RegY0,RegX1=RegX0+W ? Same for Y1.
-	if (loadSize) begin
-		case (loadSizeParam)
-		SIZE_VAR:
-		begin
-			RegSizeW = fifoDataOutWidth;
-			RegSizeH = fifoDataOutHeight;
+		if (isV2 & loadVertices) RegX2 <= fifoDataOutX;
+		if (isV2 & loadVertices) RegY2 <= fifoDataOutY;
+		if (isV2 & loadUV	   ) RegU2 <= fifoDataOutUR;
+		if (isV2 & loadUV      ) RegV2 <= fifoDataOutVG;
+		if ((isV2|loadAllRGB) & loadRGB) begin
+			RegR2 <= loadComponentR;
+			RegG2 <= loadComponentG;
+			RegB2 <= loadComponentB;
 		end
-		SIZE_1x1:
-		begin
-			RegSizeW = 10'd1;
-			RegSizeH =  9'd1;
+		
+		if (loadTexPage)  RegTx <= fifoDataOutTex;
+		if (loadClutPage) RegC  <= fifoDataOutClut;
+	//	Better load and add W to RegX0,RegY0,RegX1=RegX0+W ? Same for Y1.
+		if (loadSize) begin
+			case (loadSizeParam)
+			SIZE_VAR:
+			begin
+				if (bIsFillCommand) begin
+					RegSizeW = { 1'b0, fifoDataOutWidth[9:4], 4'b0 } + { 6'd0, |fifoDataOutWidth[3:0], 4'b0 };
+				end else begin
+					if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
+						RegSizeW = { !(&fifoDataOutWidth[9:0]), fifoDataOutWidth }; // If value is 0, then 0x400
+					end else begin
+						RegSizeW = { 1'b0, fifoDataOutWidth };
+					end
+				end
+				
+				if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
+					RegSizeH = { !(&fifoDataOutHeight[8:0]), fifoDataOutHeight }; // If value is 0, then 0x400
+				end else begin
+					RegSizeH = { 1'b0, fifoDataOutHeight };
+				end
+			end
+			SIZE_1x1:
+			begin
+				RegSizeW = 11'd1;
+				RegSizeH = 10'd1;
+			end
+			SIZE_8x8:
+			begin
+				RegSizeW = 11'd8;
+				RegSizeH = 10'd8;
+			end
+			SIZE_16x16:
+			begin
+				RegSizeW = 11'd16;
+				RegSizeH = 10'd16;
+			end
+			endcase
 		end
-		SIZE_8x8:
-		begin
-			RegSizeW = 10'd8;
-			RegSizeH =  9'd8;
+		if (loadCoord1) begin
+			RegSX0 = (bIsFillCommand) ? { fifoDataOutWidth[9:4], 4'b0} : fifoDataOutWidth;
+			RegSY0 = fifoDataOutHeight;
 		end
-		SIZE_16x16:
-		begin
-			RegSizeW = 10'd16;
-			RegSizeH =  9'd16;
+		if (loadCoord2) begin
+			RegSX1 = fifoDataOutWidth;
+			RegSY1 = fifoDataOutHeight;
 		end
-		endcase
-	end
-	if (loadCoord1) begin
-		RegSX0 = fifoDataOutWidth;
-		RegSY0 = fifoDataOutHeight;
-	end
-	if (loadCoord2) begin
-		RegSX1 = fifoDataOutWidth;
-		RegSY1 = fifoDataOutHeight;
 	end
 end
 

@@ -449,6 +449,29 @@ command commandArray[] = {
 		{ 0,    0x00740064 },	// V
 		{ 0,    0xFFFCFBFA },	// T
 #endif
+	{0,	0x02AABBCC},		// FILL RECT
+		{ 0, 0xAAAACCCC },
+		{ 0, 0x11112222 },
+
+	{0, 0x80AABBCC},		// VRAM to VRAM
+		{ 0, 0xAAAACCCC },
+		{ 0, 0x11112222 },
+		{ 0, 0x33334444 },
+	{0, 0xA0AABBCC},		// CPU to VRAM
+		{ 0, 0xAAAACCCC },
+		{ 0, 0x00010002 },
+		{ 0, 0x33334444 },
+	{0, 0xC0AABBCC},		// VRAM to CPU
+		{ 0, 0xAAAACCCC },
+		{ 0, 0x00010002 },
+		{ 0, 0x33334444 },
+
+
+	{0, 0x80AABBCC},
+		{ 0, 0xAAAACCCC },
+		{ 0, 0x11112222 },
+
+
 	/*
 	// CVV*
 	{0, 0x40080808},	// 40/41/42/43/44/45/46/47
