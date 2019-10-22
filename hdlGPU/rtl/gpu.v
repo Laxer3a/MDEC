@@ -22,13 +22,12 @@ module gpu(
 	input			write,
 	input			read,
 	input 	[31:0]	cpuDataIn,
-	output	[31:0]	cpuDataOut
+	output reg [31:0]	cpuDataOut
 );
 
 wire writeFifo		= !gpuAdrA2 & gpuSel & write;
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
 assign ack			= !isFifoFull;
-assign cpuDataOut	=  gpuAdrA2 & gpuSel & read ? reg1Out : regGpuInfo; // TODO other register output read... (regGpuInfo not selected when using READ VRAM to CPU)
 always @(*)
 begin
 	if (gpuSel & read) begin
@@ -442,6 +441,7 @@ reg  [9:0] RegSX0,RegSX1;
 reg [10:0] RegSizeW;
 reg  [8:0] RegSY0,RegSY1;
 reg [ 9:0] RegSizeH;
+reg [ 9:0] OriginalRegSizeH;
 
 // FIFO is empty or next stage still busy processing the last primitive.
 
@@ -466,20 +466,25 @@ wire bNotFirstVert		= !isFirstVertex;		// Can NOT use counter == 0. Won't work i
 
 wire canIssueWork       = (currWorkState == NOT_WORKING_DEFAULT_STATE);
 
-reg [3:0] currWorkState;	parameter 	NOT_WORKING_DEFAULT_STATE = 4'd0, 
-										LINE_START		= 4'd1, LINE_DRAW = 4'd2, LINE_END = 4'd3,
-										RECT_START		= 4'd4,
-										FILL_START		= 4'd5,
-										COPY_START		= 4'd6,
-										TRIANGLE_START	= 4'd7,
-										FILL_LINE  		= 4'd8,
-										COPYCV_START 	= 4'd9,
-										COPYVC_START 	= 4'd10,
-										TMP_1 = 4'd11,
-										TMP_2 = 4'd12,
-										TMP_3 = 4'd13,
-										TMP_4 = 4'd14; //15
-reg [3:0] nextWorkState;
+reg [4:0] currWorkState;	parameter 	NOT_WORKING_DEFAULT_STATE = 5'd0, 
+										LINE_START		= 5'd1, LINE_DRAW = 5'd2, LINE_END = 5'd3,
+										RECT_START		= 5'd4,
+										FILL_START		= 5'd5,
+										COPY_START		= 5'd6,
+										TRIANGLE_START	= 5'd7,
+										FILL_LINE  		= 5'd8,
+										COPYCV_START 	= 5'd9,
+										COPYVC_START 	= 5'd10,
+										CPY_LINE_START_UNALIGNED	= 5'd11,
+										CPY_LINE_BLOCK				= 5'd12,
+										CPY_WUN_BLOCK				= 5'd13,
+										CPY_WR_BLOCK				= 5'd14,
+										
+										TMP_1 = 5'd15,
+										TMP_2 = 5'd16,
+										TMP_3 = 5'd17,
+										TMP_4 = 5'd18; //15
+reg [4:0] nextWorkState;
 
 always @(posedge clk)
 begin
@@ -493,23 +498,77 @@ begin
 end
 
 // When line start, ask to decrement 
-wire decrementH_ResetXCounter	= (currWorkState == FILL_START);
-wire incrementXCounter			= (currWorkState == FILL_LINE);		// TODO : May be wait for FIFO full also ?
-// TODO : push into FIFO only if valid...
+reg         useDest;
+reg			incrementXCounter;
 
-wire [10:0] fullX               = RegSizeW + { 1'b0, RegSX0 };
-wire  [9:0] fullY               = RegSizeH + { 1'b0, RegSY0 };
+//
+// This computation is tricky : RegSizeH is the size (ex 200 lines).
+// 1/ We will perform rendering from 200 to 1, 0 is EXIT value. (number of line to work on).
+// 2/ But the adress is RegSizeH-1. (So we had 0x3FF, same thing)
+// 3/ We have also the DIRECTION of the line-by-line processing. Copy may not work depending on Source and Dest Y and block length. So we choose the copy direction too.
+
+// Copy from TOP to BOTTOM when doing COPY from LOWER ADR to HIGHER ADR, and OPPOSITE TO AVOID FEEDBACK DURING COPY.
+// This flag also impact the FILL order but not the feature itself (Value SY1 depend on previouss commands or reset).
+wire yCopyDirectionIncr = (RegSY0 < RegSY1);
+
+wire [ 9:0] OppRegSizeH         = OriginalRegSizeH - RegSizeH;
+wire  [9:0] fullY               = ((yCopyDirectionIncr ? OppRegSizeH : RegSizeH   )+10'h3FF) + { 1'b0, useDest ? RegSY1 : RegSY0 };	// Proper Top->Bottom or reverse order based on copy direction.
+
+//
+// Same for X Axis. Except we use an INCREMENTING COUNTER INSTEAD OF DEC FOR THE SAME AXIS.
+// TODO : Check with pixel size...
+// wire xCopyDirectionIncr = (RegSX0 < RegSX1);
+wire [10:0] fullX               =  (useDest            ? counterXDst : counterXSrc)          + { 1'b0, useDest ? RegSX1 : RegSX0 };
+
 wire [18:0] adrWord				= { fullY[8:0],fullX[9:0] };
 reg         writeCommand;
-reg	 [10:0] counterX;
+reg	 [10:0] counterXSrc,counterXDst;
+reg  [15:0] maskLeft;
+wire [15:0] maskRight = ~maskLeft;
+always @(*)
+begin
+	case (fullX[3:0])
+	4'h0: maskLeft = 16'b1111_1111_1111_1111;
+	4'h1: maskLeft = 16'b1111_1111_1111_1110;
+	4'h2: maskLeft = 16'b1111_1111_1111_1100;
+	4'h3: maskLeft = 16'b1111_1111_1111_1000;
+	4'h4: maskLeft = 16'b1111_1111_1111_0000;
+	4'h5: maskLeft = 16'b1111_1111_1110_0000;
+	4'h6: maskLeft = 16'b1111_1111_1100_0000;
+	4'h7: maskLeft = 16'b1111_1111_1000_0000;
+	4'h8: maskLeft = 16'b1111_1111_0000_0000;
+	4'h9: maskLeft = 16'b1111_1110_0000_0000;
+	4'hA: maskLeft = 16'b1111_1100_0000_0000;
+	4'hB: maskLeft = 16'b1111_1000_0000_0000;
+	4'hC: maskLeft = 16'b1111_0000_0000_0000;
+	4'hD: maskLeft = 16'b1110_0000_0000_0000;
+	4'hE: maskLeft = 16'b1100_0000_0000_0000;
+	default: maskLeft = 16'b1000_0000_0000_0000;
+	endcase
+end
+
 always @(posedge clk)
 begin
-	// TODO : for now counter works only for FILL 16 pixels jump.
-	counterX = (decrementH_ResetXCounter) ? 11'd0 : counterX + { 6'd0 ,incrementXCounter, 4'd0 };
+	counterXSrc = (decrementH_ResetXCounter) ? 11'd0 : counterXSrc + { 6'd0 ,incrementXCounter & (!useDest), 4'd0 };
+	counterXDst = (decrementH_ResetXCounter) ? 11'd0 : counterXDst + { 6'd0 ,incrementXCounter &   useDest , 4'd0 };
 end
+
+wire acceptCommand = 1; // TODO : Fifo implement, FIFO !full.
+reg  switchReadStoreBlock; // TODO this command will ALSO do loading the CACHE STENCIL locally (2x16 bit registers)
+reg  decrementH_ResetXCounter;
 
 always @(*)
 begin
+	// -----------------------
+	// Default Value Section
+	// -----------------------
+	writeCommand				= 0; 
+	nextWorkState				= currWorkState;
+	incrementXCounter			= 0;
+	decrementH_ResetXCounter	= 0;
+	switchReadStoreBlock		= 0;
+	useDest						= 0; // Source adr computation by default...
+	
 	case (currWorkState)
 	NOT_WORKING_DEFAULT_STATE:
 	begin
@@ -527,7 +586,8 @@ begin
 				// bIsCopyVCCommandbegin obviously...
 				nextWorkState = COPYVC_START;
 			end
-		default:		nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		default:
+			nextWorkState = currWorkState;
 		endcase
 	end
 	
@@ -539,8 +599,8 @@ begin
 	// --------------------------------------------------------------------
 	FILL_START:	// Actually FILL LINE START.
 	begin
-		writeCommand = 0;
-		if (RegSizeH == 0) begin
+		decrementH_ResetXCounter = 1;
+		if ((RegSizeH == 0) | (RegSizeW == 0)) begin
 			nextWorkState = NOT_WORKING_DEFAULT_STATE;
 		end else begin
 			// Next Cycle H=H-1, and we can parse from H-1 to 0 for each line...
@@ -551,15 +611,14 @@ begin
 	FILL_LINE:
 	begin
 		// Forced to decrement at each step in X
-		
 		// [FILL COMMAND : [000][Adr 15 bit][15 Bit BGR]  = 33 bit
-		
-		if (RegSizeW==counterX) begin // TODO OPTIMIZE can shave ONE loop => use RegSizeW-1 compare and writeCommand=1 instead (bigger circuit), need to check about start Size == 0 issue.
-			writeCommand = 0;
+		if (RegSizeW==counterXSrc) begin // TODO OPTIMIZE can shave ONE loop => use RegSizeW-1 compare and writeCommand=1 instead (bigger circuit). NOTE : RegSizeW > 0 garantee by FILL_START.
 			nextWorkState = FILL_START;
 		end else begin
-			writeCommand = 1;
-			nextWorkState = FILL_LINE;
+			if (acceptCommand) begin
+				incrementXCounter	= 1;// SRC COUNTER
+				writeCommand		= 1;
+			end
 		end
 	end
 	// --------------------------------------------------------------------
@@ -567,6 +626,67 @@ begin
 	// --------------------------------------------------------------------
 	COPY_START:
 	begin
+		// [CPY_START]
+		decrementH_ResetXCounter = 1;
+		if (RegSizeH == 0) begin
+			nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		end else begin
+			if (RegSX0[3:0]!=0) begin
+				nextWorkState = CPY_LINE_START_UNALIGNED;
+			end else begin
+				nextWorkState = CPY_LINE_BLOCK;
+			end
+		end
+	end
+	CPY_LINE_START_UNALIGNED:// [CPY_LINE_START_UNALIGNED]
+	begin
+		if (acceptCommand) begin
+			// TODO : ReadBlock(adr);
+			incrementXCounter		= 1; // SRC COUNTER
+			switchReadStoreBlock	= 1;
+			nextWorkState			= CPY_LINE_BLOCK;
+		end
+	end
+	CPY_LINE_BLOCK:	// [CPY_LINE_BLOCK]
+	begin
+		if (acceptCommand) begin
+			// TODO : ReadBlock(adr);
+			incrementXCounter		= 1; // SRC COUNTER
+			switchReadStoreBlock	= 1;
+			if (RegSX1[3:0]!=0) begin
+				nextWorkState = CPY_WUN_BLOCK;
+			end else begin
+				nextWorkState = CPY_WR_BLOCK;
+			end
+		end
+	end
+	CPY_WUN_BLOCK:	// [CPY_WUN_BLOCK]
+	begin
+		useDest = 1;
+		if (acceptCommand) begin
+			// TODO : WriteBlock(adr)
+			incrementXCounter		= 1; // DST COUNTER
+			nextWorkState			= CPY_WR_BLOCK;
+		end
+	end
+	CPY_WR_BLOCK:
+	begin
+		useDest = 1;
+		if (acceptCommand) begin
+			// TODO : WriteBlock(adr)
+			incrementXCounter		= 1; // DST COUNTER
+			if (RegSizeW==counterXDst) begin // TODO Wrong condition...
+				nextWorkState		= COPY_START;
+			end else begin
+				if (RegSX0[3:0]!=0) begin
+					nextWorkState	= CPY_LINE_START_UNALIGNED;
+				end else begin
+					nextWorkState	= CPY_LINE_BLOCK;
+				end
+			end
+		end
+	end
+	
 		// 1.May need to reassembly 16 bit pixel into 32 bit write due to alignement.
 		// 2.May need to repacket into into 8x32 bit packet for write.
 		//		[Must be done at FIFO outside]
@@ -586,8 +706,12 @@ begin
 		//		Write to   STENCIL CACHE.
 		// 4. State machine for pixel block size and copy...
 		// 5. Handle that SourceY < DestY or > Desty (copy order must be different !)
-		nextWorkState = TMP_1;
-	end
+		
+		// .Is Aligned ?
+		//  .1 Read, 1 Write
+		// else
+		//  .2 Read, 1 Write
+		
 	// --------------------------------------------------------------------
 	//   COPY CPU TO VRAM.
 	// --------------------------------------------------------------------
@@ -612,6 +736,11 @@ begin
 	TRIANGLE_START:
 	begin
 		// Triangle use PSTORE COMMAND. (2 pix per clock)
+		//              BWRITE
+		//
+		// [CLOAD COMMAND : [111][Adress 17 bit] (Texture)
+		// Use C(ache)LOAD to load a cache line for TEXTURE with 8 BYTE. This command will be upgraded if cache design changes...
+		// Clut CACHE uses BSTORE command.
 		nextWorkState = TMP_1;
 	end
 	// --------------------------------------------------------------------
@@ -1102,6 +1231,7 @@ wire [8:0] loadComponentB	= bIgnoreColor   ? 9'b100000000 : componentFuncBA;
 // TODO : SWAP bit. for loading 4th, line segment.
 //
 reg bPipeIssueTrianglePrimitive;
+wire [9:0] copyHeight = { !(|fifoDataOutHeight[8:0]), fifoDataOutHeight };
 
 always @(posedge clk)
 begin
@@ -1148,16 +1278,18 @@ begin
 					RegSizeW = { 1'b0, fifoDataOutWidth[9:4], 4'b0 } + { 6'd0, |fifoDataOutWidth[3:0], 4'b0 };
 				end else begin
 					if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
-						RegSizeW = { !(&fifoDataOutWidth[9:0]), fifoDataOutWidth }; // If value is 0, then 0x400
+						RegSizeW = { !(|fifoDataOutWidth[9:0]), fifoDataOutWidth }; // If value is 0, then 0x400
 					end else begin
 						RegSizeW = { 1'b0, fifoDataOutWidth };
 					end
 				end
 				
 				if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
-					RegSizeH = { !(&fifoDataOutHeight[8:0]), fifoDataOutHeight }; // If value is 0, then 0x400
+					RegSizeH			= copyHeight; // If value is 0, then 0x400
+					OriginalRegSizeH	= copyHeight;
 				end else begin
-					RegSizeH = { 1'b0, fifoDataOutHeight };
+					RegSizeH			= { 1'b0, fifoDataOutHeight };
+					OriginalRegSizeH	= { 1'b0, fifoDataOutHeight };
 				end
 			end
 			SIZE_1x1:
