@@ -18,18 +18,17 @@ module directCacheDoublePort(
 	input			textureFormatTrueColor,
 	input			write,
 //	input			update,		// If update 32 bit.
-	input	[19:0]	adressIn,
+	input	[16:0]	adressIn,
 	input	[63:0]	dataIn,		// Upper module responsability to make 64 bit atomic write.
 	
-	input	[19:0]	adressLookA,
+	input	[18:0]	adressLookA,
 	output	[15:0]	dataOutA,
 	output			isHitA,
 
-	input	[19:0]	adressLookB,
+	input	[18:0]	adressLookB,
 	output	[15:0]	dataOutB,
 	output			isHitB
 );
-
 	// LINEAR MAPPING :
 	// ccccPPPPPbbbbbLLL aaa <-- One line width for block in  16 bpp. (32 pixel   , 64 byte per line)
 	// cccPPPPPPbbbbbbLL aaa <-- One line width for block in 8/4 bpp. (32/64 pixel, 32 byte per line)
@@ -39,8 +38,11 @@ module directCacheDoublePort(
 	// --------------------------
 	// ccccbbbbb|PPPPPLLL aaa <-- One line width for block in  16 bpp. (32 pixel   , 64 byte per line)
 	// cccbbbbbb|PPPPPPLL aaa <-- One line width for block in 8/4 bpp. (32/64 pixel, 32 byte per line)
-	wire [19:0] swizzleAddr = textureFormatTrueColor 	? { adressIn[19:16],adressIn[10:6],adressIn[15:11],adressIn[5:0]}  // 4,5,5,6
-														: { adressIn[19:17],adressIn[10:5],adressIn[16:11],adressIn[4:0]}; // 5,6,6,5
+
+//	wire [19:0] swizzleAddr = textureFormatTrueColor 	? { adressIn[19:16],adressIn[10:6],adressIn[15:11],adressIn[5:0]}  // 4,5,5,6
+//														: { adressIn[19:17],adressIn[10:5],adressIn[16:11],adressIn[4:0]}; // 5,6,6,5
+	wire [16:0] swizzleAddr = textureFormatTrueColor 	? { adressIn[16:13],adressIn[7:3],adressIn[12:8],adressIn[2:0]}  // 4,5,5,3
+														: { adressIn[16:14],adressIn[7:2],adressIn[13:8],adressIn[1:0]}; // 5,6,6,2
 	
 	parameter WT = 10; 	// 2KB Version
 	parameter NE = 255;
@@ -62,19 +64,65 @@ module directCacheDoublePort(
 	
 	always @ (posedge clk)
 	begin
-		if (write /*|| (pUpdate & !pAdressIn[3])*/) // Low 32 bit.
+		if (write)
 		begin
-			RAMStorage[swizzleAddr[WT:3]]	<= { swizzleAddr[WT:3], dataIn[63: 0] };
-			D0A								<= { swizzleAddr[WT:3], dataIn[63: 0] };
-			D0B								<= { swizzleAddr[WT:3], dataIn[63: 0] };
-		end else begin
-			D0A								<= RAMStorage[adressLookA[WT:3]];
-			D0B								<= RAMStorage[adressLookB[WT:3]];
+			RAMStorage[swizzleAddr[WT-3:0]]	<= { swizzleAddr[WT-3:0], dataIn[63: 0] };
+//			D0A								<= { swizzleAddr[WT-3:0], dataIn[63: 0] };		// DID CAUSE INFERENCE ISSUE, NOT ENABLING RAM BLOCK
+//			D0B								<= { swizzleAddr[WT-3:0], dataIn[63: 0] };
+//		end else begin
+//			D0A								<= RAMStorage[adressLookA[WT:2]];
+//			D0B								<= RAMStorage[adressLookB[WT:2]];
 		end
 		
-		pRaddrA	<= adressLookA[WT:3];
-		pRaddrB	<= adressLookB[WT:3];
-		
+		pRaddrA	<= adressLookA[WT-1:2];
+		pRaddrB	<= adressLookB[WT-1:2];
+	end
+//	reg  [WS:0]	D0A;
+//	reg  [WS:0]	D0B;
+
+	wire  [WS:0]	D0A = RAMStorage[pRaddrA];
+	wire  [WS:0]	D0B = RAMStorage[pRaddrB];
+
+	wire       lookActiveA	= Active[pRaddrA];
+	wire       lookActiveB	= Active[pRaddrB];
+	wire [WT-3:0] lookTagA	= D0A[WS:64];
+	wire [WT-3:0] lookTagB	= D0B[WS:64];
+
+	assign isHitA	= (lookTagA == pRaddrA) & pLookActiveA;
+	assign isHitB	= (lookTagB == pRaddrB) & pLookActiveB;
+
+	reg pLookActiveA;
+	reg pLookActiveB;
+	always @ (posedge clk)
+	begin
+		pLookActiveA <= lookActiveA;
+		pLookActiveB <= lookActiveB;
+	end
+	
+	reg [15:0] dOutA;
+	always @(*) begin
+	case (pIndexA)
+	2'd0 : dOutA = D0A[15: 0];
+	2'd1 : dOutA = D0A[31:16];
+	2'd2 : dOutA = D0A[47:32];
+	2'd3 : dOutA = D0A[63:48];
+	endcase
+	end
+	assign dataOutA	= dOutA;
+	
+	reg [15:0] dOutB;
+	always @(*) begin
+	case (pIndexB)
+	2'd0 : dOutB = D0B[15: 0];
+	2'd1 : dOutB = D0B[31:16];
+	2'd2 : dOutB = D0B[47:32];
+	2'd3 : dOutB = D0B[63:48];
+	endcase
+	end
+	assign dataOutB	= dOutB;
+	
+	always @ (posedge clk)
+	begin
 		if ((i_nrst == 0) | clearCache) begin
 			Active[0] <= 1'b0;
 			Active[1] <= 1'b0;
@@ -1110,48 +1158,9 @@ module directCacheDoublePort(
 				endcase
 			end // End write
 		end
+
+		pIndexA	<= adressLookA[1:0];
+		pIndexB	<= adressLookB[1:0];
+	end
 		
-		pIndexA	<= adressLookA[2:1];
-		pIndexB	<= adressLookB[2:1];
-	end
-
-	wire       lookActiveA	= Active[pRaddrA];
-	wire       lookActiveB	= Active[pRaddrB];
-	reg  [WS:0]	D0A; // 			= RAMStorage[pRaddrA];
-	reg  [WS:0]	D0B; //				= RAMStorage[pRaddrB];
-	wire [WT-3:0] lookTagA	= D0A[WS:64];
-	wire [WT-3:0] lookTagB	= D0B[WS:64];
-
-	assign isHitA	= (lookTagA == pRaddrA) & pLookActiveA;
-	assign isHitB	= (lookTagB == pRaddrB) & pLookActiveB;
-
-	reg pLookActiveA;
-	reg pLookActiveB;
-	always @ (posedge clk)
-	begin
-		pLookActiveA <= lookActiveA;
-		pLookActiveB <= lookActiveB;
-	end
-	
-	reg [15:0] dOutA;
-	always @(*) begin
-	case (pIndexA)
-	2'd0 : dOutA = D0A[15: 0];
-	2'd1 : dOutA = D0A[31:16];
-	2'd2 : dOutA = D0A[47:32];
-	2'd3 : dOutA = D0A[63:48];
-	endcase
-	end
-	assign dataOutA	= dOutA;
-	
-	reg [15:0] dOutB;
-	always @(*) begin
-	case (pIndexB)
-	2'd0 : dOutB = D0B[15: 0];
-	2'd1 : dOutB = D0B[31:16];
-	2'd2 : dOutB = D0B[47:32];
-	2'd3 : dOutB = D0B[63:48];
-	endcase
-	end
-	assign dataOutB	= dOutB;
 endmodule

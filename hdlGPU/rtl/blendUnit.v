@@ -49,7 +49,7 @@ module blendUnit(
 	end
 	
 	// NOTE : that pure BG stuff can be executed earlier at triangle rasterization and avoided here for performance gain.
-//	wire pureBG          = checkMask & bg_mask;
+	//	wire pureBG          = checkMask & bg_mask;
 	
 	wire noblendInternal = tblTransp /* | pureBG*/;		// Target buffer mask result override.
 	

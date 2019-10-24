@@ -11,13 +11,13 @@ module TEXUnit(
 	input [4:0]	GPU_REG_WindowTextureOffsetY,
 	
 	// Dynamic stuff...
-	input [7:0]	coordU1,
-	input [7:0]	coordV1,
-	input [7:0]	coordU2,
-	input [7:0]	coordV2,
+	input [7:0]	coordU_L,
+	input [7:0]	coordV_L,
+	input [7:0]	coordU_R,
+	input [7:0]	coordV_R,
 	
-	output [18:0]	texelAdress1,	// HalfWord adress.
-	output [18:0]	texelAdress2	// HalfWord adress.
+	output [18:0]	texelAdress_L,	// HalfWord adress.
+	output [18:0]	texelAdress_R	// HalfWord adress.
 );
 
 	/*
@@ -32,10 +32,10 @@ module TEXUnit(
 		tex.x = (tex.x & ~(textureWindow.maskX * 8)) | ((textureWindow.offsetX & textureWindow.maskX) * 8);
 		tex.y = (tex.y & ~(textureWindow.maskY * 8)) | ((textureWindow.offsetY & textureWindow.maskY) * 8);
 	*/
-	wire [7:0] flippedU1 = GPU_REG_TextureXFlip ? ~coordU1 : coordU1;
-	wire [7:0] flippedV1 = GPU_REG_TextureYFlip ? ~coordV1 : coordV1;
-	wire [7:0] flippedU2 = GPU_REG_TextureXFlip ? ~coordU2 : coordU2;
-	wire [7:0] flippedV2 = GPU_REG_TextureYFlip ? ~coordV2 : coordV2;
+	wire [7:0] flippedU1 = GPU_REG_TextureXFlip ? ~coordU_L : coordU_L;
+	wire [7:0] flippedV1 = GPU_REG_TextureYFlip ? ~coordV_L : coordV_L;
+	wire [7:0] flippedU2 = GPU_REG_TextureXFlip ? ~coordU_R : coordU_R;
+	wire [7:0] flippedV2 = GPU_REG_TextureYFlip ? ~coordV_R : coordV_R;
 
 	wire [7:0] extMaskX  = (~{GPU_REG_WindowTextureMaskX , 3'd0});
 	wire [7:0] extMaskY  = (~{GPU_REG_WindowTextureMaskY , 3'd0});
@@ -84,6 +84,6 @@ module TEXUnit(
 		endcase
 	end
 	
-	assign texelAdress1 = {{ GPU_REG_TexBasePageY, texCoordV1 } , adr1 };
-	assign texelAdress2 = {{ GPU_REG_TexBasePageY, texCoordV2 } , adr2 };
+	assign texelAdress_L = {{ GPU_REG_TexBasePageY, texCoordV1 } , adr1 };
+	assign texelAdress_R = {{ GPU_REG_TexBasePageY, texCoordV2 } , adr2 };
 endmodule

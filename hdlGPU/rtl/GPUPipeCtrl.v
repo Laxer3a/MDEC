@@ -17,13 +17,13 @@ module GPUPipeCtrl(
 	// Left Side (All values stay the same from previous cycle if OkNext is FALSE)
 	input [1:0] 	iScrX,
 	input [1:0] 	iScrY,
-	input [7:0]		iR,
-	input [7:0]		iG,
-	input [7:0]		iB,
+	input [8:0]		iR,
+	input [8:0]		iG,
+	input [8:0]		iB,
 	
 	input			validPixel,
 	input  [1:0]	UCoordLSB,
-	input [19:0] 	texelAdress,
+	input [18:0] 	texelAdress,
 	
 	// To Left Side
 	input			OkNextOtherUnit,
@@ -31,13 +31,13 @@ module GPUPipeCtrl(
 
 	// Tex$ Side
 	output			requDataTex,
-	output [19:0]	adrTexReq,	// Temp
+	output [18:0]	adrTexReq,	// Temp
 	input			TexHit,
 	input  [15:0]	dataTex,	// Temp 
 	
 	// Request Cache Fill
 	output          requTexCacheUpdate,
-	output [19:0]   adrTexCacheUpdate,
+	output [16:0]   adrTexCacheUpdate,
 	input           updateTexCacheComplete,
 	
 	// Clut$ Side
@@ -55,11 +55,11 @@ module GPUPipeCtrl(
 	output			oValidPixel,
 	output [ 1:0]	oScrx,
 	output [ 1:0]	oScry,
-	output [15:0]	oPixel,
+	output [15:0]	oTexel,
 	output 			oTransparent,
-	output  [7:0]	oR,
-	output  [7:0]	oG,
-	output  [7:0]	oB
+	output  [8:0]	oR,
+	output  [8:0]	oG,
+	output  [8:0]	oB
 );
 	wire isTrueColor = (GPU_REG_TexFormat == 2'd2);
 
@@ -137,7 +137,7 @@ module GPUPipeCtrl(
 		endRequestMissTexture = (loadingText & updateTexCacheComplete);
 	end
 	assign requTexCacheUpdate = requestMissTexture;
-	assign adrTexCacheUpdate  = texelAdress; // NO NEED FOR PIPELINING. If FAIL, NEXT=0 -> Input is the same as previous cycle...
+	assign adrTexCacheUpdate  = texelAdress[18:2]; // NO NEED FOR PIPELINING. If FAIL, NEXT=0 -> Input is the same as previous cycle...
 	// ----------------------------------------------------------
 	
 	// --------------------------------------------------------
@@ -188,14 +188,14 @@ module GPUPipeCtrl(
 		
 	// Select "CLUT" or "TEXTURE" or "WHITE with 0 mask value".
 	wire [15:0] pixelOut	= GPU_TEX_DISABLE ? 16'h7FFF : ((!isTrueColor) ? dataClut          : dataTex);
-	assign oPixel			= pixelOut;
+	assign oTexel			= pixelOut;
 	assign oValidPixel		= GPU_TEX_DISABLE ? 1'b1     : ((!isTrueColor) ? pOutTexValidPixel : outTexValidPixel);
 	assign oTransparent		= !(|pixelOut[14:0]); // If all ZERO, then 1.
 
 	// ---- Pipelining of RGB / Scr coord
 	reg [1:0] 	ScrX1,ScrX2;
 	reg [1:0] 	ScrY1,ScrY2;
-	reg [7:0]	R1,R2,G1,G2,B1,B2;
+	reg [8:0]	R1,R2,G1,G2,B1,B2;
 
 	// Pipe 1
 	always @ (posedge clk)
