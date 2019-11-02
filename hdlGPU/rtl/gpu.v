@@ -132,9 +132,9 @@ reg         [4:0] GPU_REG_WindowTextureMaskY;
 reg         [4:0] GPU_REG_WindowTextureOffsetX;
 reg         [4:0] GPU_REG_WindowTextureOffsetY;
 reg         [9:0] GPU_REG_DrawAreaX0;
-reg         [9:0] GPU_REG_DrawAreaY0; // 8:0 on old GPU.
+reg         [9:0] GPU_REG_DrawAreaY0;				// 8:0 on old GPU.
 reg         [9:0] GPU_REG_DrawAreaX1;
-reg         [9:0] GPU_REG_DrawAreaY1; // 8:0 on old GPU.
+reg         [9:0] GPU_REG_DrawAreaY1;				// 8:0 on old GPU.
 reg               GPU_REG_ForcePixel15MaskSet;		// Stencil force to 1.
 reg               GPU_REG_CheckMaskBit; 			// Stencil Read/Compare Enabled
 
@@ -255,25 +255,25 @@ begin
 	end
 
 	if (rstGPU) begin
-		GPU_REG_OFFSETX      <= 11'd0;
-		GPU_REG_OFFSETY      <= 11'd0;
-		GPU_REG_TexBasePageX <= 4'd0;
-		GPU_REG_TexBasePageY <= 1'b0;
-		GPU_REG_Transparency <= 2'd0;
-		GPU_REG_TexFormat    <= 2'd0; // TODO ??
-		GPU_REG_DitherOn     <= 1'd0; // TODO ??
-		GPU_REG_DrawDisplayAreaOn <= 1'b0; // Default by GP1(00h) definition.
-		GPU_REG_TextureDisable <= 1'b0;
-		GPU_REG_TextureXFlip <= 1'b0;
-		GPU_REG_TextureYFlip <= 1'b0;
-		GPU_REG_WindowTextureMaskX   <= 5'd0;
-		GPU_REG_WindowTextureMaskY   <= 5'd0;
-		GPU_REG_WindowTextureOffsetX <= 5'd0;
-		GPU_REG_WindowTextureOffsetY <= 5'd0;
-		GPU_REG_DrawAreaX0   <= 10'd0;
-		GPU_REG_DrawAreaY0   <= 10'd0; // 8:0 on old GPU.
-		GPU_REG_DrawAreaX1   <= 10'd1023; // TODO ??? Allow whole surface by default...
-		GPU_REG_DrawAreaY1   <= 10'd1023; // TODO ??? 8:0 on old GPU.
+		GPU_REG_OFFSETX				<= 11'd0;
+		GPU_REG_OFFSETY				<= 11'd0;
+		GPU_REG_TexBasePageX		<= 4'd0;
+		GPU_REG_TexBasePageY		<= 1'b0;
+		GPU_REG_Transparency		<= 2'd0;
+		GPU_REG_TexFormat			<= 2'd0; // TODO ??
+		GPU_REG_DitherOn			<= 1'd0; // TODO ??
+		GPU_REG_DrawDisplayAreaOn	<= 1'b0; // Default by GP1(00h) definition.
+		GPU_REG_TextureDisable		<= 1'b0;
+		GPU_REG_TextureXFlip		<= 1'b0;
+		GPU_REG_TextureYFlip		<= 1'b0;
+		GPU_REG_WindowTextureMaskX	<= 5'd0;
+		GPU_REG_WindowTextureMaskY	<= 5'd0;
+		GPU_REG_WindowTextureOffsetX<= 5'd0;
+		GPU_REG_WindowTextureOffsetY<= 5'd0;
+		GPU_REG_DrawAreaX0			<= 10'd0;
+		GPU_REG_DrawAreaY0			<= 10'd0; // 8:0 on old GPU.
+		GPU_REG_DrawAreaX1			<= 10'd1023;	// TODO ??? Allow whole surface by default...
+		GPU_REG_DrawAreaY1			<= 10'd511;		// TODO ??? 10'd1023 on old GPU.
 		GPU_REG_ForcePixel15MaskSet <= 0;
 		GPU_REG_CheckMaskBit		<= 0;
 		GPU_REG_CurrentInterlaceField <= 1; // Odd field by default (bit 14 = 1 on reset)
@@ -318,11 +318,11 @@ begin
 		end
 		if (loadDrawAreaTL) begin
 			GPU_REG_DrawAreaX0 <= fifoDataOut[ 9: 0];
-			GPU_REG_DrawAreaY0 <= fifoDataOut[19:10]; // 8:0 on old GPU.
+			GPU_REG_DrawAreaY0 <= { 1'b0, fifoDataOut[18:10] }; // 19:10 on NEW GPU.
 		end
 		if (loadDrawAreaBR) begin
 			GPU_REG_DrawAreaX1 <= fifoDataOut[ 9: 0];
-			GPU_REG_DrawAreaY1 <= fifoDataOut[19:10]; // 8:0 on old GPU.
+			GPU_REG_DrawAreaY1 <= { 1'b0, fifoDataOut[18:10] }; // 19:0 on NEW GPU.
 		end
 		if (loadMaskSetting) begin
 			GPU_REG_ForcePixel15MaskSet <= fifoDataOut[0];
@@ -509,26 +509,41 @@ reg			incrementXCounter;
 
 // Copy from TOP to BOTTOM when doing COPY from LOWER ADR to HIGHER ADR, and OPPOSITE TO AVOID FEEDBACK DURING COPY.
 // This flag also impact the FILL order but not the feature itself (Value SY1 depend on previouss commands or reset).
-wire yCopyDirectionIncr = (RegSY0 < RegSY1);
+wire yCopyDirectionIncr			= (RegSY0 > RegSY1);
 
-wire [ 9:0] OppRegSizeH         = OriginalRegSizeH - RegSizeH;
-wire  [9:0] fullY               = ((yCopyDirectionIncr ? OppRegSizeH : RegSizeH   )+10'h3FF) + { 1'b0, useDest ? RegSY1 : RegSY0 };	// Proper Top->Bottom or reverse order based on copy direction.
+wire [ 9:0] OppRegSizeH			= OriginalRegSizeH - RegSizeH;
+wire  [9:0] fullY				= (yCopyDirectionIncr ? (RegSizeH + 10'h3FF) : OppRegSizeH) + { 1'b0, useDest ? RegSY1 : RegSY0 };	// Proper Top->Bottom or reverse order based on copy direction.
 
 //
 // Same for X Axis. Except we use an INCREMENTING COUNTER INSTEAD OF DEC FOR THE SAME AXIS.
-// TODO : Check with pixel size...
-// wire xCopyDirectionIncr = (RegSX0 < RegSX1);
-wire [10:0] fullX               =  (useDest            ? counterXDst : counterXSrc)          + { 1'b0, useDest ? RegSX1 : RegSX0 };
+wire xCopyDirectionIncr			= (RegSX0 < RegSX1);
 
-wire [18:0] adrWord				= { fullY[8:0],fullX[9:0] };
+wire [10:0] fullSizeSrc			= RegSizeW + { 7'd0, RegSX0[3:0] };
+wire [10:0] fullSizeDst			= RegSizeW + { 7'd0, RegSX1[3:0] };
+
+wire        srcDistExact16Pixel	= !(|fullSizeSrc[3:0]);
+wire        dstDistExact16Pixel	= !(|fullSizeDst[3:0]);
+
+wire  [6:0] lengthBlockSrcHM1	= fullSizeSrc[10:4] + {7{srcDistExact16Pixel}};	// If exact 16, retract 1 block. (Add -1)
+wire  [6:0] lengthBlockDstHM1	= fullSizeDst[10:4] + {7{dstDistExact16Pixel}};
+
+wire  [6:0] OppAdrXSrc			= lengthBlockSrcHM1 - counterXSrc;
+wire  [6:0] OppAdrXDst			= lengthBlockDstHM1 - counterXDst;
+
+wire  [6:0] adrXSrc				= xCopyDirectionIncr ? counterXSrc : OppAdrXSrc;
+wire  [6:0] adrXDst				= xCopyDirectionIncr ? counterXDst : OppAdrXDst;
+
+wire  [6:0] fullX				= (useDest           ? adrXDst : adrXSrc)          + { 1'b0, useDest ? RegSX1[9:4] : RegSX0[9:4] };
+
+wire [18:0] adrWord				= { fullY[8:0],fullX, 3'd0 }; // 32 Bit Word Adress.
 reg         writeCommand;
-reg	 [10:0] counterXSrc,counterXDst;
+reg	 [ 6:0] counterXSrc,counterXDst;
 reg  [15:0] maskLeft;
-wire [15:0] maskRight = ~maskLeft;
+reg  [15:0] maskRight;
 always @(*)
 begin
-	case (fullX[3:0])
-	4'h0: maskLeft = 16'b1111_1111_1111_1111;
+	case (RegSX0[3:0])
+	4'h0: maskLeft = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
 	4'h1: maskLeft = 16'b1111_1111_1111_1110;
 	4'h2: maskLeft = 16'b1111_1111_1111_1100;
 	4'h3: maskLeft = 16'b1111_1111_1111_1000;
@@ -543,20 +558,101 @@ begin
 	4'hC: maskLeft = 16'b1111_0000_0000_0000;
 	4'hD: maskLeft = 16'b1110_0000_0000_0000;
 	4'hE: maskLeft = 16'b1100_0000_0000_0000;
-	default: maskLeft = 16'b1000_0000_0000_0000;
+ default: maskLeft = 16'b1000_0000_0000_0000;
+	endcase
+end
+
+wire [3:0] rightPos = RegSX0[3:0] + RegSizeW[3:0];
+// isFirstSegment
+// isLastSegment
+
+always @(*)
+begin
+	case (rightPos)
+	// Special case : lastSegment is actually the PREVIOUS segment. Empty segment never occurs because of computation.
+	// The END (EXCLUDED) pixel from the segment is the beginning of a new chunk that will be never loaded.
+	// See computation of 'lengthBlockSrcHM1'
+	4'h0: maskRight = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
+	// Normal cases...
+	4'h1: maskRight = 16'b0000_0000_0000_0001;
+	4'h2: maskRight = 16'b0000_0000_0000_0011;
+	4'h3: maskRight = 16'b0000_0000_0000_0111;
+	4'h4: maskRight = 16'b0000_0000_0000_1111;
+	4'h5: maskRight = 16'b0000_0000_0001_1111;
+	4'h6: maskRight = 16'b0000_0000_0011_1111;
+	4'h7: maskRight = 16'b0000_0000_0111_1111;
+	4'h8: maskRight = 16'b0000_0000_1111_1111;
+	4'h9: maskRight = 16'b0000_0001_1111_1111;
+	4'hA: maskRight = 16'b0000_0011_1111_1111;
+	4'hB: maskRight = 16'b0000_0111_1111_1111;
+	4'hC: maskRight = 16'b0000_1111_1111_1111;
+	4'hD: maskRight = 16'b0001_1111_1111_1111;
+	4'hE: maskRight = 16'b0011_1111_1111_1111;
+ default: maskRight = 16'b0111_1111_1111_1111;
 	endcase
 end
 
 always @(posedge clk)
 begin
-	counterXSrc = (decrementH_ResetXCounter) ? 11'd0 : counterXSrc + { 6'd0 ,incrementXCounter & (!useDest), 4'd0 };
-	counterXDst = (decrementH_ResetXCounter) ? 11'd0 : counterXDst + { 6'd0 ,incrementXCounter &   useDest , 4'd0 };
+	counterXSrc = (decrementH_ResetXCounter) ? 7'd0 : counterXSrc + { 6'd0 ,incrementXCounter & (!useDest) };
+	counterXDst = (decrementH_ResetXCounter) ? 7'd0 : counterXDst + { 6'd0 ,incrementXCounter &   useDest  };
 end
 
 wire acceptCommand = 1; // TODO : Fifo implement, FIFO !full.
 reg  switchReadStoreBlock; // TODO this command will ALSO do loading the CACHE STENCIL locally (2x16 bit registers)
 reg  decrementH_ResetXCounter;
 
+wire emptySurface			= (RegSizeH == 10'd0) | (RegSizeW == 11'd0);
+wire isSrcDstEQ				= (RegSX0[3:0] == RegSX1[3:0]);
+wire isSrcDstLT				= (RegSX0[3:0]  < RegSX1[3:0]);
+wire isSrcDstGT				= (RegSX0[3:0]  > RegSX1[3:0]);
+wire isFirstSegment 		= (counterXSrc==0);
+wire isLastSegment  		= (counterXSrc==lengthBlockSrcHM1);
+wire isLastSegmentDst		= (counterXDst==lengthBlockDstHM1);
+wire [15:0] currMaskLeft	= (isFirstSegment ? maskLeft  : 16'hFFFF);
+wire [15:0] currMaskRight	= (isLastSegment  ? maskRight : 16'hFFFF);
+wire [15:0] maskSegmentRead	= currMaskLeft & currMaskRight;
+
+	
+	COPY_START:
+	begin
+		if (emptySurface) begin
+			nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		end else begin
+			if (isSrcDstGT & (!isLastSegment)) begin
+				nextWorkState = CPY_LINE_PREREAD;
+			end else begin
+				nextWorkState = CPY_LINE_READ;
+			end
+		end
+	end
+	CPY_LINE_PREREAD:
+		nextWorkState = CPY_LINE_READ;
+	begin
+	end
+	CPY_LINE_READ:
+	begin
+		nextWorkState = CPY_LINE_WRITE;
+	end
+	CPY_LINE_WRITE:
+	begin
+		if (isLastSegmentDst) begin
+			nextWorkState = CPY_LINE_COPY_START;
+		end else begin
+			if () begin 
+				nextWorkState = CPY_LINE_WRITELAST;
+			end else begin	// (isSrcDstEQ | ?)
+				nextWorkState = CPY_LINE_READ;
+			end
+		end
+	end
+	CPU_LINE_WRITELAST:
+	begin
+		nextWorkState = CPY_LINE_COPY_START;
+	end
+
+	// OPTIMIZATION : If pixel mask is 0, avoid pushing WRITE pixel instructions. --> Skip memory burst.
+	
 always @(*)
 begin
 	// -----------------------
@@ -590,17 +686,12 @@ begin
 			nextWorkState = currWorkState;
 		endcase
 	end
-	
-	// TODO : Handle primitive rejection inside this state machine and jump directly to NOT_WORKING_DEFAULT_STATE.
-	
-	
 	// --------------------------------------------------------------------
 	//   FILL VRAM STATE MACHINE
 	// --------------------------------------------------------------------
 	FILL_START:	// Actually FILL LINE START.
 	begin
-		decrementH_ResetXCounter = 1;
-		if ((RegSizeH == 0) | (RegSizeW == 0)) begin
+		if (emptySurface) begin
 			nextWorkState = NOT_WORKING_DEFAULT_STATE;
 		end else begin
 			// Next Cycle H=H-1, and we can parse from H-1 to 0 for each line...
@@ -612,12 +703,16 @@ begin
 	begin
 		// Forced to decrement at each step in X
 		// [FILL COMMAND : [000][Adr 15 bit][15 Bit BGR]  = 33 bit
-		if (RegSizeW==counterXSrc) begin // TODO OPTIMIZE can shave ONE loop => use RegSizeW-1 compare and writeCommand=1 instead (bigger circuit). NOTE : RegSizeW > 0 garantee by FILL_START.
-			nextWorkState = FILL_START;
+		if (acceptCommand) begin
+			writeCommand		= 1;
+		end
+		
+		if (isLastSegment) begin
+			decrementH_ResetXCounter = 1;
+			nextWorkState = (emptySurface) ? NOT_WORKING_DEFAULT_STATE : FILL_START;
 		end else begin
 			if (acceptCommand) begin
 				incrementXCounter	= 1;// SRC COUNTER
-				writeCommand		= 1;
 			end
 		end
 	end
@@ -627,11 +722,10 @@ begin
 	COPY_START:
 	begin
 		// [CPY_START]
-		decrementH_ResetXCounter = 1;
-		if (RegSizeH == 0) begin
+		if (emptySurface) begin
 			nextWorkState = NOT_WORKING_DEFAULT_STATE;
 		end else begin
-			if (RegSX0[3:0]!=0) begin
+			if (RegSX0[3:0]!=0 & (isFirstSegment!=isLastSegment)) begin	// Non aligned start AND length out of range.
 				nextWorkState = CPY_LINE_START_UNALIGNED;
 			end else begin
 				nextWorkState = CPY_LINE_BLOCK;
@@ -653,38 +747,54 @@ begin
 			// TODO : ReadBlock(adr);
 			incrementXCounter		= 1; // SRC COUNTER
 			switchReadStoreBlock	= 1;
+			
+			// -------------------
+			// !!! FAKE !!! : Just to validate the READ PART of the state machine.
+			// -------------------
+			if (isLastSegment) begin
+				decrementH_ResetXCounter	= 1;
+				nextWorkState				= (emptySurface) ? NOT_WORKING_DEFAULT_STATE : COPY_START;
+			end else begin
+				incrementXCounter			= 1; // DST COUNTER
+				nextWorkState				= CPY_LINE_BLOCK;
+			end
+			// --- END FAKE ----------------
+			/* 
+				TODO WRITE REAL LOGIC
 			if (RegSX1[3:0]!=0) begin
 				nextWorkState = CPY_WUN_BLOCK;
 			end else begin
 				nextWorkState = CPY_WR_BLOCK;
 			end
+			*/
 		end
 	end
 	CPY_WUN_BLOCK:	// [CPY_WUN_BLOCK]
 	begin
+		/* TODO : State machine write part.
 		useDest = 1;
 		if (acceptCommand) begin
 			// TODO : WriteBlock(adr)
 			incrementXCounter		= 1; // DST COUNTER
 			nextWorkState			= CPY_WR_BLOCK;
 		end
+		*/
 	end
 	CPY_WR_BLOCK:
 	begin
+		/* TODO : State machine write part.
 		useDest = 1;
 		if (acceptCommand) begin
 			// TODO : WriteBlock(adr)
-			incrementXCounter		= 1; // DST COUNTER
-			if (RegSizeW==counterXDst) begin // TODO Wrong condition...
-				nextWorkState		= COPY_START;
+			if (isLastSegmentDst) begin
+				decrementH_ResetXCounter	= 1;
+				nextWorkState				= (emptySurface) ? NOT_WORKING_DEFAULT_STATE : COPY_START;
 			end else begin
-				if (RegSX0[3:0]!=0) begin
-					nextWorkState	= CPY_LINE_START_UNALIGNED;
-				end else begin
-					nextWorkState	= CPY_LINE_BLOCK;
-				end
+				incrementXCounter			= 1; // DST COUNTER
+				nextWorkState				= CPY_LINE_BLOCK;
 			end
 		end
+		*/
 	end
 	
 		// 1.May need to reassembly 16 bit pixel into 32 bit write due to alignement.
@@ -756,10 +866,21 @@ begin
 	// --------------------------------------------------------------------
 	LINE_START:
 	begin
+		/* Line Setup, Triangle setup may be... */
 		nextWorkState = LINE_DRAW;
 	end
 	LINE_DRAW:
 	begin
+		// 2 Case : Use Alpha Blending or NOT.
+		//          If use Alpha blending, we need to LOAD the BG first.
+		//			In all the cases, we will use the pixel pipeline to perform the operations.
+		//			=> 2 BIT 
+		/*
+		bool change  = (D  > 0);
+        x  += ((change  &  swap ) | (!swap)) ? stepX : 0;
+        y  += ((change  & !swap ) | swap   ) ? stepY : 0;
+        D  += 2 * ady2 + (change ? (-2 * adx2) : 0);
+		*/
 		// [PREAD  COMMAND: [101][Adress 19 bit] ---> Wait for pixel value...
 		// [PWRITE COMMAND: [110][Adress 19 bit][16 bit]
 		// Use for BG Read, not pushed from this state machine but by pipeline DEEPER but use the SAME FIFO interface.
