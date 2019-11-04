@@ -651,6 +651,14 @@ begin
 		end
 	end
 	
+	if (currWorkState == LINE_START) begin
+		DLine = initialD;
+	end else begin
+		if (loadNext) begin
+			DLine = nextD;
+		end
+	end
+	
 	if (noPixelFound) begin
 		pixelState = 0; // No pixel found.
 	end
@@ -1130,6 +1138,9 @@ begin
 	LINE_START:
 	begin
 		/* Line Setup, Triangle setup may be... */
+		loadNext	= 1;
+		selNextX	= X_LINE_START;
+		selNextY	= Y_LINE_START;
 		nextWorkState = LINE_DRAW;
 	end
 	LINE_DRAW:
@@ -1821,8 +1832,8 @@ wire        [13:0]  initialD   = { 1'b0 ,aDY2, !swapAxis };
 
 // Runtime Line
 wire                changeDir  = DLine > { 2'b0 , aDX2 };
-wire        [12:0]  incrDOff   = (~{ aDX2, 1'b0 }) + 13'b0; // -2 * aDX2
-wire        [12:0]  incrD      = { aDY2, 1'b0 } + (changeDir ? incrDOff : 0);
+wire        [12:0]  incrDOff   = (~{ aDX2, 1'b0 }) + 13'd1; // -2 * aDX2
+wire        [13:0]  incrD      = { 1'b0, aDY2, 1'b0 } + (changeDir ? { incrDOff[12] , incrDOff } : 14'd0);
 wire                incXOK     = (changeDir &  (swapAxis)) | (!swapAxis);
 wire                incYOK     = (changeDir & (!swapAxis)) |   swapAxis;
 wire signed  [1:0]  stepX      = { isNegXAxis & incXOK, incXOK }; // -1/+1 when needed, or 0.
@@ -1834,9 +1845,7 @@ wire signed [11:0]  nextLineY  = pixelY + incrY;
 wire signed [13:0]  nextD      = DLine + incrD;
 reg  signed [13:0]  DLine;
 
-
 // ----
-
 
 wire signed [11:0]	a		= bIsLineCommand ?    d : preA;
 wire signed [11:0]	b		= bIsLineCommand ? negc : preB;
@@ -1896,9 +1905,8 @@ parameter PRECM1 = PREC-1;
 // Signed 21 bit << 11 bit => 32 bit signed value.
 wire signed [31:0] inputDivAShft= { inputDivA, 11'b0 }; // PREC'd0
 wire signed [31:0] inputDivBShft= { inputDivB, 11'b0 };
-wire signed [31:0] fullOutputA,fullOutputB;
-wire signed [PREC+8:0] outputA = fullOutputA[PREC+8:0];
-wire signed [PREC+8:0] outputB = fullOutputB[PREC+8:0];
+wire signed [PREC+8:0] outputA;
+wire signed [PREC+8:0] outputB;
 
 dividerWrapper instDivisorA(
 	.clock			( clk ),
