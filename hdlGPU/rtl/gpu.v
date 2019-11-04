@@ -1,3 +1,12 @@
+/*
+	POSSIBLE OPTIMIZATION :
+	- Line outside draw area check optimization can be added.
+	- Triangle Setup avoid R,G,B setup division latency if all same vertex color (or white) : (!bIsPerVtxCol) | bIgnoreColor ?
+	- Triangle 'snake' parsing can be optimized in cycle count.
+	- State Machine for RGBUV setup division latency can be optimized. (Now 6 cycle latency implementation -> 5 or 4 ?)
+	- Use an INVERSE instead of division per component. --> Inverse of DET can be computed a few step earlier.
+		While loading UVRGB... as soon as coordinates are loaded.
+ */
 module gpu(
 	input			clk,
 	input			i_nrst,
@@ -12,12 +21,14 @@ module gpu(
 	output	[7:0]	red,
 	output	[7:0]	green,
 	output	[7:0]	blue,
+	/*
 	output			hSync,
 	output			vSync, // cSync pin exist in real HW : hSync | vSync most likely
 	output			hBlank,
 	output			vBlank,
 	
 	// TODO Memory interface here...
+	*/
 	
 	input			write,
 	input			read,
@@ -161,18 +172,19 @@ reg					GPU_REG_CurrentInterlaceField; // TODO
 parameter SIZE_VAR	= 2'd0, SIZE_1x1 = 2'd1, SIZE_8x8 = 2'd2, SIZE_16x16 = 2'd3;
 
 //                  13 bit signed  12 bit signed        
-wire signed [12:0]	fifoDataOutY= fifoDataOut[27:16] + { GPU_REG_OFFSETY[10], GPU_REG_OFFSETY };
-wire signed [12:0]	fifoDataOutX= fifoDataOut[11: 0] + { GPU_REG_OFFSETX[10], GPU_REG_OFFSETX };
+// -1024..+1023 Input. + -1024..+1023 Offset => -2048..+2047 12 bit signed.
+wire signed [11:0]	fifoDataOutY= { fifoDataOut[26],fifoDataOut[26:16] } + { GPU_REG_OFFSETY[10], GPU_REG_OFFSETY };
+wire signed [11:0]	fifoDataOutX= { fifoDataOut[10],fifoDataOut[10: 0] } + { GPU_REG_OFFSETX[10], GPU_REG_OFFSETX };
 
 wire [7:0]	fifoDataOutUR		= fifoDataOut[ 7: 0]; // Same cut for R and U coordinate.
 wire [7:0]	fifoDataOutVG		= fifoDataOut[15: 8]; // Same cut for G and V coordinate.
 wire [7:0]	fifoDataOutB		= fifoDataOut[23:16];
-wire [10:0] fifoDataOutW		= fifoDataOut[10: 0];
-wire [ 9:0] fifoDataOutH    	= fifoDataOut[25:16];
 wire [14:0] fifoDataOutClut		= fifoDataOut[30:16];
 wire [9:0]	fifoDataOutTex		= {fifoDataOut[11],fifoDataOut[8:0]};
 wire [9:0]  fifoDataOutWidth	= fifoDataOut[ 9: 0];
+//wire [10:0] fifoDataOutW		= fifoDataOut[10: 0]; NOT USED.
 wire [8:0]  fifoDataOutHeight	= fifoDataOut[24:16];
+//wire [ 9:0] fifoDataOutH    	= fifoDataOut[25:16]; NOT USED.
 
 wire [7:0] command			= storeCommand ? fifoDataOut[31:24] : RegCommand;
 
@@ -402,8 +414,9 @@ wire bIsPerVtxCol   		= (bIsPolyCommand | bIsLineCommand) & command[4];
 wire bDither				= GPU_REG_DitherOn & (!bIsRectCommand);
 wire bOpaque        		= !bSemiTransp;
 
-wire rejectVertex			= (fifoDataOutX[12] != fifoDataOutX[11]) | (fifoDataOutY[12] != fifoDataOutY[11]); // Primitive with offset out of range -1024..+1023
+// TODO : Rejection occurs with DX / DY. Not range. wire rejectVertex			= (fifoDataOutX[11] != fifoDataOutX[10]) | (fifoDataOutY[11] != fifoDataOutY[10]); // Primitive with offset out of range -1024..+1023
 wire resetReject			= 0/*[TODO] Why ?*/;
+wire rejectVertex			= 0;
 
 reg  rejectPrimitive;
 always @(posedge clk)
@@ -413,23 +426,23 @@ begin
 	end
 end
 
-// 
-reg [12:0] RegX0;
-reg [12:0] RegY0;
+// -2048..+2047
+reg signed [11:0] RegX0;
+reg signed [11:0] RegY0;
 reg  [8:0] RegR0;
 reg  [8:0] RegG0;
 reg  [8:0] RegB0;
 reg  [7:0] RegU0;
 reg  [7:0] RegV0;
-reg [12:0] RegX1;
-reg [12:0] RegY1;
+reg signed [11:0] RegX1;
+reg signed [11:0] RegY1;
 reg  [8:0] RegR1;
 reg  [8:0] RegG1;
 reg  [8:0] RegB1;
 reg  [7:0] RegU1;
 reg  [7:0] RegV1;
-reg [12:0] RegX2;
-reg [12:0] RegY2;
+reg signed [11:0] RegX2;
+reg signed [11:0] RegY2;
 reg  [8:0] RegR2;
 reg  [8:0] RegG2;
 reg  [8:0] RegB2;
@@ -465,37 +478,6 @@ wire canEmitTriangle	= (vertCnt >= 2'd2);	// 2 or 3 for any tri or quad primitiv
 wire bNotFirstVert		= !isFirstVertex;		// Can NOT use counter == 0. Won't work in MULTILINE. (0/1/2/0/1/2/....)
 
 wire canIssueWork       = (currWorkState == NOT_WORKING_DEFAULT_STATE);
-
-reg [4:0] currWorkState;	parameter 	NOT_WORKING_DEFAULT_STATE = 5'd0, 
-										LINE_START		= 5'd1, LINE_DRAW = 5'd2, LINE_END = 5'd3,
-										RECT_START		= 5'd4,
-										FILL_START		= 5'd5,
-										COPY_START		= 5'd6,
-										TRIANGLE_START	= 5'd7,
-										FILL_LINE  		= 5'd8,
-										COPYCV_START 	= 5'd9,
-										COPYVC_START 	= 5'd10,
-										CPY_LINE_START_UNALIGNED	= 5'd11,
-										CPY_LINE_BLOCK				= 5'd12,
-										CPY_WUN_BLOCK				= 5'd13,
-										CPY_WR_BLOCK				= 5'd14,
-										
-										TMP_1 = 5'd15,
-										TMP_2 = 5'd16,
-										TMP_3 = 5'd17,
-										TMP_4 = 5'd18; //15
-reg [4:0] nextWorkState;
-
-always @(posedge clk)
-begin
-	if (rstGPU | rstCmd) begin
-		currState 		<= DEFAULT_STATE;
-		currWorkState	<= NOT_WORKING_DEFAULT_STATE;
-	end else begin
-		currState		<= nextState;
-		currWorkState	<= nextWorkState;
-	end
-end
 
 // When line start, ask to decrement 
 reg         useDest;
@@ -563,8 +545,9 @@ begin
 end
 
 wire [3:0] rightPos = RegSX0[3:0] + RegSizeW[3:0];
-// isFirstSegment
-// isLastSegment
+wire       isSrcDstEQ = (RegSizeW[3:0] == 0);
+wire       isSrcDstLT = (RegSX0[3:0] < rightPos);
+wire       isSrcDstGT = (RegSX0[3:0] > rightPos);
 
 always @(*)
 begin
@@ -603,9 +586,6 @@ reg  switchReadStoreBlock; // TODO this command will ALSO do loading the CACHE S
 reg  decrementH_ResetXCounter;
 
 wire emptySurface			= (RegSizeH == 10'd0) | (RegSizeW == 11'd0);
-wire isSrcDstEQ				= (RegSX0[3:0] == RegSX1[3:0]);
-wire isSrcDstLT				= (RegSX0[3:0]  < RegSX1[3:0]);
-wire isSrcDstGT				= (RegSX0[3:0]  > RegSX1[3:0]);
 wire isFirstSegment 		= (counterXSrc==0);
 wire isLastSegment  		= (counterXSrc==lengthBlockSrcHM1);
 wire isLastSegmentDst		= (counterXDst==lengthBlockDstHM1);
@@ -613,46 +593,145 @@ wire [15:0] currMaskLeft	= (isFirstSegment ? maskLeft  : 16'hFFFF);
 wire [15:0] currMaskRight	= (isLastSegment  ? maskRight : 16'hFFFF);
 wire [15:0] maskSegmentRead	= currMaskLeft & currMaskRight;
 
-	
-	COPY_START:
-	begin
-		if (emptySurface) begin
-			nextWorkState = NOT_WORKING_DEFAULT_STATE;
-		end else begin
-			if (isSrcDstGT & (!isLastSegment)) begin
-				nextWorkState = CPY_LINE_PREREAD;
-			end else begin
-				nextWorkState = CPY_LINE_READ;
-			end
-		end
-	end
-	CPY_LINE_PREREAD:
-		nextWorkState = CPY_LINE_READ;
-	begin
-	end
-	CPY_LINE_READ:
-	begin
-		nextWorkState = CPY_LINE_WRITE;
-	end
-	CPY_LINE_WRITE:
-	begin
-		if (isLastSegmentDst) begin
-			nextWorkState = CPY_LINE_COPY_START;
-		end else begin
-			if () begin 
-				nextWorkState = CPY_LINE_WRITELAST;
-			end else begin	// (isSrcDstEQ | ?)
-				nextWorkState = CPY_LINE_READ;
-			end
-		end
-	end
-	CPU_LINE_WRITELAST:
-	begin
-		nextWorkState = CPY_LINE_COPY_START;
-	end
+reg signed [11:0]	pixelX; 
+reg signed [11:0] nextPixelX; // Wire
+reg signed [11:0]	pixelY; 
+reg signed [11:0] nextPixelY;	// Wire
 
-	// OPTIMIZATION : If pixel mask is 0, avoid pushing WRITE pixel instructions. --> Skip memory burst.
+reg dir;
+reg pixelState;
+reg memW0L,memW1L,memW2L;
+
+
+parameter 	X_TRI_NEXT		= 3'd1,
+			X_LINE_START	= 3'd2,
+			X_LINE_NEXT		= 3'd3,
+			X_TRI_BBLEFT	= 3'd4,
+			X_TRI_BBRIGHT	= 3'd5,
+			X_ASIS			= 3'd0;
+			
+parameter	Y_LINE_START	= 3'd1,
+			Y_LINE_NEXT		= 3'd2,
+			Y_TRI_START		= 3'd3,
+			Y_TRI_NEXT		= 3'd4,
+			Y_ASIS			= 3'd0;
+
+wire 				extIX		= dir & changeX;
+always @(*)
+begin
+	case (selNextX)
+	X_TRI_NEXT:		nextPixelX	= pixelX + { {10{extIX}}, changeX, 1'b0 };	// -2,0,+2
+	X_LINE_START:	nextPixelX	= RegX0;
+	X_LINE_NEXT:	nextPixelX	= nextLineX; // Optimize and merge with case 0
+	X_TRI_BBLEFT:	nextPixelX	= minTriDAX0;
+	X_TRI_BBRIGHT:	nextPixelX	= maxTriDAX1;
+	default:		nextPixelX	= pixelX;
+	endcase
+			
+	case (selNextY)
+	Y_LINE_START:	nextPixelY	= RegY0;
+	Y_LINE_NEXT:	nextPixelY	= nextLineY;
+	Y_TRI_START:	nextPixelY	= minTriDAY0;
+	Y_TRI_NEXT:		nextPixelY	= pixelY + { 10'b0, 1'b1 };
+	default:		nextPixelY	= pixelY;
+	endcase
+end
 	
+always @(posedge clk)
+begin
+	if (loadNext) begin
+		pixelX = nextPixelX;
+		pixelY = nextPixelY;
+	end
+	if (resetDir) begin
+		dir    = 0; // Left to Right
+	end else begin
+		if (switchDir) begin
+			dir = !dir;
+		end
+	end
+	
+	if (noPixelFound) begin
+		pixelState = 0; // No pixel found.
+	end
+	if (pixelFound) begin
+		pixelState = 1;
+	end
+	if (memorizeLineEqu) begin
+		memW0L = w0L[EQUMSB];
+		memW1L = w1L[EQUMSB];
+		memW2L = w2L[EQUMSB];
+	end
+end
+
+reg [5:0] currWorkState,nextWorkState;	parameter
+										NOT_WORKING_DEFAULT_STATE	= 6'd0, 
+										LINE_START					= 6'd1, 
+										LINE_DRAW					= 6'd2,
+										RECT_START					= 6'd3,
+										FILL_START					= 6'd4,
+										COPY_START					= 6'd5,
+										TRIANGLE_START				= 6'd6,
+										FILL_LINE  					= 6'd7,
+										COPYCV_START 				= 6'd8,
+										COPYVC_START 				= 6'd9,
+										CPY_LINE_START_UNALIGNED	= 6'd10,
+										CPY_LINE_BLOCK				= 6'd11,
+										CPY_WUN_BLOCK				= 6'd12,
+										CPY_WR_BLOCK				= 6'd13,
+										START_LINE_TEST_LEFT		= 6'd14,
+										START_LINE_TEST_RIGHT		= 6'd15,
+										SCAN_LINE					= 6'd16,
+										SCAN_LINE_CATCH_END			= 6'd17,
+										TMP_1 						= 6'd18,
+										TMP_2 						= 6'd19,
+										TMP_3 						= 6'd20,
+										TMP_4 						= 6'd21,
+										SETUP_RX					= 6'd22,
+										SETUP_RY					= 6'd23,
+										SETUP_GX					= 6'd24,
+										SETUP_GY					= 6'd25,
+										SETUP_BX					= 6'd26,
+										SETUP_BY					= 6'd27,
+										SETUP_UX					= 6'd28,
+										SETUP_UY					= 6'd29,
+										SETUP_VX					= 6'd30,
+										SETUP_VY					= 6'd31,
+//										WAIT_4,
+										WAIT_3						= 6'd32,
+										WAIT_2						= 6'd33,
+										WAIT_1						= 6'd34,
+										SELECT_PRIMITIVE			= 6'd35;
+
+always @(posedge clk)
+begin
+	if (rstGPU | rstCmd) begin
+		currState 		<= DEFAULT_STATE;
+		currWorkState	<= NOT_WORKING_DEFAULT_STATE;
+	end else begin
+		currState		<= nextState;
+		currWorkState	<= nextWorkState;
+	end
+end
+
+// State machine for triangle
+// State to control setup...
+reg [2:0]		compoID;
+reg				vecID;
+reg				changeX;
+reg				resetDir;
+reg				switchDir;
+reg				loadNext;
+reg				pixelFound;
+reg				noPixelFound;
+reg				memorizeLineEqu;
+reg IncY;
+reg [2:0] selNextX;
+reg [2:0] selNextY;
+
+wire requestNextPixel = 1'b1;
+reg  writePixels;
+
 always @(*)
 begin
 	// -----------------------
@@ -664,14 +743,24 @@ begin
 	decrementH_ResetXCounter	= 0;
 	switchReadStoreBlock		= 0;
 	useDest						= 0; // Source adr computation by default...
+	memorizeLineEqu				= 0;
+	loadNext					= 0;
+	pixelFound					= 0;
+	noPixelFound				= 0;
+	selNextX					= X_ASIS;
+	selNextY					= Y_ASIS;
+	switchDir					= 0;
+	resetDir					= 0;
+	compoID						= 0;
+	vecID						= 0;
 	
 	case (currWorkState)
 	NOT_WORKING_DEFAULT_STATE:
 	begin
 		case (issuePrimitive)
-		ISSUE_TRIANGLE:	nextWorkState = TRIANGLE_START;
-		ISSUE_RECT:		nextWorkState = RECT_START;
-		ISSUE_LINE:		nextWorkState = LINE_START;
+		ISSUE_TRIANGLE:	nextWorkState = SETUP_RX; //TRIANGLE_START; -> Even for single color we go through the hoops.
+		ISSUE_RECT:		nextWorkState = SETUP_RX; //RECT_START;
+		ISSUE_LINE:		nextWorkState = SETUP_RX; //LINE_START;
 		ISSUE_FILL:		nextWorkState = FILL_START;
 		ISSUE_COPY:		
 			if (bIsCopyVVCommand) begin
@@ -843,15 +932,189 @@ begin
 	// --------------------------------------------------------------------
 	//   TRIANGLE STATE MACHINE
 	// --------------------------------------------------------------------
+	SETUP_RX:
+	begin
+		compoID	= 3'd1;	vecID = 1'b0;
+		nextWorkState = SETUP_RY;
+	end
+	SETUP_RY:
+	begin
+		compoID	= 3'd1;	vecID = 1'b1;
+		nextWorkState = SETUP_GX;
+	end
+	SETUP_GX:
+	begin
+		compoID	= 3'd2;	vecID = 1'b0;
+		nextWorkState = SETUP_GY;
+	end
+	SETUP_GY:
+	begin
+		compoID	= 3'd2;	vecID = 1'b1;
+		nextWorkState = SETUP_BX;
+	end
+	SETUP_BX:
+	begin
+		compoID	= 3'd3;	vecID = 1'b0;
+		nextWorkState = SETUP_BY;
+	end
+	SETUP_BY:
+	begin
+		compoID	= 3'd3;	vecID = 1'b1;
+		if (bUseTexture) begin
+			nextWorkState = SETUP_UX;
+		end else begin
+			// Wait 6 cycle now...
+			nextWorkState = WAIT_3;
+		end
+	end
+	SETUP_UX:
+	begin
+		compoID	= 3'd4;	vecID = 1'b0;
+		nextWorkState = SETUP_UY;
+	end
+	SETUP_UY:
+	begin
+		compoID	= 3'd4;	vecID = 1'b1;
+		nextWorkState = SETUP_VX;
+	end
+	SETUP_VX:
+	begin
+		compoID	= 3'd5;	vecID = 1'b0;
+		nextWorkState = SETUP_VY;
+	end
+	SETUP_VY:
+	begin
+		compoID	= 3'd5;	vecID = 1'b1;
+		nextWorkState = WAIT_3;
+	end
+	/*
+	WAIT_4: // 5 cycles to wait, we have division pipeline to wait for...
+	begin
+		nextWorkState = WAIT_3;
+	end
+	*/
+	WAIT_3: // 4 cycles to wait
+	begin
+		nextWorkState = WAIT_2;
+	end
+	WAIT_2: // 3 cycles to wait
+	begin
+		nextWorkState = WAIT_1;
+	end
+	WAIT_1: // 2 cycles to wait
+	begin
+		nextWorkState = SELECT_PRIMITIVE;
+	end
+	SELECT_PRIMITIVE: 	// 1 Cycle to wait... send to primitive (with 1 cycle wait too...)
+	begin				// Need 4 more cycle after that.
+		if (bIsPolyCommand) begin
+			nextWorkState = TRIANGLE_START;
+		end else begin
+			nextWorkState = bIsLineCommand ? LINE_START : RECT_START ; /* bIsRectCommand */
+		end
+	end
 	TRIANGLE_START:
 	begin
+		loadNext = 1;
+		resetDir = 1; // dir = LEFT2RIGHT -> X=X+1 when changeX = 1, else X=X-1 when changeX = 1.
+		if (earlyTriangleReject) begin	// Bounding box and draw area do not intersect at all.
+			nextWorkState	= NOT_WORKING_DEFAULT_STATE;
+		end else begin
+			nextWorkState	= START_LINE_TEST_LEFT;
+			selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
+			selNextY	= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
+		end
+	
 		// Triangle use PSTORE COMMAND. (2 pix per clock)
 		//              BWRITE
 		//
 		// [CLOAD COMMAND : [111][Adress 17 bit] (Texture)
 		// Use C(ache)LOAD to load a cache line for TEXTURE with 8 BYTE. This command will be upgraded if cache design changes...
 		// Clut CACHE uses BSTORE command.
-		nextWorkState = TMP_1;
+	end
+	START_LINE_TEST_LEFT:
+	begin
+		if (isValidPixelL | isValidPixelR) begin // Line equation.
+			nextWorkState = SCAN_LINE;
+		end else begin
+			memorizeLineEqu = 1;
+			nextWorkState	= START_LINE_TEST_RIGHT;
+			loadNext 		= 1;
+			selNextX		= X_TRI_BBRIGHT;// Set next X = BBox RIGHT intersected with DrawArea.
+		end
+	end
+	START_LINE_TEST_RIGHT:
+	begin
+		loadNext 	= 1;
+		selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
+		// Test Bbox left (included) has SAME line equation result as right (excluded) result of line equation.
+		// If so, mean that we are at the same area defined by the equation.
+		// We also test that we are NOT a valid pixel inside the triangle.
+		// We use L/R result based on RIGHT edge coordinate (odd/even).
+		if ((memW0L == w0R[EQUMSB]) && (memW1L == w1R[EQUMSB]) && (memW2L == w2R[EQUMSB]) && ((!pixelX[0] && !isValidPixelL) || (pixelX[0] && !isValidPixelR)))
+		begin
+			selNextY		= Y_TRI_NEXT;
+			nextWorkState	= START_LINE_TEST_LEFT;
+		end else begin
+			noPixelFound	= 1;
+			nextWorkState	= SCAN_LINE;
+		end
+	end
+	SCAN_LINE:
+	begin
+		if (isBottomInside) begin
+			//
+			// TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
+			//        Warning : Care of single pixel write logic + and non increment of X.
+			if (isValidPixelL || isValidPixelR) begin // Line Equation.
+				if (pixelState == 0) begin
+					pixelFound	= 1;
+				end
+				
+				// TODO Pixel writing logic
+				if (requestNextPixel) begin
+					// Write only if pixel pair is valid...
+					
+					//if (maskLRValid & DrawAreaClipping) begin
+						writePixels	= 1;
+					//end
+					
+					// Go to next pair whatever, as long as request is asking for new pair...
+					// normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
+					changeX		= 1;
+					loadNext	= 1;
+					selNextX	= X_TRI_NEXT;
+				end
+			end else begin
+				loadNext	= 1;
+				if (pixelState == 1) begin // Pixel Found.
+					selNextY		= Y_TRI_NEXT;
+					nextWorkState	= SCAN_LINE_CATCH_END;
+				end else begin
+					// Continue to search for VALID PIXELS...
+					changeX			= 1;
+					selNextX		= X_TRI_NEXT;
+					// Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
+					// -> Need to detect that we scan too far and met nobody and avoid out of bound search.
+					nextWorkState	= (((pixelX > maxXTri) & !dir) || ((pixelX < minXTri) & dir)) ? NOT_WORKING_DEFAULT_STATE : SCAN_LINE;
+				end
+			end
+		end else begin
+			// TODO : change adress to flush all pixel write.
+			nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		end
+	end
+	SCAN_LINE_CATCH_END:
+	begin
+		if (isValidPixelL || isValidPixelR) begin
+			changeX			= 1;
+			loadNext		= 1;
+			selNextX		= X_TRI_NEXT;
+		end else begin
+			switchDir		= 1;
+			noPixelFound	= 1;
+			nextWorkState	= SCAN_LINE;
+		end
 	end
 	// --------------------------------------------------------------------
 	//   RECT STATE MACHINE
@@ -871,24 +1134,30 @@ begin
 	end
 	LINE_DRAW:
 	begin
-		// 2 Case : Use Alpha Blending or NOT.
-		//          If use Alpha blending, we need to LOAD the BG first.
-		//			In all the cases, we will use the pixel pipeline to perform the operations.
-		//			=> 2 BIT 
-		/*
-		bool change  = (D  > 0);
-        x  += ((change  &  swap ) | (!swap)) ? stepX : 0;
-        y  += ((change  & !swap ) | swap   ) ? stepY : 0;
-        D  += 2 * ady2 + (change ? (-2 * adx2) : 0);
-		*/
-		// [PREAD  COMMAND: [101][Adress 19 bit] ---> Wait for pixel value...
-		// [PWRITE COMMAND: [110][Adress 19 bit][16 bit]
-		// Use for BG Read, not pushed from this state machine but by pipeline DEEPER but use the SAME FIFO interface.
-		nextWorkState = LINE_END;
-	end
-	LINE_END:
-	begin
-		nextWorkState = TMP_1;
+		if (requestNextPixel) begin
+			loadNext	= 1;
+			selNextX	= X_LINE_NEXT;
+			selNextY	= Y_LINE_NEXT;
+			
+			if ((pixelX == RegX1) && (pixelY == RegY1)) begin
+				nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// TODO : Flush write. with last pixel or previous pixels if this one is not written.
+			end else begin
+				nextWorkState	= LINE_DRAW;
+			end
+			
+			if (isLineInsideDrawArea /*& maskOK*/) begin	// Clipping DrawArea, TODO: Check if masking apply too.
+				writePixels	= 1;
+				// TODO :Update Stencil ? see policy...
+			end else begin
+				writePixels	= 0;
+			end
+		end else begin
+			selNextX		= X_ASIS;
+			selNextY		= Y_ASIS;
+			// Unit probably busy...
+			writePixels		= 0;
+			nextWorkState	= LINE_DRAW;
+		end
 	end
 	// --- TEMP DEBUG STUFF ---
 	TMP_1: begin nextWorkState = TMP_2; end
@@ -1446,64 +1715,313 @@ begin
 end
 
 // ---------------------------------------------------------------------------------------------------------------------
-//   Next Stage : reorder and load primitive.
+//  [ Setup Stage ]
 // ---------------------------------------------------------------------------------------------------------------------
 
-// 4 Compare, got min,max and middle.
-wire 		min01ID		= (RegY0 < RegY1);
-wire [12:0] min01V		= min01ID ? RegY0 : RegY1;
-wire [1:0]	TopID		= (RegY2 < min01V) ? 2'd2 : { 1'b0, min01ID} ;
-wire cmp02				= (RegY2 < RegY0);
-wire cmp12				= (RegY2 < RegY1);
-reg  [1:0]	BottomID;
-reg  [1:0]	MiddleID;
+// Range -2047..+2047 (2048 NOT VALID FOR NOW)
+// TO CHECK HW : If we use -1024 offset and -1024 vertex, do we get 0 coordinate ?
+wire signed [11:0] nRegX0	= -RegX0;
+wire signed [11:0] nRegY0	= -RegY0;
+wire signed [11:0] nRegX1	= -RegX1;
+wire signed [11:0] nRegY1	= -RegY1;
+wire signed [11:0] nRegX2	= -RegX2;
+wire signed [11:0] nRegY2	= -RegY2;
 
-// [Compute Top/Bottom/Middle Vertex remapping]
-always @(*)
-begin
-	case (TopID)
-	2'd2: begin BottomID = { 1'b0,!min01ID };   MiddleID = { 1'b0, min01ID }; end 	 // max01ID is opposite.
-	2'd1: begin BottomID = cmp02 ? 2'd0 : 2'd2; MiddleID = cmp02 ? 2'd2 : 2'd0; end // top is 1, who is bottom ? 0 or 2 ?
-	2'd0: begin BottomID = cmp12 ? 2'd1 : 2'd2; MiddleID = cmp12 ? 2'd1 : 2'd2; end // top is 0, who is bottom ? 1 or 2 ?
-	default: begin BottomID = 2'b00; MiddleID = 2'b00; end	// Impossible case
-	endcase
-end
+// (-2047)+(-2047)..2047+2047 = -4095..+4095
+wire signed [12:0]	preA13 	= RegX2 + nRegX0; // X2-X0
+wire signed [12:0]	preB13 	= RegY2 + nRegY0; // Y2-Y0
+wire signed [12:0]	c13		= RegX1 + nRegX0; // X1-X0
+wire signed [12:0]	negc13	= RegX0 + nRegX1; // X0-X1 (-c)
+wire signed [12:0]	d13		= RegY1 + nRegY0; // Y1-Y0
+wire signed [12:0]  negd13  = RegY0 + nRegY1; // Y0-Y1 (-d)
+wire signed [12:0]	e13		= RegX2 + nRegX1; // X2-X1
+wire signed [12:0]	f13		= RegY1 + nRegY2; // Y1-Y2
 
-// TODO : Could have huge switch and select based on sorted result and avoid restoring again...
-//        Would mean 3 x 7 MUX instead. => Traded 3x7 Mux for 21 Registers.(207 Bits)
-reg [12:0] VtxX0,VtxX1,VtxX2;
-reg [12:0] VtxY0,VtxY1,VtxY2;
-reg  [7:0] VtxU0,VtxU1,VtxU2,VtxV0,VtxV1,VtxV2;
-reg  [8:0] VtxR0,VtxR1,VtxR2,VtxG0,VtxG1,VtxG2,VtxB0,VtxB1,VtxB2;
-reg [14:0] PrimClut;
-reg  [9:0] PrimTx;
+// Permitted RANGE : -511..+511 for Y, -1023..+1023 for X.
+//  
+wire signed [11:0]	preA	= preA13[11:0];	
+wire signed [11:0]	preB 	= preB13[11:0];
+wire signed [11:0]	c		= c13	[11:0];
+wire signed [11:0]	negc	= negc13[11:0];
+wire signed [11:0]	d		= d13	[11:0];
+wire signed [11:0]  negd  	= negd13[11:0];
+wire signed [11:0]	e		= e13	[11:0];
+wire signed [11:0]	f		= f13	[11:0];
 
-// [Load Remapped Vertices info]
+// For all coordinate testing.
+wire signed [11:0]  extDAX0 = { 2'd0 , GPU_REG_DrawAreaX0 };
+wire signed [11:0]  extDAY0 = { 2'd0 , GPU_REG_DrawAreaY0 };
+wire signed [11:0]  extDAX1 = { 2'd0 , GPU_REG_DrawAreaX1 };
+wire signed [11:0]  extDAY1 = { 2'd0 , GPU_REG_DrawAreaY1 };
+
+wire signed [11:0]  LPixelX = { pixelX[11:1], 1'b0 };
+wire signed [11:0]  RPixelX = { pixelX[11:1], 1'b1 };
+
+// Test Current Pixel Pair against [Drawing Area]
+wire				isTopInside 	= pixelY  >= extDAY0;
+wire				isBottomInside	= pixelY   < extDAY1;
+wire				isLeftPLXInside	= LPixelX >= extDAX0;
+wire				isLeftPRXInside	= RPixelX >= extDAX0;
+wire				isRightPLXInside= LPixelX  < extDAX1;
+wire				isRightPRXInside= RPixelX  < extDAX1;
+wire				isValidHorizontal	= isTopInside & isBottomInside;
+// Test Current Pixel For Line primitive : Check vertically against the DRAW AREA and select the pixel in the PAIR (odd/even) that match the result of the pixel we want to test.
+wire				isLineInsideDrawArea = isValidHorizontal & ((pixelX[0] & isLeftPRXInside & isRightPRXInside) | (!pixelX[0] & isLeftPLXInside & isRightPLXInside));
+
+// --- For Triangle ---
+// Bounding box triangle.
+// Vertex0/Vertex1 Box
+wire signed [11:0]	minX0X1 = isNegXAxis   ? RegX1 : RegX0;
+wire signed [11:0]	maxX0X1 = isNegXAxis   ? RegX0 : RegX1;
+wire signed [11:0]	minY0Y1 = isNegYAxis   ? RegY1 : RegY0;
+wire signed [11:0]	maxY0Y1 = isNegYAxis   ? RegY0 : RegY1;
+// Vertex0/1/2 Box
+wire signed [11:0]	minXTri = RegX2 < minX0X1 ? RegX2 : minX0X1;
+wire signed [11:0]	minYTri = RegY2 < minY0Y1 ? RegY2 : minY0Y1;
+wire signed [11:0]	maxXTri = RegX2 > maxX0X1 ? RegX2 : maxX0X1;
+wire signed [11:0]	maxYTri = RegY2 > maxY0Y1 ? RegY2 : maxY0Y1;
+
+// Primitive Size
+wire invalidX2X0   = !((preA13[12:10]==  3'b000) | (preA13[12:10]==  3'b111));
+wire invalidX1X0   = !((   c13[12:10]==  3'b000) | (   c13[12:10]==  3'b111));
+wire invalidY2Y0   = !((preB13[12: 9]== 4'b0000) | (preB13[12: 9]== 4'b1111));
+wire invalidY1Y0   = !((   d13[12: 9]== 4'b0000) | (   d13[12: 9]== 4'b1111));
+wire rejectTriSize = invalidX1X0 | invalidX2X0 | invalidY1Y0 | invalidY2Y0; // 1023 pixel in --> direction, 1024 pixel in <-- direction, 511 pixel in V direction, -512 pixel in ^ direction.
+// Bounding box vs Draw Area.
+wire				earlyTriRejectLeft   = maxXTri  < extDAX0;
+wire				earlyTriRejectTop    = maxYTri  < extDAY0;
+wire				earlyTriRejectRight  = minXTri >= extDAX1;
+wire				earlyTriRejectBottom = minYTri >= extDAY1;
+/* PERFORMANCE OPTIMIZATION
+wire				earlyLineRejectLeft  = maxX0X1  < extDAX0;
+wire				earlyLineRejectTop   = maxY0Y1  < extDAY0;
+wire				earlyLineRejectRight = minX0X1 >= extDAX1;
+wire				earlyLineRejectBottom= minY0Y1 >= extDAY1;
+*/
+wire				earlyTriangleReject  = earlyTriRejectLeft | earlyTriRejectRight | earlyTriRejectTop | earlyTriRejectBottom | rejectTriSize;
+wire				earlyLineReject      = invalidX1X0 | invalidY1Y0 /* | earlyLineRejectLeft | earlyLineRejectTop | earlyLineRejectRight | earlyLineRejectBottom */;
+
+// Thanks to earlyTriangleReject, we know the box are intersecting.
+// We know that Box is properly oriented (Min < Max), we assume that DrawArea X0 < X1 too.
+wire signed [11:0]	minTriDAX0 = minXTri  < extDAX0 ?  extDAX0    : minXTri;
+wire signed [11:0]	maxTriDAX1 = maxXTri >= extDAX1 ? (extDAX1 + {12'hFFF}) : maxXTri; // TODO : Do X1-1/Y1-1 at register setup, and change all test for X1/Y1
+wire signed [11:0]	minTriDAY0 = minYTri  < extDAY0 ?  extDAY0    : minYTri;
+wire signed [11:0]	maxTriDAY1 = maxYTri >= extDAY1 ? (extDAY1 + {12'hFFF}) : maxYTri;
+
+// --- For Lines
+// Setup Line
+wire                isNegXAxis = c[11];
+wire                isNegYAxis = d[11];
+wire        [11:0]  absXAxis   = isNegXAxis ? negc : c;
+wire        [11:0]  absYAxis   = isNegYAxis ? negd : d;
+wire                swapAxis   = absYAxis > absXAxis;
+wire signed [11:0]  aDX2       = swapAxis ? absYAxis : absXAxis;
+wire signed [11:0]  aDY2       = swapAxis ? absXAxis : absYAxis;
+wire        [13:0]  initialD   = { 1'b0 ,aDY2, !swapAxis };
+
+// Runtime Line
+wire                changeDir  = DLine > { 2'b0 , aDX2 };
+wire        [12:0]  incrDOff   = (~{ aDX2, 1'b0 }) + 13'b0; // -2 * aDX2
+wire        [12:0]  incrD      = { aDY2, 1'b0 } + (changeDir ? incrDOff : 0);
+wire                incXOK     = (changeDir &  (swapAxis)) | (!swapAxis);
+wire                incYOK     = (changeDir & (!swapAxis)) |   swapAxis;
+wire signed  [1:0]  stepX      = { isNegXAxis & incXOK, incXOK }; // -1/+1 when needed, or 0.
+wire signed  [1:0]  stepY      = { isNegYAxis & incYOK, incYOK }; // -1/+1 when needed, or 0.
+wire signed [11:0]  incrX      = { {10{stepX[1]}}, stepX };
+wire signed [11:0]  incrY      = { {10{stepY[1]}}, stepY };
+wire signed [11:0]  nextLineX  = pixelX + incrX;
+wire signed [11:0]  nextLineY  = pixelY + incrY;
+wire signed [13:0]  nextD      = DLine + incrD;
+reg  signed [13:0]  DLine;
+
+
+// ----
+
+
+wire signed [11:0]	a		= bIsLineCommand ?    d : preA;
+wire signed [11:0]	b		= bIsLineCommand ? negc : preB;
+wire signed [11:0]	negb	= -b;
+wire signed [11:0]	nega	= -a;
+
+wire signed [21:0]	DETP1	= a*d;
+wire signed [21:0]	DETP2	= b*negc;			// -b*c -> b*negc 
+wire signed [21:0]	DET		= DETP1 + DETP2;	// Same as (a*d) - (b*c)
+
+reg signed [11:0]	mulFA,mulFB;
+reg  signed [8:0]	v0C,v1C,v2C;
+
+reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6;
+reg       vecID2,vecID3,vecID4,vecID5,vecID6;
 always @(posedge clk)
 begin
-	if (bPipeIssueTrianglePrimitive) begin // Need to load AFTER all Reg* are set (induce 1 clock delay)
-		case (TopID)
-		2'b00 : begin VtxX0 = RegX0; VtxY0 = RegY0; VtxU0 = RegU0; VtxV0 = RegV0; VtxR0 = RegR0; VtxG0 = RegG0; VtxB0 = RegB0; end
-		2'b01 : begin VtxX0 = RegX1; VtxY0 = RegY1; VtxU0 = RegU1; VtxV0 = RegV1; VtxR0 = RegR1; VtxG0 = RegG1; VtxB0 = RegB1; end
-		2'b10 : begin VtxX0 = RegX2; VtxY0 = RegY2; VtxU0 = RegU2; VtxV0 = RegV2; VtxR0 = RegR2; VtxG0 = RegG2; VtxB0 = RegB2; end
-		2'b11 : begin VtxX0 = RegX0; VtxY0 = RegY0; VtxU0 = RegU0; VtxV0 = RegV0; VtxR0 = RegR0; VtxG0 = RegG0; VtxB0 = RegB0; end
-		endcase
-		case (BottomID) 
-		2'b00 : begin VtxX2 = RegX0; VtxY2 = RegY0; VtxU2 = RegU0; VtxV2 = RegV0; VtxR2 = RegR0; VtxG2 = RegG0; VtxB2 = RegB0; end
-		2'b01 : begin VtxX2 = RegX1; VtxY2 = RegY1; VtxU2 = RegU1; VtxV2 = RegV1; VtxR2 = RegR1; VtxG2 = RegG1; VtxB2 = RegB1; end
-		2'b10 : begin VtxX2 = RegX2; VtxY2 = RegY2; VtxU2 = RegU2; VtxV2 = RegV2; VtxR2 = RegR2; VtxG2 = RegG2; VtxB2 = RegB2; end
-		2'b11 : begin VtxX2 = RegX0; VtxY2 = RegY0; VtxU2 = RegU0; VtxV2 = RegV0; VtxR2 = RegR0; VtxG2 = RegG0; VtxB2 = RegB0; end
-		endcase
-		case (MiddleID) 
-		2'b00 : begin VtxX1 = RegX0; VtxY1 = RegY0; VtxU1 = RegU0; VtxV1 = RegV0; VtxR1 = RegR0; VtxG1 = RegG0; VtxB1 = RegB0; end
-		2'b01 : begin VtxX1 = RegX1; VtxY1 = RegY1; VtxU1 = RegU1; VtxV1 = RegV1; VtxR1 = RegR1; VtxG1 = RegG1; VtxB1 = RegB1; end
-		2'b10 : begin VtxX1 = RegX2; VtxY1 = RegY2; VtxU1 = RegU2; VtxV1 = RegV2; VtxR1 = RegR2; VtxG1 = RegG2; VtxB1 = RegB2; end
-		2'b11 : begin VtxX1 = RegX0; VtxY1 = RegY0; VtxU1 = RegU0; VtxV1 = RegV0; VtxR1 = RegR0; VtxG1 = RegG0; VtxB1 = RegB0; end
-		endcase
-		PrimTx   = RegTx;
-		PrimClut = RegC;
+	compoID6 = compoID5;
+	compoID5 = compoID4;
+	compoID4 = compoID3;
+	compoID3 = compoID2;
+	compoID2 = compoID;
+	
+	vecID6   = vecID5;
+	vecID5   = vecID4;
+	vecID4   = vecID3;
+	vecID3   = vecID2;
+	vecID2   = vecID;
+end
+
+always @(*)
+begin
+	case (compoID)
+	default:	begin v0C = RegR0;           v1C = RegR1;           v2C = RegR2;           end
+	3'd2:		begin v0C = RegG0;           v1C = RegG1;           v2C = RegG2;           end
+	3'd3:		begin v0C = RegB0;           v1C = RegB1;           v2C = RegB2;           end
+	3'd4:		begin v0C = { 1'b0, RegU0 }; v1C = { 1'b0, RegU1 }; v2C = { 1'b0, RegU2 }; end
+	3'd5:		begin v0C = { 1'b0, RegV0 }; v1C = { 1'b0, RegV1 }; v2C = { 1'b0, RegV2 }; end
+	endcase
+	
+	if (vecID) begin
+		mulFA = negc;	mulFB = a;
+	end else begin
+		mulFA = d;   	mulFB = negb;
 	end
 end
+wire signed [9:0]   negv0c  = -{ 1'b0 ,v0C };
+wire signed [9:0]	C20i	= bIsLineCommand ? 10'd0 : ({ 1'b0 ,v2C } + negv0c);
+wire signed [9:0]	C10i	=  { 1'b0 ,v1C } + negv0c; // -512..+511
+
+wire signed [20:0] inputDivA	= mulFA * C20i; // -2048..+2047 x -512..+511 = Signed 21 bit.
+wire signed [20:0] inputDivB	= mulFB * C10i;
+
+parameter PREC = 11;
+parameter PRECM1 = PREC-1;
+
+// Signed 21 bit << 11 bit => 32 bit signed value.
+wire signed [31:0] inputDivAShft= { inputDivA, 11'b0 }; // PREC'd0
+wire signed [31:0] inputDivBShft= { inputDivB, 11'b0 };
+wire signed [31:0] fullOutputA,fullOutputB;
+wire signed [PREC+8:0] outputA = fullOutputA[PREC+8:0];
+wire signed [PREC+8:0] outputB = fullOutputB[PREC+8:0];
+
+dividerWrapper instDivisorA(
+	.clock			( clk ),
+	.numerator		( inputDivAShft),
+	.denominator	( DET ),
+	.output20		( outputA )
+);
+
+dividerWrapper instDivisorB(
+	.clock			( clk ),
+	.numerator 		( inputDivBShft ),
+	.denominator 	( DET ),
+	.output20 		( outputB )
+);
+
+// 11 bit prec + 9 bit = 20 bit.
+wire signed [PREC+8:0] perPixelComponentIncrement = outputA + outputB;
+ 	
+// ---------------------------------------------------------------------------------------------------------------------
+//  [ Interpolator Storage Stage ]
+// ---------------------------------------------------------------------------------------------------------------------
+
+reg signed [PREC+8:0] RSX,RSY,GSX,GSY,BSX,BSY,USX,USY,VSX,VSY; // 1..10 Write, 0:Do nothing.
+
+wire /*reg*/ [3:0]	assignDivResult = { compoID6, vecID6 }; // 1..A, 0 none
+always @(posedge clk)
+begin
+	if (assignDivResult == 4'd2) begin RSX = perPixelComponentIncrement; end
+	if (assignDivResult == 4'd3) begin RSY = perPixelComponentIncrement; end
+	if (assignDivResult == 4'd4) begin GSX = perPixelComponentIncrement; end
+	if (assignDivResult == 4'd5) begin GSY = perPixelComponentIncrement; end
+	if (assignDivResult == 4'd6) begin BSX = perPixelComponentIncrement; end
+	if (assignDivResult == 4'd7) begin BSY = perPixelComponentIncrement; end
+	if (assignDivResult == 4'd8) begin USX = perPixelComponentIncrement; end
+	if (assignDivResult == 4'd9) begin USY = perPixelComponentIncrement; end
+	if (assignDivResult == 4'hA) begin VSX = perPixelComponentIncrement; end
+	if (assignDivResult == 4'hB) begin VSY = perPixelComponentIncrement; end
+end
+
+// ---------------------------------------------------------------------------------------------------------------------
+//  [ Interpolator Compute Stage ]
+// ---------------------------------------------------------------------------------------------------------------------
+
+wire signed [11:0] distXV0 = pixelX + nRegX0;
+wire signed [11:0] distYV0 = pixelY + nRegY0;
+wire signed [11:0] distXV1 = pixelX + nRegX1;
+wire signed [11:0] distYV1 = pixelY + nRegY1;
+wire signed [11:0] distXV2 = pixelX + nRegX2;
+wire signed [11:0] distYV2 = pixelY + nRegY2;
+
+parameter EQUMSB = 22; // 11bit signed * 11 bit signed.
+ 
+// EQUMSB=22
+// D12(e   ,f)-> isTopLeft(D12) -> f    < 0 || (   f == 0) & e    < 0
+// D20(nega,b)-> isTopLeft(D20) -> b    < 0 || (   b == 0) & nega < 0
+// D01(c,negd)-> isTopLeft(D01) -> negd < 0 || (negd == 0) & c    < 0
+wire isTopLeftD12 =    f[11] | ((   f == 12'd0) &    e[11]);
+wire isTopLeftD01 = negd[11] | ((negd == 12'd0) &    c[11]);
+wire isTopLeftD20 =    b[11] | ((   b == 12'd0) & nega[11]);
+
+wire signed [EQUMSB:0] bias0= {23{isTopLeftD12}}; // -1 if true, 0 if false.
+wire signed [EQUMSB:0] bias1= {23{isTopLeftD01}};
+wire signed [EQUMSB:0] bias2= {23{isTopLeftD20}};
+
+wire signed [EQUMSB:0] w0L	= (   e*distYV1) + (   f*distXV1) + bias0;
+wire signed [EQUMSB:0] w1L	= (nega*distYV2) + (   b*distXV2) + bias1;
+wire signed [EQUMSB:0] w2L	= (   c*distYV0) + (negd*distXV0) + bias2;
+
+wire signed [EQUMSB:0] w0R	= w0L + { {11{f[11]}}, f};
+wire signed [EQUMSB:0] w1R	= w1L + { {11{b[11]}}, b};
+wire signed [EQUMSB:0] w2R	= w2L + { {11{negd[11]}}, negd};
+
+/*
+	[Original Implementation in Avocado, based on the famous Ryg article about rasterization.]
+	if ((w0L | w1L | w2L) > 0) {    but Avocado always garantee CCW oriented polygon.
+	
+	First, we can notice that the condition does not seems accurate :
+	By 'oring' we allow one or two line equation >= 0 if another is > 0.
+	
+	HW implementation of >= 0 is a LOT easier.
+	Did not change a simple pixel on basic triangle I tested.
+	
+	For opposite orientation, I use the opposite < 0.
+ */
+wire isCCWInsideL = !(w0L[EQUMSB] | w1L[EQUMSB] | w2L[EQUMSB]);
+wire isCWInsideL  =  (w0L[EQUMSB] & w1L[EQUMSB] & w2L[EQUMSB]);
+
+wire isCCWInsideR = !(w0R[EQUMSB] | w1R[EQUMSB] | w2R[EQUMSB]);
+wire isCWInsideR  =  (w0R[EQUMSB] & w1R[EQUMSB] & w2R[EQUMSB]);
+
+//
+// [Component Interpolation Out]
+//
+wire isValidPixelL= (isCCWInsideL | isCWInsideL) & isValidHorizontal & isLeftPLXInside & isRightPLXInside;
+wire isValidPixelR= (isCCWInsideR | isCWInsideR) & isValidHorizontal & isLeftPRXInside & isRightPRXInside;
+
+//
+// [Component Interpolation Out]
+//
+wire signed [PREC+8:0] roundComp = { 9'd0, 1'b1, 10'd0}; // PRECM1'd0
+wire signed [PREC+8:0] offR = (distXV0*RSX) + (distYV0*RSY) + roundComp;
+wire signed [PREC+8:0] offG = (distXV0*GSX) + (distYV0*GSY) + roundComp;
+wire signed [PREC+8:0] offB = (distXV0*BSX) + (distYV0*BSY) + roundComp;
+wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) + roundComp[PREC+7:0];
+wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) + roundComp[PREC+7:0];
+
+wire signed [8:0] pixRL = RegR0 + offR[PREC+8:PREC];
+wire signed [8:0] pixGL = RegG0 + offG[PREC+8:PREC];
+wire signed [8:0] pixBL = RegB0 + offB[PREC+8:PREC];
+wire signed [7:0] pixUL = RegU0 + offU[PREC+7:PREC];
+wire signed [7:0] pixVL = RegV0 + offV[PREC+7:PREC];
+
+wire signed [PREC+8:0] offRR = offR + RSX;
+wire signed [PREC+8:0] offGR = offG + GSX;
+wire signed [PREC+8:0] offBR = offB + BSX;
+wire signed [PREC+8:0] offUR = offU + USX;
+wire signed [PREC+8:0] offVR = offV + VSX;
+wire signed [8:0] pixRR = RegR0 + offRR[PREC+8:PREC];
+wire signed [8:0] pixGR = RegG0 + offGR[PREC+8:PREC];
+wire signed [8:0] pixBR = RegB0 + offBR[PREC+8:PREC];
+wire signed [7:0] pixUR = RegU0 + offUR[PREC+7:PREC];
+wire signed [7:0] pixVR = RegV0 + offVR[PREC+7:PREC];
+
 
 // TODO bAcceptPrimitive flag for previous stage.
 // Triangle setup.
@@ -1534,7 +2052,12 @@ end
 // TODO : When testing inside pixel, compute the screen space pixel adress 1 cycle sooner, IF Stencil compare ACTIVATED AND compare the Stencil cache result = 1. CAN early REJECT pixel.
 //			Note take care of that logic for line / rect too.
 
-//	assign red   = (|PrimTx)   ? VtxX2 + VtxX1 + VtxX0 : VtxR0 + VtxR1 + VtxR2;
+wire [8:0] aR = pixRL + pixRR + pixUR;
+wire [8:0] aG = pixGL + pixGR + pixVR;
+wire [8:0] aB = pixBL + pixBR + pixVL + pixUL;
+assign red   = aR[8:1];
+assign green = aG[8:1];
+assign blue  = aB[8:1];
 //	assign green = (|PrimClut) ? VtxY2 + VtxY1 + VtxY0 : VtxG0 + VtxG1 + VtxG2;
 //	assign blue  = (|RegSizeW & |RegSizeH) ? VtxU2 + VtxU1 + VtxU0 : VtxB0 + VtxB1 + VtxB2;
 endmodule
