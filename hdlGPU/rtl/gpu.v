@@ -795,7 +795,11 @@ begin
 				nextWorkState = (bUseTexture) ? SETUP_UX : TRIANGLE_START;
 			end
 		end
-		ISSUE_RECT:		nextWorkState = RECT_START;
+		ISSUE_RECT:
+		begin
+			assignRectSetup	= 1;
+			nextWorkState	= RECT_START;
+		end
 		ISSUE_LINE:
 		begin
 			if (bIsPerVtxCol) begin
@@ -1167,12 +1171,12 @@ begin
 	RECT_START:
 	begin
 		// Rect use PSTORE COMMAND. (2 pix per clock)
-		assignRectSetup = 1;
 		nextWorkState	= RECT_SCAN_LINE;
 		
 		if (earlyTriangleReject) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all. 
 			nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// Override state.
 		end else begin
+			loadNext		= 1;
 			selNextX		= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
 			selNextY		= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
 		end
@@ -1187,8 +1191,8 @@ begin
 					// Write only if pixel pair is valid...
 					
 					//if (maskLRValid & DrawAreaClipping) begin
-					writePixelL = 1 /* MASK */;
-					writePixelR = 1 /* MASK */;
+					writePixelL = isInsideBBoxTriRectL /* MASK */;
+					writePixelR = isInsideBBoxTriRectR /* MASK */;
 					//end
 					
 					// Go to next pair whatever, as long as request is asking for new pair...
@@ -1832,9 +1836,11 @@ begin
 	end
 	endcase
 end
+wire signed [11:0] sizeWM1		  = { 1'b0, widthNext  } + { 12{1'b1}}; //  Width-1
+wire signed [11:0] sizeHM1		  = { 2'd0, heightNext } + { 12{1'b1}}; // Height-1
 
-wire signed [11:0] rightEdgeRect  =  RegX0 + {1'b1 , ~widthNext };	// (-widthNext) -1 	// TODO CHECK RANGE
-wire signed [11:0] bottomEdgeRect =  RegY0 + {2'b11, ~heightNext};	// TODO CHECK RANGE
+wire signed [11:0] rightEdgeRect  = RegX0 + sizeWM1;
+wire signed [11:0] bottomEdgeRect = RegY0 + sizeHM1;
 
 always @(posedge clk)
 begin
@@ -1971,8 +1977,10 @@ wire				isLineRightPix			= ( pixelX[0] & isLeftPRXInside & isRightPRXInside);
 wire				isLineLeftPix			= (!pixelX[0] & isLeftPLXInside & isRightPLXInside);
 wire				isLineInsideDrawArea	= isValidHorizontal & (isLineRightPix | isLineLeftPix);
 // Is Inside Triangle & Box rendering (Draw Area Inter. BBox)
-wire				isValidPixelL	= (isCCWInsideL | isCWInsideL) & isValidHorizontalTriBbox & isLeftPLXminTri & isRightPLXmaxTri;
-wire				isValidPixelR	= (isCCWInsideR | isCWInsideR) & isValidHorizontalTriBbox & isLeftPRXminTri & isRightPRXmaxTri;
+wire				isInsideBBoxTriRectL	= isValidHorizontalTriBbox & isLeftPLXminTri & isRightPLXmaxTri;
+wire				isInsideBBoxTriRectR	= isValidHorizontalTriBbox & isLeftPRXminTri & isRightPRXmaxTri;
+wire				isValidPixelL	= (isCCWInsideL | isCWInsideL) & isInsideBBoxTriRectL;
+wire				isValidPixelR	= (isCCWInsideR | isCWInsideR) & isInsideBBoxTriRectR;
 
 // --- For Triangle ---
 // Bounding box triangle.
