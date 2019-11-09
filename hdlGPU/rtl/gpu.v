@@ -30,6 +30,8 @@ module gpu(
 	// TODO Memory interface here...
 	*/
 	
+	output			pixelStencilOut,
+	
 	input			write,
 	input			read,
 	input 	[31:0]	cpuDataIn,
@@ -180,7 +182,8 @@ wire [7:0]	fifoDataOutUR		= fifoDataOut[ 7: 0]; // Same cut for R and U coordina
 wire [7:0]	fifoDataOutVG		= fifoDataOut[15: 8]; // Same cut for G and V coordinate.
 wire [7:0]	fifoDataOutB		= fifoDataOut[23:16];
 wire [14:0] fifoDataOutClut		= fifoDataOut[30:16];
-wire [9:0]	fifoDataOutTex		= {fifoDataOut[11],fifoDataOut[8:0]};
+// [NOT USED FOR NOW : DIRECTLY MODIFY GLOBAL GPU STATE]
+//wire [9:0]	fifoDataOutTex		= {fifoDataOut[27],fifoDataOut[24:16]};
 wire [9:0]  fifoDataOutWidth	= fifoDataOut[ 9: 0];
 //wire [10:0] fifoDataOutW		= fifoDataOut[10: 0]; NOT USED.
 wire [8:0]  fifoDataOutHeight	= fifoDataOut[24:16];
@@ -311,14 +314,16 @@ begin
 			GPU_REG_OFFSETX <= fifoDataOut[10: 0];
 			GPU_REG_OFFSETY <= fifoDataOut[21:11]; 
 		end
-		if (loadTexPageE1) begin
-			GPU_REG_TexBasePageX <= fifoDataOut[3:0];
-			GPU_REG_TexBasePageY <= fifoDataOut[4];
-			GPU_REG_Transparency <= fifoDataOut[6:5];
-			GPU_REG_TexFormat    <= fifoDataOut[8:7];
+		if (loadTexPageE1 || loadTexPage) begin
+			GPU_REG_TexBasePageX 	<= loadTexPage ? fifoDataOut[19:16] : fifoDataOut[3:0];
+			GPU_REG_TexBasePageY 	<= loadTexPage ? fifoDataOut[20]    : fifoDataOut[4];
+			GPU_REG_Transparency 	<= loadTexPage ? fifoDataOut[22:21] : fifoDataOut[6:5];
+			GPU_REG_TexFormat    	<= loadTexPage ? fifoDataOut[24:23] : fifoDataOut[8:7];
+			GPU_REG_TextureDisable	<= loadTexPage ? fifoDataOut[27]    : fifoDataOut[11];
+		end
+		if (loadTexPageE1) begin // Texture Attribute only changed by E1 Command.
 			GPU_REG_DitherOn     <= fifoDataOut[9];
 			GPU_REG_DrawDisplayAreaOn <= fifoDataOut[10];
-			GPU_REG_TextureDisable <= fifoDataOut[11];
 			GPU_REG_TextureXFlip <= fifoDataOut[12];
 			GPU_REG_TextureYFlip <= fifoDataOut[13];
 		end
@@ -449,7 +454,8 @@ reg  [8:0] RegB2;
 reg  [7:0] RegU2;
 reg  [7:0] RegV2;
 reg [14:0] RegC ;
-reg  [9:0] RegTx;
+// [NOT USED FOR NOW : DIRECTLY MODIFY GLOBAL GPU STATE]
+// reg  [9:0] RegTx;
 reg  [9:0] RegSX0,RegSX1;
 reg [10:0] RegSizeW;
 reg  [8:0] RegSY0,RegSY1;
@@ -593,14 +599,14 @@ wire [15:0] currMaskLeft	= (isFirstSegment ? maskLeft  : 16'hFFFF);
 wire [15:0] currMaskRight	= (isLastSegment  ? maskRight : 16'hFFFF);
 wire [15:0] maskSegmentRead	= currMaskLeft & currMaskRight;
 
-reg signed [11:0]	pixelX; 
+reg signed [11:0] pixelX; 
 reg signed [11:0] nextPixelX; // Wire
-reg signed [11:0]	pixelY; 
-reg signed [11:0] nextPixelY;	// Wire
+reg signed [11:0] pixelY; 
+reg signed [11:0] nextPixelY; // Wire
 
 reg dir;
 reg pixelState;
-reg memW0L,memW1L,memW2L;
+reg memW0,memW1,memW2;
 
 
 parameter 	X_TRI_NEXT		= 3'd1,
@@ -623,8 +629,8 @@ begin
 	X_TRI_NEXT:		nextPixelX	= pixelX + { {10{extIX}}, changeX, 1'b0 };	// -2,0,+2
 	X_LINE_START:	nextPixelX	= RegX0;
 	X_LINE_NEXT:	nextPixelX	= nextLineX; // Optimize and merge with case 0
-	X_TRI_BBLEFT:	nextPixelX	= minTriDAX0;
-	X_TRI_BBRIGHT:	nextPixelX	= maxTriDAX1;
+	X_TRI_BBLEFT:	nextPixelX	= { minTriDAX0[11:1], 1'b0 };
+	X_TRI_BBRIGHT:	nextPixelX	= { maxTriDAX1[11:1], 1'b0 };
 	default:		nextPixelX	= pixelX;
 	endcase
 			
@@ -666,11 +672,16 @@ begin
 		pixelState = 1;
 	end
 	if (memorizeLineEqu) begin
-		memW0L = w0L[EQUMSB];
-		memW1L = w1L[EQUMSB];
-		memW2L = w2L[EQUMSB];
+		// Backup the edge result for FIST PIXEL INSIDE BBOX.
+		memW0 = minTriDAX0[0] ? w0R[EQUMSB] : w0L[EQUMSB];
+		memW1 = minTriDAX0[0] ? w1R[EQUMSB] : w1L[EQUMSB];
+		memW2 = minTriDAX0[0] ? w2R[EQUMSB] : w2L[EQUMSB];
 	end
 end
+
+wire tstRightEqu0 = maxTriDAX1[0] ? w0R[EQUMSB] : w0L[EQUMSB];
+wire tstRightEqu1 = maxTriDAX1[0] ? w1R[EQUMSB] : w1L[EQUMSB];
+wire tstRightEqu2 = maxTriDAX1[0] ? w2R[EQUMSB] : w2L[EQUMSB];
 
 reg [5:0] currWorkState,nextWorkState;	parameter
 										NOT_WORKING_DEFAULT_STATE	= 6'd0, 
@@ -691,7 +702,7 @@ reg [5:0] currWorkState,nextWorkState;	parameter
 										START_LINE_TEST_RIGHT		= 6'd15,
 										SCAN_LINE					= 6'd16,
 										SCAN_LINE_CATCH_END			= 6'd17,
-										TMP_1 						= 6'd18,
+										LINE_READ_MASK				= 6'd18,
 										TMP_2 						= 6'd19,
 										TMP_3 						= 6'd20,
 										TMP_4 						= 6'd21,
@@ -705,11 +716,11 @@ reg [5:0] currWorkState,nextWorkState;	parameter
 										SETUP_UY					= 6'd29,
 										SETUP_VX					= 6'd30,
 										SETUP_VY					= 6'd31,
-//										WAIT_4,
-										WAIT_3						= 6'd32,
-										WAIT_2						= 6'd33,
-										WAIT_1						= 6'd34,
-										SELECT_PRIMITIVE			= 6'd35;
+										RECT_SCAN_LINE				= 6'd32,
+										WAIT_3						= 6'd33,
+										WAIT_2						= 6'd34,
+										WAIT_1						= 6'd35,
+										SELECT_PRIMITIVE			= 6'd36;
 
 always @(posedge clk)
 begin
@@ -737,8 +748,11 @@ reg IncY;
 reg [2:0] selNextX;
 reg [2:0] selNextY;
 
-wire requestNextPixel = 1'b1;
-reg  writePixels;
+wire			requestNextPixel = 1'b1;
+reg				writePixelL,writePixelR;
+// reg				readStencil;
+reg				writeStencil;
+reg				assignRectSetup;
 
 always @(*)
 begin
@@ -761,14 +775,35 @@ begin
 	resetDir					= 0;
 	compoID						= 0;
 	vecID						= 0;
+	writePixelL					= 0;
+	writePixelR					= 0;
+//	readStencil					= 0;
+	writeStencil				= 0;
+	changeX						= 0;
+	assignRectSetup				= 0;
 	
 	case (currWorkState)
 	NOT_WORKING_DEFAULT_STATE:
 	begin
+		assignRectSetup = !bIsPerVtxCol;
 		case (issuePrimitive)
-		ISSUE_TRIANGLE:	nextWorkState = SETUP_RX; //TRIANGLE_START; -> Even for single color we go through the hoops.
-		ISSUE_RECT:		nextWorkState = SETUP_RX; //RECT_START;
-		ISSUE_LINE:		nextWorkState = SETUP_RX; //LINE_START;
+		ISSUE_TRIANGLE:
+		begin
+			if (bIsPerVtxCol) begin
+				nextWorkState = SETUP_RX;
+			end else begin
+				nextWorkState = (bUseTexture) ? SETUP_UX : TRIANGLE_START;
+			end
+		end
+		ISSUE_RECT:		nextWorkState = RECT_START;
+		ISSUE_LINE:
+		begin
+			if (bIsPerVtxCol) begin
+				nextWorkState = SETUP_RX;
+			end else begin
+				nextWorkState = (bUseTexture) ? SETUP_UX : LINE_START;
+			end
+		end
 		ISSUE_FILL:		nextWorkState = FILL_START;
 		ISSUE_COPY:		
 			if (bIsCopyVVCommand) begin
@@ -926,7 +961,7 @@ begin
 	begin
 		// [PSTORE COMMAND: [011][Index 5 bit][32 bit pixel][2 Bit Mask]
 		// Use BWRITE command once line are completed :-) Can reuse BURSTed command.
-		nextWorkState = TMP_1;
+		nextWorkState = TMP_2;
 	end
 	// --------------------------------------------------------------------
 	//   COPY VRAM TO CPU.
@@ -935,7 +970,7 @@ begin
 	begin
 		// [PREAD COMMAND: [100][Index 5 bit] -> Next cycle have 16 bit through special port.
 		// Use BSTORE Command for burst loading.
-		nextWorkState = TMP_1;
+		nextWorkState = TMP_2;
 	end
 	// --------------------------------------------------------------------
 	//   TRIANGLE STATE MACHINE
@@ -1018,7 +1053,7 @@ begin
 		if (bIsPolyCommand) begin
 			nextWorkState = TRIANGLE_START;
 		end else begin
-			nextWorkState = bIsLineCommand ? LINE_START : RECT_START ; /* bIsRectCommand */
+			nextWorkState = LINE_START; /* RECT NEVER REACH HERE : No Division setup */
 		end
 	end
 	TRIANGLE_START:
@@ -1059,7 +1094,8 @@ begin
 		// If so, mean that we are at the same area defined by the equation.
 		// We also test that we are NOT a valid pixel inside the triangle.
 		// We use L/R result based on RIGHT edge coordinate (odd/even).
-		if ((memW0L == w0R[EQUMSB]) && (memW1L == w1R[EQUMSB]) && (memW2L == w2R[EQUMSB]) && ((!pixelX[0] && !isValidPixelL) || (pixelX[0] && !isValidPixelR)))
+		if ((memW0 == tstRightEqu0) && (memW1 == tstRightEqu1) && (memW2 == tstRightEqu2) 	// Check that TRIANGLE EDGE did not SWITCH between the LEFT and RIGHT side of the bounding box.
+		 && ((!maxTriDAX1[0] && !isValidPixelL) || (maxTriDAX1[0] && !isValidPixelR)))				// And that we are OUTSIDE OF THE TRIANGLE. (if odd/even pixel, select proper L/R validpixel.) (Could be also a clipped triangle with FULL LINE)
 		begin
 			selNextY		= Y_TRI_NEXT;
 			nextWorkState	= START_LINE_TEST_LEFT;
@@ -1070,10 +1106,12 @@ begin
 	end
 	SCAN_LINE:
 	begin
-		if (isBottomInside) begin
+		if (isBottomInsideBBox) begin
 			//
 			// TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
 			//        Warning : Care of single pixel write logic + and non increment of X.
+			
+			// TODO : Mask stuff here at IF level too.
 			if (isValidPixelL || isValidPixelR) begin // Line Equation.
 				if (pixelState == 0) begin
 					pixelFound	= 1;
@@ -1083,9 +1121,8 @@ begin
 				if (requestNextPixel) begin
 					// Write only if pixel pair is valid...
 					
-					//if (maskLRValid & DrawAreaClipping) begin
-						writePixels	= 1;
-					//end
+					writePixelL	= isValidPixelL /*& mask stuff */;
+					writePixelR	= isValidPixelR /*& mask stuff */;
 					
 					// Go to next pair whatever, as long as request is asking for new pair...
 					// normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
@@ -1130,8 +1167,47 @@ begin
 	RECT_START:
 	begin
 		// Rect use PSTORE COMMAND. (2 pix per clock)
-		nextWorkState = TMP_1;
+		assignRectSetup = 1;
+		nextWorkState	= RECT_SCAN_LINE;
+		
+		if (earlyTriangleReject) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all. 
+			nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// Override state.
+		end else begin
+			selNextX		= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
+			selNextY		= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
+		end
 	end
+	RECT_SCAN_LINE:
+	begin
+		if (isBottomInsideBBox) begin // Not Y end yet ?
+			if (isRightPLXmaxTri) begin // Work by pair. Is left side of pair is inside rendering area. ( < right border )
+				// TODO Pixel writing logic
+				// TODO Mask -> If both invalid, force next pair, without write.
+				if (requestNextPixel) begin
+					// Write only if pixel pair is valid...
+					
+					//if (maskLRValid & DrawAreaClipping) begin
+					writePixelL = 1 /* MASK */;
+					writePixelR = 1 /* MASK */;
+					//end
+					
+					// Go to next pair whatever, as long as request is asking for new pair...
+					// normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
+					changeX		= 1;
+					loadNext	= 1;
+					selNextX	= X_TRI_NEXT;
+				end
+			end else begin
+				loadNext	= 1;
+				selNextX	= X_TRI_BBLEFT;
+				selNextY	= Y_TRI_NEXT;
+				// No state change... Work on next line...
+			end
+		end else begin
+			nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		end
+	end
+	
 	// --------------------------------------------------------------------
 	//   LINE STATE MACHINE
 	// --------------------------------------------------------------------
@@ -1141,37 +1217,46 @@ begin
 		loadNext	= 1;
 		selNextX	= X_LINE_START;
 		selNextY	= Y_LINE_START;
+		nextWorkState = GPU_REG_CheckMaskBit ? LINE_READ_MASK : LINE_DRAW;
+	end
+	LINE_READ_MASK:
+	begin
+//		readStencil	  = 1;
 		nextWorkState = LINE_DRAW;
 	end
 	LINE_DRAW:
 	begin
+		/*	TODO :
+			- If using blending, first request BG for current pixel.
+			- Line have no texture --> Bit 15 written is always 0.   (STENCIL CACHE UPDATE TOO)
+				Line / Untextured
+				=> (0 | GPU_REG_ForcePixel15MaskSet) => Bit 15 write = GPU_REG_ForcePixel15MaskSet for lines. 
+				Textured
+				=> Texture Bit 15 | GPU_REG_ForcePixel15MaskSet
+			- if (((GPU_REG_CheckMaskBit) & ReadStencil==0) | !GPU_REG_CheckMaskBit)
+			
+			If GPU_REG_CheckMaskBit have a READ STATE first -> (2 state/cycle per pixel)
+		 */
+		nextWorkState = GPU_REG_CheckMaskBit ? LINE_READ_MASK : LINE_DRAW;
+
 		if (requestNextPixel) begin
 			loadNext	= 1;
 			selNextX	= X_LINE_NEXT;
 			selNextY	= Y_LINE_NEXT;
 			
 			if ((pixelX == RegX1) && (pixelY == RegY1)) begin
-				nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// TODO : Flush write. with last pixel or previous pixels if this one is not written.
-			end else begin
-				nextWorkState	= LINE_DRAW;
+				nextWorkState	= NOT_WORKING_DEFAULT_STATE; // Override nextWorkState from setup in this.
 			end
 			
-			if (isLineInsideDrawArea /*& maskOK*/) begin	// Clipping DrawArea, TODO: Check if masking apply too.
-				writePixels	= 1;
-				// TODO :Update Stencil ? see policy...
-			end else begin
-				writePixels	= 0;
+			// If pixel is valid and (no mask checking | mask check with value = 0)
+			if (isLineInsideDrawArea && ((GPU_REG_CheckMaskBit && (!selectPixelWriteMask)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
+				writePixelL	 = isLineLeftPix;
+				writePixelR	 = isLineRightPix;
+				writeStencil = 1;
 			end
-		end else begin
-			selNextX		= X_ASIS;
-			selNextY		= Y_ASIS;
-			// Unit probably busy...
-			writePixels		= 0;
-			nextWorkState	= LINE_DRAW;
 		end
 	end
 	// --- TEMP DEBUG STUFF ---
-	TMP_1: begin nextWorkState = TMP_2; end
 	TMP_2: begin nextWorkState = TMP_3; end
 	TMP_3: begin nextWorkState = TMP_4; end
 	TMP_4: begin nextWorkState = NOT_WORKING_DEFAULT_STATE; end
@@ -1199,6 +1284,7 @@ reg loadClutPage;
 reg loadTexPage;
 reg loadSize;
 reg loadCoord1,loadCoord2;
+reg loadRectEdge;
 reg [1:0] loadSizeParam;
 reg [4:0] issuePrimitive;	parameter	NO_ISSUE = 5'd0, ISSUE_TRIANGLE = 5'b000001,ISSUE_RECT = 5'b00010,ISSUE_LINE = 5'b00100,ISSUE_FILL = 5'b01000,ISSUE_COPY = 5'b10000;
 wire [4:0] issuePrimitiveReal;
@@ -1220,6 +1306,7 @@ always @(*)
 begin
 	// Read FIFO when fifo is NOT empty or that we can decode the next item in the FIFO.
 	// TODO : Assume that FIFO always output the same value as the last read, even if read signal is FALSE ! Simplify state machine a LOT.
+	loadRectEdge = 0;
 	
 	case (currState)
 	DEFAULT_STATE:
@@ -1531,6 +1618,8 @@ begin
 		// TODO ?; // Loop to generate 4 vertices... Add w/h to Vertex and UV.
 		loadSize				= 1; loadSizeParam = SIZE_VAR;
 		
+		loadRectEdge			= bIsRectCommand;
+		
 		// TODO, just set here to avoid latching.
 		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
 		loadCoord1				= 0; loadCoord2	= 0;
@@ -1592,6 +1681,70 @@ begin
 	end
 	endcase
 end
+
+StencilCache StencilCacheInstance(
+	.clk			(clk),
+	.addrWord		(stencilWordAdr),	// [19:0] : 1 MByte, [18:0] : 0.5 MegaHWord
+	.writeBitSelect	(stencilWriteBitSelect),
+	.writeBitValue	(stencilWriteBitValue),
+	.StencilOut		(stencilReadBit)
+);
+
+// assign pixelStencilOut = selectPixelWriteMask;
+always @(*)
+begin
+	case (pixelX[3:0])
+	4'h0: selectPixelWriteMask = stencilReadBit[ 0];
+	4'h1: selectPixelWriteMask = stencilReadBit[ 1];
+	4'h2: selectPixelWriteMask = stencilReadBit[ 2];
+	4'h3: selectPixelWriteMask = stencilReadBit[ 3];
+	4'h4: selectPixelWriteMask = stencilReadBit[ 4];
+	4'h5: selectPixelWriteMask = stencilReadBit[ 5];
+	4'h6: selectPixelWriteMask = stencilReadBit[ 6];
+	4'h7: selectPixelWriteMask = stencilReadBit[ 7];
+	4'h8: selectPixelWriteMask = stencilReadBit[ 8];
+	4'h9: selectPixelWriteMask = stencilReadBit[ 9];
+	4'hA: selectPixelWriteMask = stencilReadBit[10];
+	4'hB: selectPixelWriteMask = stencilReadBit[11];
+	4'hC: selectPixelWriteMask = stencilReadBit[12];
+	4'hD: selectPixelWriteMask = stencilReadBit[13];
+	4'hE: selectPixelWriteMask = stencilReadBit[14];
+	default: selectPixelWriteMask = stencilReadBit[15];
+	endcase
+
+	case (pixelX[3:0])
+	4'h0: stencilWriteBitSelect 	= { 15'd0, writeStencil };
+	4'h1: stencilWriteBitSelect 	= { 14'd0, writeStencil , 1'd0 };
+	4'h2: stencilWriteBitSelect 	= { 13'd0, writeStencil , 2'd0 };
+	4'h3: stencilWriteBitSelect 	= { 12'd0, writeStencil , 3'd0 };
+	4'h4: stencilWriteBitSelect 	= { 11'd0, writeStencil , 4'd0 };
+	4'h5: stencilWriteBitSelect 	= { 10'd0, writeStencil , 5'd0 };
+	4'h6: stencilWriteBitSelect 	= {  9'd0, writeStencil , 6'd0 };
+	4'h7: stencilWriteBitSelect 	= {  8'd0, writeStencil , 7'd0 };
+	4'h8: stencilWriteBitSelect 	= {  7'd0, writeStencil , 8'd0 };
+	4'h9: stencilWriteBitSelect 	= {  6'd0, writeStencil , 9'd0 };
+	4'hA: stencilWriteBitSelect 	= {  5'd0, writeStencil ,10'd0 };
+	4'hB: stencilWriteBitSelect 	= {  4'd0, writeStencil ,11'd0 };
+	4'hC: stencilWriteBitSelect 	= {  3'd0, writeStencil ,12'd0 };
+	4'hD: stencilWriteBitSelect 	= {  2'd0, writeStencil ,13'd0 };
+	4'hE: stencilWriteBitSelect 	= {  1'd0, writeStencil ,14'd0 };
+	default: stencilWriteBitSelect	= {        writeStencil, 15'd0 };
+	endcase
+
+	stencilWriteBitValue = { 16{GPU_REG_ForcePixel15MaskSet} }; // TODO : When TEXTURED => (Value of texture | GPU_REG_ForcePixel15MaskSet)... Write back a lot more complex.
+end
+
+// [BYTE PIXEL ADR FROM X/Y]
+// YYYY.YYYY.YXXX.XXXX.XXX0 Byte.
+// YYYY.YYYY.YXXX.XXX_.____ {  
+wire [14:0]	stencilWordAdr = { pixelY[8:0], pixelX[9:4] };	// [19:0] : 1 MByte, [18:0] : 0.5 MegaHWord
+
+								// Work by 16 HWord (pixels) => [14:0] 32k x 16 pixel block (32 byte => 16 bit cache)
+reg [15:0]	stencilWriteBitSelect, stencilWriteBitValue;
+wire [15:0] stencilReadBit;
+reg         selectPixelWriteMask;
+
+
 // TODO OPTIMIZE : can probably compute nextCondUseFIFO outside with : (nextLogicalState != WAIT_COMMAND_COMPLETE) & (nextLogicalState != DEFAULT_STATE)
 
 // WE Read from the FIFO when FIFO has data, but also when the GPU is not busy rendering, else we stop loading commands...
@@ -1634,81 +1787,106 @@ wire [8:0] loadComponentB	= bIgnoreColor   ? 9'b100000000 : componentFuncBA;
 reg bPipeIssueTrianglePrimitive;
 wire [9:0] copyHeight = { !(|fifoDataOutHeight[8:0]), fifoDataOutHeight };
 
+reg [10:0] widthNext;
+reg [ 9:0] heightNext;
+reg        writeOrigHeight;
+
+always @(*)
+begin
+	writeOrigHeight = 0;
+	
+	case (loadSizeParam)
+	SIZE_VAR:
+	begin
+		if (bIsFillCommand) begin
+			widthNext = { 1'b0, fifoDataOutWidth[9:4], 4'b0 } + { 6'd0, |fifoDataOutWidth[3:0], 4'b0 };
+		end else begin
+			if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
+				widthNext = { !(|fifoDataOutWidth[9:0]), fifoDataOutWidth }; // If value is 0, then 0x400
+			end else begin
+				widthNext = { 1'b0, fifoDataOutWidth };
+			end
+		end
+		
+		writeOrigHeight = 1;
+		if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
+			heightNext			= copyHeight; // If value is 0, then 0x400
+		end else begin
+			heightNext			= { 1'b0, fifoDataOutHeight };
+		end
+	end
+	SIZE_1x1:
+	begin
+		widthNext	= 11'd1;
+		heightNext	= 10'd1;
+	end
+	SIZE_8x8:
+	begin
+		widthNext	= 11'd8;
+		heightNext	= 10'd8;
+	end
+	SIZE_16x16:
+	begin
+		widthNext	= 11'd16;
+		heightNext	= 10'd16;
+	end
+	endcase
+end
+
+wire signed [11:0] rightEdgeRect  =  RegX0 + {1'b1 , ~widthNext };	// (-widthNext) -1 	// TODO CHECK RANGE
+wire signed [11:0] bottomEdgeRect =  RegY0 + {2'b11, ~heightNext};	// TODO CHECK RANGE
+
 always @(posedge clk)
 begin
 	bPipeIssueTrianglePrimitive <= (issuePrimitiveReal == ISSUE_TRIANGLE);
 	if (FifoDataValid) begin
-		if (isV0 & loadVertices) RegX0 <= fifoDataOutX;
-		if (isV0 & loadVertices) RegY0 <= fifoDataOutY;
-		if (isV0 & loadUV	   ) RegU0 <= fifoDataOutUR;
-		if (isV0 & loadUV      ) RegV0 <= fifoDataOutVG;
+		if (isV0 & loadVertices) RegX0 = fifoDataOutX;
+		if (isV0 & loadVertices) RegY0 = fifoDataOutY;
+		if (isV0 & loadUV	   ) RegU0 = fifoDataOutUR;
+		if (isV0 & loadUV      ) RegV0 = fifoDataOutVG;
 		if ((isV0|loadAllRGB) & loadRGB) begin
-			RegR0 <= loadComponentR;
-			RegG0 <= loadComponentG;
-			RegB0 <= loadComponentB;
+			RegR0 = loadComponentR;
+			RegG0 = loadComponentG;
+			RegB0 = loadComponentB;
 		end
 			
-		if (isV1 & loadVertices) RegX1 <= fifoDataOutX;
-		if (isV1 & loadVertices) RegY1 <= fifoDataOutY;
-		if (isV1 & loadUV	   ) RegU1 <= fifoDataOutUR;
-		if (isV1 & loadUV      ) RegV1 <= fifoDataOutVG;
+		if (isV1 & loadVertices) RegX1 = fifoDataOutX;
+		if (isV1 & loadVertices) RegY1 = fifoDataOutY;
+		if (loadRectEdge) begin
+			RegX1 = rightEdgeRect;
+			RegY1 = RegY0;
+			RegX2 = RegX0;
+			RegY2 = bottomEdgeRect;
+		end
+		if (isV1 & loadUV	   ) RegU1 = fifoDataOutUR;
+		if (isV1 & loadUV      ) RegV1 = fifoDataOutVG;
 		if ((isV1|loadAllRGB) & loadRGB) begin
-			RegR1 <= loadComponentR;
-			RegG1 <= loadComponentG;
-			RegB1 <= loadComponentB;
+			RegR1 = loadComponentR;
+			RegG1 = loadComponentG;
+			RegB1 = loadComponentB;
 		end
 		
-		if (isV2 & loadVertices) RegX2 <= fifoDataOutX;
-		if (isV2 & loadVertices) RegY2 <= fifoDataOutY;
-		if (isV2 & loadUV	   ) RegU2 <= fifoDataOutUR;
-		if (isV2 & loadUV      ) RegV2 <= fifoDataOutVG;
+		if (isV2 & loadVertices) RegX2 = fifoDataOutX;
+		if (isV2 & loadVertices) RegY2 = fifoDataOutY;
+		if (isV2 & loadUV	   ) RegU2 = fifoDataOutUR;
+		if (isV2 & loadUV      ) RegV2 = fifoDataOutVG;
 		if ((isV2|loadAllRGB) & loadRGB) begin
-			RegR2 <= loadComponentR;
-			RegG2 <= loadComponentG;
-			RegB2 <= loadComponentB;
+			RegR2 = loadComponentR;
+			RegG2 = loadComponentG;
+			RegB2 = loadComponentB;
 		end
-		
-		if (loadTexPage)  RegTx <= fifoDataOutTex;
-		if (loadClutPage) RegC  <= fifoDataOutClut;
+
+// [NOT USED FOR NOW : DIRECTLY MODIFY GLOBAL GPU STATE]
+//		if (loadTexPage)  RegTx = fifoDataOutTex;
+
+		if (loadClutPage) RegC  = fifoDataOutClut;
 	//	Better load and add W to RegX0,RegY0,RegX1=RegX0+W ? Same for Y1.
 		if (loadSize) begin
-			case (loadSizeParam)
-			SIZE_VAR:
-			begin
-				if (bIsFillCommand) begin
-					RegSizeW = { 1'b0, fifoDataOutWidth[9:4], 4'b0 } + { 6'd0, |fifoDataOutWidth[3:0], 4'b0 };
-				end else begin
-					if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
-						RegSizeW = { !(|fifoDataOutWidth[9:0]), fifoDataOutWidth }; // If value is 0, then 0x400
-					end else begin
-						RegSizeW = { 1'b0, fifoDataOutWidth };
-					end
-				end
-				
-				if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
-					RegSizeH			= copyHeight; // If value is 0, then 0x400
-					OriginalRegSizeH	= copyHeight;
-				end else begin
-					RegSizeH			= { 1'b0, fifoDataOutHeight };
-					OriginalRegSizeH	= { 1'b0, fifoDataOutHeight };
-				end
+			RegSizeW = widthNext;
+			RegSizeH = heightNext;
+			if (writeOrigHeight) begin
+				OriginalRegSizeH = heightNext;
 			end
-			SIZE_1x1:
-			begin
-				RegSizeW = 11'd1;
-				RegSizeH = 10'd1;
-			end
-			SIZE_8x8:
-			begin
-				RegSizeW = 11'd8;
-				RegSizeH = 10'd8;
-			end
-			SIZE_16x16:
-			begin
-				RegSizeW = 11'd16;
-				RegSizeH = 10'd16;
-			end
-			endcase
 		end
 		if (loadCoord1) begin
 			RegSX0 = (bIsFillCommand) ? { fifoDataOutWidth[9:4], 4'b0} : fifoDataOutWidth;
@@ -1769,15 +1947,32 @@ wire signed [11:0]  LPixelX = { pixelX[11:1], 1'b0 };
 wire signed [11:0]  RPixelX = { pixelX[11:1], 1'b1 };
 
 // Test Current Pixel Pair against [Drawing Area]
-wire				isTopInside 	= pixelY  >= extDAY0;
-wire				isBottomInside	= pixelY   < extDAY1;
+// [NEEDED FOR LINES] : Line are scanned independantly from draw area.
+wire				isTopInside 		= pixelY  >= extDAY0;
+wire				isBottomInside		= pixelY   < extDAY1;
+wire				isTopInsideBBox		= pixelY  >= minTriDAY0; // PIXEL IS EXCLUSIVE
+wire				isBottomInsideBBox	= pixelY  <= maxTriDAY1; // PIXEL IS INCLUSIVE
+
 wire				isLeftPLXInside	= LPixelX >= extDAX0;
 wire				isLeftPRXInside	= RPixelX >= extDAX0;
-wire				isRightPLXInside= LPixelX  < extDAX1;
-wire				isRightPRXInside= RPixelX  < extDAX1;
-wire				isValidHorizontal	= isTopInside & isBottomInside;
+wire				isRightPLXInside= LPixelX  < extDAX1; // PIXEL IS EXCLUSIVE
+wire				isRightPRXInside= RPixelX  < extDAX1; // PIXEL IS EXCLUSIVE
+// [NEEDED FOR TRIANGLE AND RECTANGLE] : Intersection of draw area AND bounding box.
+wire				isLeftPLXminTri = LPixelX >= minTriDAX0;
+wire				isLeftPRXminTri = RPixelX >= minTriDAX0;
+wire				isRightPLXmaxTri= LPixelX <= maxTriDAX1; // PIXEL IS INCLUSIVE
+wire				isRightPRXmaxTri= RPixelX <= maxTriDAX1; // PIXEL IS INCLUSIVE
+
+wire				isValidHorizontal			= isTopInside     & isBottomInside;
+wire				isValidHorizontalTriBbox	= isTopInsideBBox & isBottomInsideBBox;
+
 // Test Current Pixel For Line primitive : Check vertically against the DRAW AREA and select the pixel in the PAIR (odd/even) that match the result of the pixel we want to test.
-wire				isLineInsideDrawArea = isValidHorizontal & ((pixelX[0] & isLeftPRXInside & isRightPRXInside) | (!pixelX[0] & isLeftPLXInside & isRightPLXInside));
+wire				isLineRightPix			= ( pixelX[0] & isLeftPRXInside & isRightPRXInside);
+wire				isLineLeftPix			= (!pixelX[0] & isLeftPLXInside & isRightPLXInside);
+wire				isLineInsideDrawArea	= isValidHorizontal & (isLineRightPix | isLineLeftPix);
+// Is Inside Triangle & Box rendering (Draw Area Inter. BBox)
+wire				isValidPixelL	= (isCCWInsideL | isCWInsideL) & isValidHorizontalTriBbox & isLeftPLXminTri & isRightPLXmaxTri;
+wire				isValidPixelR	= (isCCWInsideR | isCWInsideR) & isValidHorizontalTriBbox & isLeftPRXminTri & isRightPRXmaxTri;
 
 // --- For Triangle ---
 // Bounding box triangle.
@@ -1901,6 +2096,7 @@ wire signed [20:0] inputDivB	= mulFB * C10i;
 
 parameter PREC = 11;
 parameter PRECM1 = PREC-1;
+parameter ZERO_PREC = 20'd0, ONE_PREC = 20'h800;
 
 // Signed 21 bit << 11 bit => 32 bit signed value.
 wire signed [31:0] inputDivAShft= { inputDivA, 11'b0 }; // PREC'd0
@@ -1924,7 +2120,6 @@ dividerWrapper instDivisorB(
 
 // 11 bit prec + 9 bit = 20 bit.
 wire signed [PREC+8:0] perPixelComponentIncrement = outputA + outputB;
- 	
 // ---------------------------------------------------------------------------------------------------------------------
 //  [ Interpolator Storage Stage ]
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1944,6 +2139,19 @@ begin
 	if (assignDivResult == 4'd9) begin USY = perPixelComponentIncrement; end
 	if (assignDivResult == 4'hA) begin VSX = perPixelComponentIncrement; end
 	if (assignDivResult == 4'hB) begin VSY = perPixelComponentIncrement; end
+	// Assign rasterization parameter for RECT mode.
+	if (assignRectSetup) begin 
+		RSX = ZERO_PREC;
+		RSY = ZERO_PREC;
+		GSX = ZERO_PREC;
+		GSY = ZERO_PREC;
+		BSX = ZERO_PREC;
+		BSY = ZERO_PREC;
+		USX = ONE_PREC;
+		USY = ZERO_PREC;
+		VSX = ZERO_PREC;
+		VSY = ONE_PREC;
+	end
 end
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1996,12 +2204,6 @@ wire isCWInsideL  =  (w0L[EQUMSB] & w1L[EQUMSB] & w2L[EQUMSB]);
 
 wire isCCWInsideR = !(w0R[EQUMSB] | w1R[EQUMSB] | w2R[EQUMSB]);
 wire isCWInsideR  =  (w0R[EQUMSB] & w1R[EQUMSB] & w2R[EQUMSB]);
-
-//
-// [Component Interpolation Out]
-//
-wire isValidPixelL= (isCCWInsideL | isCWInsideL) & isValidHorizontal & isLeftPLXInside & isRightPLXInside;
-wire isValidPixelR= (isCCWInsideR | isCWInsideR) & isValidHorizontal & isLeftPRXInside & isRightPRXInside;
 
 //
 // [Component Interpolation Out]
