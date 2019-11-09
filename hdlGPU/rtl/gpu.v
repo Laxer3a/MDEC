@@ -1173,7 +1173,7 @@ begin
 		// Rect use PSTORE COMMAND. (2 pix per clock)
 		nextWorkState	= RECT_SCAN_LINE;
 		
-		if (earlyTriangleReject) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all. 
+		if (earlyTriangleReject | isNegXAxis | preB[11]) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all, or NegativeSize => size = 0.
 			nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// Override state.
 		end else begin
 			loadNext		= 1;
@@ -1552,6 +1552,7 @@ begin
 		loadAllRGB				= 0;
 		loadClutPage			= 0;
 		loadTexPage				= 0;
+		loadRectEdge			= bIsRectCommand;	// Force to load, dont care, override by UV if set with UV or SIZE if variable.
 	end
 	UV_LOAD:
 	begin
@@ -1568,6 +1569,7 @@ begin
 		loadAllRGB				= 0;
 		loadClutPage			= isV0; // first entry is Clut info.
 		loadTexPage				= isV1; // second entry is TexPage.
+		loadRectEdge			= bIsRectCommand;
 
 		// do not issue primitive if Rectangle or 1st/2nd vertex UV.
 		
@@ -1839,8 +1841,9 @@ end
 wire signed [11:0] sizeWM1		  = { 1'b0, widthNext  } + { 12{1'b1}}; //  Width-1
 wire signed [11:0] sizeHM1		  = { 2'd0, heightNext } + { 12{1'b1}}; // Height-1
 
-wire signed [11:0] rightEdgeRect  = RegX0 + sizeWM1;
-wire signed [11:0] bottomEdgeRect = RegY0 + sizeHM1;
+wire isVertexLoadState = (currState == VERTEX_LOAD);
+wire signed [11:0] rightEdgeRect  = (isVertexLoadState ? fifoDataOutX : RegX0) + sizeWM1;
+wire signed [11:0] bottomEdgeRect = (isVertexLoadState ? fifoDataOutY : RegY0) + sizeHM1;
 
 always @(posedge clk)
 begin
