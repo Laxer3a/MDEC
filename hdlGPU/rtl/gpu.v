@@ -605,7 +605,6 @@ reg signed [11:0] pixelY;
 reg signed [11:0] nextPixelY; // Wire
 
 reg dir;
-reg pixelState;
 reg memW0,memW1,memW2;
 
 
@@ -643,6 +642,9 @@ begin
 	endcase
 end
 	
+reg pixelFound;
+reg enteredTriangle; reg setEnteredTriangle, resetEnteredTriangle;
+
 always @(posedge clk)
 begin
 	if (loadNext) begin
@@ -665,11 +667,17 @@ begin
 		end
 	end
 	
-	if (noPixelFound) begin
-		pixelState = 0; // No pixel found.
+	if (resetPixelFound) begin
+		pixelFound = 0; // No pixel found.
 	end
-	if (pixelFound) begin
-		pixelState = 1;
+	if (setPixelFound) begin
+		pixelFound = 1;
+	end
+	if (resetEnteredTriangle) begin
+		enteredTriangle = 0;
+	end
+	if (setEnteredTriangle) begin
+		enteredTriangle = 1;
 	end
 	if (memorizeLineEqu) begin
 		// Backup the edge result for FIST PIXEL INSIDE BBOX.
@@ -741,8 +749,8 @@ reg				changeX;
 reg				resetDir;
 reg				switchDir;
 reg				loadNext;
-reg				pixelFound;
-reg				noPixelFound;
+reg				setPixelFound;
+reg				resetPixelFound;
 reg				memorizeLineEqu;
 reg IncY;
 reg [2:0] selNextX;
@@ -754,6 +762,7 @@ reg				writePixelL,writePixelR;
 reg				writeStencil;
 reg				assignRectSetup;
 
+wire 			reachEdgeTriScan = (((pixelX > maxXTri) & !dir) || ((pixelX < minXTri) & dir));
 always @(*)
 begin
 	// -----------------------
@@ -767,8 +776,8 @@ begin
 	useDest						= 0; // Source adr computation by default...
 	memorizeLineEqu				= 0;
 	loadNext					= 0;
-	pixelFound					= 0;
-	noPixelFound				= 0;
+	setPixelFound				= 0;
+	resetPixelFound				= 0;
 	selNextX					= X_ASIS;
 	selNextY					= Y_ASIS;
 	switchDir					= 0;
@@ -781,11 +790,14 @@ begin
 	writeStencil				= 0;
 	changeX						= 0;
 	assignRectSetup				= 0;
+	setEnteredTriangle			= 0;
+	resetEnteredTriangle		= 0;
 	
 	case (currWorkState)
 	NOT_WORKING_DEFAULT_STATE:
 	begin
-		assignRectSetup = !bIsPerVtxCol;
+		assignRectSetup			= !bIsPerVtxCol;
+		resetEnteredTriangle	= 1;	// Put here, no worries about more specific cases.
 		case (issuePrimitive)
 		ISSUE_TRIANGLE:
 		begin
@@ -1099,12 +1111,12 @@ begin
 		// We also test that we are NOT a valid pixel inside the triangle.
 		// We use L/R result based on RIGHT edge coordinate (odd/even).
 		if ((memW0 == tstRightEqu0) && (memW1 == tstRightEqu1) && (memW2 == tstRightEqu2) 	// Check that TRIANGLE EDGE did not SWITCH between the LEFT and RIGHT side of the bounding box.
-		 && ((!maxTriDAX1[0] && !isValidPixelL) || (maxTriDAX1[0] && !isValidPixelR)))				// And that we are OUTSIDE OF THE TRIANGLE. (if odd/even pixel, select proper L/R validpixel.) (Could be also a clipped triangle with FULL LINE)
+		 && ((!maxTriDAX1[0] && !isValidPixelL) || (maxTriDAX1[0] && !isValidPixelR)))		// And that we are OUTSIDE OF THE TRIANGLE. (if odd/even pixel, select proper L/R validpixel.) (Could be also a clipped triangle with FULL LINE)
 		begin
 			selNextY		= Y_TRI_NEXT;
 			nextWorkState	= START_LINE_TEST_LEFT;
 		end else begin
-			noPixelFound	= 1;
+			resetPixelFound	= 1;
 			nextWorkState	= SCAN_LINE;
 		end
 	end
@@ -1117,8 +1129,10 @@ begin
 			
 			// TODO : Mask stuff here at IF level too.
 			if (isValidPixelL || isValidPixelR) begin // Line Equation.
-				if (pixelState == 0) begin
-					pixelFound	= 1;
+				setEnteredTriangle = 1;
+				
+				if (pixelFound == 0) begin
+					setPixelFound	= 1;
 				end
 				
 				// TODO Pixel writing logic
@@ -1136,16 +1150,17 @@ begin
 				end
 			end else begin
 				loadNext	= 1;
-				if (pixelState == 1) begin // Pixel Found.
+				if (pixelFound == 1) begin // Pixel Found.
 					selNextY		= Y_TRI_NEXT;
 					nextWorkState	= SCAN_LINE_CATCH_END;
 				end else begin
 					// Continue to search for VALID PIXELS...
 					changeX			= 1;
 					selNextX		= X_TRI_NEXT;
+					selNextY		= reachEdgeTriScan ? Y_TRI_NEXT : Y_ASIS;
 					// Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
 					// -> Need to detect that we scan too far and met nobody and avoid out of bound search.
-					nextWorkState	= (((pixelX > maxXTri) & !dir) || ((pixelX < minXTri) & dir)) ? NOT_WORKING_DEFAULT_STATE : SCAN_LINE;
+					nextWorkState	= reachEdgeTriScan ? (enteredTriangle ? NOT_WORKING_DEFAULT_STATE : SCAN_LINE_CATCH_END) : SCAN_LINE;
 				end
 			end
 		end else begin
@@ -1161,7 +1176,7 @@ begin
 			selNextX		= X_TRI_NEXT;
 		end else begin
 			switchDir		= 1;
-			noPixelFound	= 1;
+			resetPixelFound	= 1;
 			nextWorkState	= SCAN_LINE;
 		end
 	end
