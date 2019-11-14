@@ -60,29 +60,57 @@ end
 assign IRQRequest = GPU_REG_IRQSet;
 
 wire [31:0] fifoDataOut;
-wire isFifoFull;
-wire isFifoEmpty;
+wire isFifoFullLSB, isFifoFullMSB,isFifoEmptyLSB, isFifoEmptyMSB;
+wire isFifoFull     = isFifoFullLSB  | isFifoFullMSB;
+wire isFifoEmpty    = isFifoEmptyLSB & isFifoEmptyMSB;
 wire isFifoNotEmpty = !isFifoEmpty;
-wire rstInFIFO = rstGPU | rstCmd;
+wire rstInFIFO      = rstGPU | rstCmd;
+
+// TODO : whichFifoLSB reset to 1 on RESET + reset to 1 on command enter ?
+reg  swichFifo;
+reg  whichFifoLSB = 1'b0;	// State machine will flip the bit using switchFifo.
+reg  readFifoNow  = 1'b0;	// State machine will ask reading.
+wire readFifoLSB	= readFifo | (readFifoNow & isFifoNotEmpty &  whichFifoLSB);
+wire readFifoMSB	= readFifo | (readFifoNow & isFifoNotEmpty & !whichFifoLSB);
 
 Fifo
 #(
 	.DEPTH_WIDTH	(4),
-	.DATA_WIDTH		(32)
+	.DATA_WIDTH		(16)
 )
-Fifo_inst
+Fifo_instMSB
 (
 	.clk			(clk ),
 	.rst			(rstInFIFO),
 
-	.wr_data_i		(cpuDataIn),
+	.wr_data_i		(cpuDataIn[31:16]),
 	.wr_en_i		(writeFifo),
 
-	.rd_data_o		(fifoDataOut),
-	.rd_en_i		(readFifo),
+	.rd_data_o		(fifoDataOut[31:16]),
+	.rd_en_i		(readFifoMSB),
 
-	.full_o			(isFifoFull),
-	.empty_o		(isFifoEmpty)
+	.full_o			(isFifoFullMSB),
+	.empty_o		(isFifoEmptyMSB)
+);
+
+Fifo
+#(
+	.DEPTH_WIDTH	(4),
+	.DATA_WIDTH		(16)
+)
+Fifo_instLSB
+(
+	.clk			(clk ),
+	.rst			(rstInFIFO),
+
+	.wr_data_i		(cpuDataIn[15:0]),
+	.wr_en_i		(writeFifo),
+
+	.rd_data_o		(fifoDataOut[15:0]),
+	.rd_en_i		(readFifoLSB),
+
+	.full_o			(isFifoFullLSB),
+	.empty_o		(isFifoEmptyLSB)
 );
 
 // TODO DMA Stuff
@@ -456,9 +484,7 @@ reg  [7:0] RegV2;
 reg [14:0] RegC ;
 // [NOT USED FOR NOW : DIRECTLY MODIFY GLOBAL GPU STATE]
 // reg  [9:0] RegTx;
-reg  [9:0] RegSX0,RegSX1;
 reg [10:0] RegSizeW;
-reg  [8:0] RegSY0,RegSY1;
 reg [ 9:0] RegSizeH;
 reg [ 9:0] OriginalRegSizeH;
 
@@ -497,17 +523,22 @@ reg			incrementXCounter;
 
 // Copy from TOP to BOTTOM when doing COPY from LOWER ADR to HIGHER ADR, and OPPOSITE TO AVOID FEEDBACK DURING COPY.
 // This flag also impact the FILL order but not the feature itself (Value SY1 depend on previouss commands or reset).
-wire yCopyDirectionIncr			= (RegSY0 > RegSY1);
 
-wire [ 9:0] OppRegSizeH			= OriginalRegSizeH - RegSizeH;
-wire  [9:0] fullY				= (yCopyDirectionIncr ? (RegSizeH + 10'h3FF) : OppRegSizeH) + { 1'b0, useDest ? RegSY1 : RegSY0 };	// Proper Top->Bottom or reverse order based on copy direction.
+// TODO OPTIMIZE : comparison already exist... Replace later...
+
+// Increment when Dst < Src. : (V1-V0 < 0) |  Valid for ALL axis (X and Y)
+// Decrement when Dst > Src. : (V1-V0 > 0) |  Src = Vertex0, Dst = Vertex1 => V1-V0
+wire yCopyDirectionIncr			= isNegYAxis;
+wire xCopyDirectionIncr			= isNegXAxis;
+
+wire  [9:0] OppRegSizeH			= OriginalRegSizeH - RegSizeH;
+wire  [9:0] fullY				= (yCopyDirectionIncr ? (RegSizeH + 10'h3FF) : OppRegSizeH) + { useDest ? RegY1[9:0] : RegY0[9:0] };	// Proper Top->Bottom or reverse order based on copy direction.
 
 //
 // Same for X Axis. Except we use an INCREMENTING COUNTER INSTEAD OF DEC FOR THE SAME AXIS.
-wire xCopyDirectionIncr			= (RegSX0 < RegSX1);
 
-wire [10:0] fullSizeSrc			= RegSizeW + { 7'd0, RegSX0[3:0] };
-wire [10:0] fullSizeDst			= RegSizeW + { 7'd0, RegSX1[3:0] };
+wire [10:0] fullSizeSrc			= RegSizeW + { 7'd0, RegX0[3:0] };
+wire [10:0] fullSizeDst			= RegSizeW + { 7'd0, RegX1[3:0] };
 
 wire        srcDistExact16Pixel	= !(|fullSizeSrc[3:0]);
 wire        dstDistExact16Pixel	= !(|fullSizeDst[3:0]);
@@ -521,7 +552,7 @@ wire  [6:0] OppAdrXDst			= lengthBlockDstHM1 - counterXDst;
 wire  [6:0] adrXSrc				= xCopyDirectionIncr ? counterXSrc : OppAdrXSrc;
 wire  [6:0] adrXDst				= xCopyDirectionIncr ? counterXDst : OppAdrXDst;
 
-wire  [6:0] fullX				= (useDest           ? adrXDst : adrXSrc)          + { 1'b0, useDest ? RegSX1[9:4] : RegSX0[9:4] };
+wire  [6:0] fullX				= (useDest           ? adrXDst : adrXSrc)          + { 1'b0, useDest ? RegX1[9:4] : RegX0[9:4] };
 
 wire [18:0] adrWord				= { fullY[8:0],fullX, 3'd0 }; // 32 Bit Word Adress.
 reg         writeCommand;
@@ -530,7 +561,7 @@ reg  [15:0] maskLeft;
 reg  [15:0] maskRight;
 always @(*)
 begin
-	case (RegSX0[3:0])
+	case (RegX0[3:0])
 	4'h0: maskLeft = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
 	4'h1: maskLeft = 16'b1111_1111_1111_1110;
 	4'h2: maskLeft = 16'b1111_1111_1111_1100;
@@ -550,10 +581,10 @@ begin
 	endcase
 end
 
-wire [3:0] rightPos = RegSX0[3:0] + RegSizeW[3:0];
+wire [3:0] rightPos = RegX0[3:0] + RegSizeW[3:0];
 wire       isSrcDstEQ = (RegSizeW[3:0] == 0);
-wire       isSrcDstLT = (RegSX0[3:0] < rightPos);
-wire       isSrcDstGT = (RegSX0[3:0] > rightPos);
+wire       isSrcDstLT = (RegX0[3:0] < rightPos);
+wire       isSrcDstGT = (RegX0[3:0] > rightPos);
 
 always @(*)
 begin
@@ -873,7 +904,7 @@ begin
 		if (emptySurface) begin
 			nextWorkState = NOT_WORKING_DEFAULT_STATE;
 		end else begin
-			if (RegSX0[3:0]!=0 & (isFirstSegment!=isLastSegment)) begin	// Non aligned start AND length out of range.
+			if (RegX0[3:0]!=0 & (isFirstSegment!=isLastSegment)) begin	// Non aligned start AND length out of range.
 				nextWorkState = CPY_LINE_START_UNALIGNED;
 			end else begin
 				nextWorkState = CPY_LINE_BLOCK;
@@ -1913,12 +1944,12 @@ begin
 			end
 		end
 		if (loadCoord1) begin
-			RegSX0 = (bIsFillCommand) ? { fifoDataOutWidth[9:4], 4'b0} : fifoDataOutWidth;
-			RegSY0 = fifoDataOutHeight;
+			RegX0 = { 2'd0 , (bIsFillCommand) ? { fifoDataOutWidth[9:4], 4'b0} : fifoDataOutWidth};
+			RegY0 = { 3'd0 , fifoDataOutHeight };
 		end
 		if (loadCoord2) begin
-			RegSX1 = fifoDataOutWidth;
-			RegSY1 = fifoDataOutHeight;
+			RegX1 = { 2'd0 , fifoDataOutWidth  };
+			RegY1 = { 3'd0 , fifoDataOutHeight };
 		end
 	end else begin
 		if (decrementH_ResetXCounter) begin
