@@ -32,6 +32,9 @@ module gpu(
 	
 	output			pixelStencilOut,
 	
+	input			acceptCommand,
+	output [55:0]	memoryWriteCommand,
+	
 	input			write,
 	input			read,
 	input 	[31:0]	cpuDataIn,
@@ -66,12 +69,46 @@ wire isFifoEmpty    = isFifoEmptyLSB & isFifoEmptyMSB;
 wire isFifoNotEmpty = !isFifoEmpty;
 wire rstInFIFO      = rstGPU | rstCmd;
 
-// TODO : whichFifoLSB reset to 1 on RESET + reset to 1 on command enter ?
-reg  swichFifo;
-reg  whichFifoLSB = 1'b0;	// State machine will flip the bit using switchFifo.
-reg  readFifoNow  = 1'b0;	// State machine will ask reading.
-wire readFifoLSB	= readFifo | (readFifoNow & isFifoNotEmpty &  whichFifoLSB);
-wire readFifoMSB	= readFifo | (readFifoNow & isFifoNotEmpty & !whichFifoLSB);
+wire readLFifo, readMFifo;
+wire readFifoLSB	= readFifo | readLFifo;
+wire readFifoMSB	= readFifo | readMFifo;
+
+assign memoryWriteCommand[ 2:0] = memoryCommand;
+assign memoryWriteCommand[55:3] = parameters;
+reg  [52:0] parameters;
+
+wire [15:0] LPixel = swap ? fifoDataOut[31:16] : fifoDataOut[15: 0];
+wire [15:0] RPixel = swap ? fifoDataOut[15: 0] : fifoDataOut[31:16];
+wire validL        = swap ? regSaveM : regSaveL;
+wire validR        = swap ? regSaveL : regSaveM;
+reg flush;
+
+wire [5:0] scrSrcX = counterXSrc[5:0] + RegX0[9:4];
+always @(*)
+begin
+	case (memoryCommand)
+	// CPU 2 VRAM : [16,16,2,15,...]
+	3'd1:    parameters = 	{ { LPixel[15] | GPU_REG_ForcePixel15MaskSet    , LPixel[14:0]}
+							, { RPixel[15] | GPU_REG_ForcePixel15MaskSet , RPixel[14:0]}
+							, validL
+							, validR
+							, { scrY[8:0], currX[9:4] } 
+							, currX[3:1]
+							, flush 
+							};
+	// FILL MEMORY SEGMENT
+	3'd2:    parameters =	{ { 1'b0, RegB0[7:3] , RegG0[7:3] , RegR0[7:3] }               
+							, 16'd0
+							, 1'b1 // Dont care, but used in check SW.
+							, 1'b0
+							, { scrY[8:0], scrSrcX }
+							, 3'd0
+							, 1'b1
+							};
+							
+	default: parameters = 53'd0;
+	endcase
+end
 
 Fifo
 #(
@@ -555,7 +592,6 @@ wire  [6:0] adrXDst				= xCopyDirectionIncr ? counterXDst : OppAdrXDst;
 wire  [6:0] fullX				= (useDest           ? adrXDst : adrXSrc)          + { 1'b0, useDest ? RegX1[9:4] : RegX0[9:4] };
 
 wire [18:0] adrWord				= { fullY[8:0],fullX, 3'd0 }; // 32 Bit Word Adress.
-reg         writeCommand;
 reg	 [ 6:0] counterXSrc,counterXDst;
 reg  [15:0] maskLeft;
 reg  [15:0] maskRight;
@@ -614,13 +650,12 @@ end
 
 always @(posedge clk)
 begin
-	counterXSrc = (decrementH_ResetXCounter) ? 7'd0 : counterXSrc + { 6'd0 ,incrementXCounter & (!useDest) };
-	counterXDst = (decrementH_ResetXCounter) ? 7'd0 : counterXDst + { 6'd0 ,incrementXCounter &   useDest  };
+	counterXSrc = (resetXCounter) ? 7'd0 : counterXSrc + { 6'd0 ,incrementXCounter & (!useDest) };
+	counterXDst = (resetXCounter) ? 7'd0 : counterXDst + { 6'd0 ,incrementXCounter &   useDest  };
 end
 
-wire acceptCommand = 1; // TODO : Fifo implement, FIFO !full.
 reg  switchReadStoreBlock; // TODO this command will ALSO do loading the CACHE STENCIL locally (2x16 bit registers)
-reg  decrementH_ResetXCounter;
+reg  resetXCounter;
 
 wire emptySurface			= (RegSizeH == 10'd0) | (RegSizeW == 11'd0);
 wire isFirstSegment 		= (counterXSrc==0);
@@ -759,7 +794,8 @@ reg [5:0] currWorkState,nextWorkState;	parameter
 										WAIT_3						= 6'd33,
 										WAIT_2						= 6'd34,
 										WAIT_1						= 6'd35,
-										SELECT_PRIMITIVE			= 6'd36;
+										SELECT_PRIMITIVE			= 6'd36,
+										COPYCV_COPY					= 6'd37;
 
 always @(posedge clk)
 begin
@@ -771,6 +807,79 @@ begin
 		currWorkState	<= nextWorkState;
 	end
 end
+
+// --------------------------------------------------------------------------------------------
+//   CPU TO VRAM STATE SIGNALS & REGISTERS
+// --------------------------------------------------------------------------------------------
+
+// TODO :
+wire			canWrite = 1'b1;
+
+// [Computation value needed for control setup]
+
+wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
+//                          X       + WIDTH              - [1 or 2]
+wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
+wire  [9:0]		scrY	= currY + RegY0[9:0];
+wire [11:0]	nextX		= currX + { 12'd2 };
+wire [ 9:0]	nextY		= currY + { 10'd1 };
+wire		WidthNot1	= |RegSizeW[10:1];
+wire		endVertical	= (nextY == RegSizeH);
+
+// [Registers]
+reg  [11:0]		currX;
+reg  [ 9:0]		currY;
+reg				regSaveL,regSaveM;
+reg				swap;
+reg				lastPair;
+
+always @(posedge clk)
+begin
+	if (setLastPair) begin
+		lastPair = 1'b1;
+	end
+	if (resetLastPair) begin
+		lastPair = 1'b0;
+	end
+	if (setSwap) begin
+		swap = RegX0[0];
+	end else begin
+		swap = swap ^ changeSwap;
+	end
+	if (setY) begin
+		currY = 0;
+	end
+	if (incY) begin
+		currY = nextY;
+	end
+	if (setX) begin
+		currX = {2'b0, RegX0[9:1], 1'b0};
+	end
+	if (incX) begin
+		currX = nextX;
+	end
+	
+	if (readL | readM) begin
+		regSaveM = readM;
+		regSaveL = readL;
+	end
+end
+
+// [Control bit]
+reg setLastPair, resetLastPair;
+reg changeSwap;
+reg setSwap;
+reg incY,setY,incX,setX;
+reg readL;
+reg readM;
+assign readLFifo = readL;
+assign readMFifo = readM;
+
+
+// --------------------------------------------------------------------------------------------
+//   [END] CPU TO VRAM STATE SIGNALS & REGISTERS
+// --------------------------------------------------------------------------------------------
+
 
 // State machine for triangle
 // State to control setup...
@@ -793,16 +902,17 @@ reg				writePixelL,writePixelR;
 reg				writeStencil;
 reg				assignRectSetup;
 
+reg [2:0]		memoryCommand;
 wire 			reachEdgeTriScan = (((pixelX > maxXTri) & !dir) || ((pixelX < minXTri) & dir));
 always @(*)
 begin
 	// -----------------------
 	// Default Value Section
 	// -----------------------
-	writeCommand				= 0; 
+	memoryCommand				= 3'b000;
 	nextWorkState				= currWorkState;
 	incrementXCounter			= 0;
-	decrementH_ResetXCounter	= 0;
+	resetXCounter				= 0;
 	switchReadStoreBlock		= 0;
 	useDest						= 0; // Source adr computation by default...
 	memorizeLineEqu				= 0;
@@ -823,6 +933,16 @@ begin
 	assignRectSetup				= 0;
 	setEnteredTriangle			= 0;
 	resetEnteredTriangle		= 0;
+	
+	// -----------------------
+	//  CPU TO VRAM SIGNALS
+	// -----------------------
+	setLastPair = 0; resetLastPair = 0; setSwap = 0; incY = 0; setY = 0; setX = 1'b0; incX = 1'b0; changeSwap = 1'b0;
+	readL				= 0;
+	readM				= 0;
+	flush				= 0;
+	// -----------------------
+	
 	
 	case (currWorkState)
 	NOT_WORKING_DEFAULT_STATE:
@@ -874,23 +994,22 @@ begin
 			nextWorkState = NOT_WORKING_DEFAULT_STATE;
 		end else begin
 			// Next Cycle H=H-1, and we can parse from H-1 to 0 for each line...
-			// Reset X Counter.
-			nextWorkState = FILL_LINE;
+			// Reset X Counter. + Now we fill from H-1 to ZERO... force decrement here.
+			setY = 1; // Reset H Counter.
+			nextWorkState				= FILL_LINE;
 		end
 	end
 	FILL_LINE:
 	begin
 		// Forced to decrement at each step in X
-		// [FILL COMMAND : [000][Adr 15 bit][15 Bit BGR]  = 33 bit
+		// [FILL COMMAND : [16 Bit 0BGR][16 bit empty][Adr 15 bit][4 bit empty][010]
 		if (acceptCommand) begin
-			writeCommand		= 1;
-		end
-		
-		if (isLastSegment) begin
-			decrementH_ResetXCounter = 1;
-			nextWorkState = (emptySurface) ? NOT_WORKING_DEFAULT_STATE : FILL_START;
-		end else begin
-			if (acceptCommand) begin
+			memoryCommand		= 3'd2;
+			if (isLastSegment) begin
+				incY = 1;
+				resetXCounter = 1;
+				nextWorkState = (endVertical) ? NOT_WORKING_DEFAULT_STATE : FILL_LINE;
+			end else begin
 				incrementXCounter	= 1;// SRC COUNTER
 			end
 		end
@@ -931,7 +1050,8 @@ begin
 			// !!! FAKE !!! : Just to validate the READ PART of the state machine.
 			// -------------------
 			if (isLastSegment) begin
-				decrementH_ResetXCounter	= 1;
+				resetXCounter				= 1;
+				// TODO incY = 1, resetXCounter does not modify Y now.
 				nextWorkState				= (emptySurface) ? NOT_WORKING_DEFAULT_STATE : COPY_START;
 			end else begin
 				incrementXCounter			= 1; // DST COUNTER
@@ -1006,9 +1126,107 @@ begin
 	// --------------------------------------------------------------------
 	COPYCV_START:
 	begin
-		// [PSTORE COMMAND: [011][Index 5 bit][32 bit pixel][2 Bit Mask]
-		// Use BWRITE command once line are completed :-) Can reuse BURSTed command.
-		nextWorkState = TMP_2;
+		setX = 1'b1; //LOAD_X0_NOBIT0;
+		setY = 1'b1; //LOAD_Y0;
+		setSwap			= 1;
+		// Reset last pair by default, but if WIDTH == 1 -> different.
+		resetLastPair	= WidthNot1;
+		setLastPair		= !WidthNot1;
+		// We set first pair read here, flag not need to be set for next state !
+		// No Zero Size W/H Test -> IMPOSSIBLE By definition.
+		if (canRead) begin
+			// Read ALL DATA 1 item in advance -> Remove FIFO LATENCY ISSUE.
+			readL = 1'b1;
+			readM = !RegX0[0] & (WidthNot1);
+			nextWorkState	= COPYCV_COPY;
+		end
+	end
+	COPYCV_COPY:
+	begin
+		// TRICKY :
+		// -----------------------------
+		// At the current pixel X,Y we preload the FIFO for the NEXT X,Y coordinate.
+		// So setup of readL/readM are ONE PAIR in advance compare to the scanning...
+		// -----------------------------
+		if (acceptCommand & canRead) begin
+			memoryCommand = 3'd1;
+			
+			// [Last pair]
+			if (lastPair) begin
+				if (endVertical) begin
+					nextWorkState	= NOT_WORKING_DEFAULT_STATE;
+					// PURGE...
+					readL		= 1'b0;
+					readM		= RegSizeW[0] & RegSizeH[0]; // Pump out unused pixel in FIFO.
+					flush		= 1'b1;
+				end else begin
+					incY		= 1'b1;
+					if (WidthNot1) begin
+						// WIDTH != 1, standard case
+						/* FIRST SEGMENT PATTERN 
+							W=0	W=0	W=1	W=1
+							X=0	X=1	X=0	X=1
+						L=	1	1	1	!currY[0]
+						M=	1	0	1	currY[0]
+						*/
+						case ({RegSizeW[0],RegX0[0]})
+						2'b00: begin
+							readL = 1'b1; readM = 1'b1;
+						end
+						2'b01: begin
+							readL = 1'b1; readM = 1'b0;
+						end
+						2'b10: begin
+							readL = 1'b1; readM = 1'b1;
+						end
+						2'b11: begin
+							readL = !nextY[0]; readM = nextY[0];
+						end
+						endcase
+						changeSwap  = RegSizeW[0] & WidthNot1; // If width=1, do NOT swap.
+					end else begin
+						// Only 1 pixel WIDTH pattern...
+						// Alternate ODD/EVEN lines...
+						readL		= !nextY[0];
+						readM		=  nextY[0];
+						changeSwap	= 1'b1;
+					end
+				end
+				setX			= 1'b1;
+				resetLastPair	= WidthNot1;
+			end else begin
+				// [MIDDLE OR FIRST SEGMENT]
+				//    PRELOAD NEXT SEGMENT...
+				if (nextX == XE) begin
+					/* LAST SEGMENT PATTERN
+						W=0	W=0	W=1		W=1
+						X=0	X=1	X=0		X=1
+					L = 1	0	!Y[0]	1
+					M = 1	1	Y[0]	1	*/
+					case ({RegSizeW[0],RegX0[0]})
+					2'b00: begin
+						readL = 1'b1; readM = 1'b1;
+					end
+					2'b01: begin
+						readL = 1'b0; readM = 1'b1;
+					end
+					2'b10: begin
+						// L on first line (even), M on second (odd)
+						readL = !currY[0]; readM = currY[0];
+					end
+					2'b11: begin
+						readL = 1'b1; readM = 1'b1; 
+					end
+					endcase
+
+					setLastPair	= 1'b1; // TODO : Rename FirstPair into LastPair.
+				end else begin
+					readL = 1'b1;
+					readM = 1'b1;
+				end
+				incX  = 1'b1;
+			end
+		end
 	end
 	// --------------------------------------------------------------------
 	//   COPY VRAM TO CPU.
@@ -1825,10 +2043,11 @@ wire isV2 =  (!bIsLineCommand) & (vertCnt == 2'd2);
 wire [8:0] componentFuncR	= bUseTexture    ? { fifoDataOutUR,1'b0 } : { 1'b0, fifoDataOutUR };
 wire [8:0] componentFuncG	= bUseTexture    ? { fifoDataOutVG,1'b0 } : { 1'b0, fifoDataOutVG };
 wire [8:0] componentFuncB	= bUseTexture    ? {  fifoDataOutB,1'b0 } : { 1'b0,  fifoDataOutB };
-wire bNoTexture				= !bUseTexture;
-wire [8:0] componentFuncRA	= componentFuncR + { 8'b00000000, fifoDataOutUR[7] & bNoTexture};
-wire [8:0] componentFuncGA	= componentFuncG + { 8'b00000000, fifoDataOutVG[7] & bNoTexture};
-wire [8:0] componentFuncBA	= componentFuncB + { 8'b00000000, fifoDataOutB [7] & bNoTexture};
+// We also avoid to add +1 when using color for FILL command.(shorter test using 0x)
+wire bNoTexture				= (!bUseTexture) & (!bIsBase0x);
+wire [8:0] componentFuncRA	= componentFuncR + { 8'b00000000, fifoDataOutUR[7] & bNoTexture };
+wire [8:0] componentFuncGA	= componentFuncG + { 8'b00000000, fifoDataOutVG[7] & bNoTexture };
+wire [8:0] componentFuncBA	= componentFuncB + { 8'b00000000, fifoDataOutB [7] & bNoTexture };
 // Finally force WHITE color (256) if no component RGB value are available. 
 wire [8:0] loadComponentR	= bIgnoreColor   ? 9'b100000000 : componentFuncRA;
 wire [8:0] loadComponentG	= bIgnoreColor   ? 9'b100000000 : componentFuncGA;
@@ -1950,10 +2169,6 @@ begin
 		if (loadCoord2) begin
 			RegX1 = { 2'd0 , fifoDataOutWidth  };
 			RegY1 = { 3'd0 , fifoDataOutHeight };
-		end
-	end else begin
-		if (decrementH_ResetXCounter) begin
-			RegSizeH = RegSizeH - 10'd1;
 		end
 	end
 end
