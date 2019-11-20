@@ -3,6 +3,7 @@
 // TODO : requDataClutL/R : Unused by CLUT_Cache, read all the time. (Avoid issue when LOADING CACHE...)
 // TODO : Implement finalMask_L, finalMask_R : for now hardcoded to 1.
 // TODO : Caller of FullPipe need to arbitrate multiple request from LEFT and RIGHT (ex. texture miss at both pixel seperatly, same for CLUT)
+// TODO : Get BG when necessary -> Burst of 8 pixel ? 16 pixel ? : rBG_L,gBG_L,bBG_L,rBG_R,gBG_R,bBG_R
 
 module GPUPipeFullPipe(
 	input	clk,
@@ -11,7 +12,7 @@ module GPUPipeFullPipe(
 	// [Register of GPU]
 	input	 [1:0]	GPU_REG_TexFormat,
 	input	[14:0]	GPU_REG_CLUT,
-	input			noTexture,				
+	input			noTexture,
 	input	 [3:0]	GPU_REG_TexBasePageX,
 	input			GPU_REG_TexBasePageY,
 	input			GPU_REG_TextureXFlip,
@@ -21,8 +22,6 @@ module GPUPipeFullPipe(
 	input 	[4:0]	GPU_REG_WindowTextureOffsetX,
 	input 	[4:0]	GPU_REG_WindowTextureOffsetY,
 	
-	input [15:0]	CLUT_ID,
-	
 	input			noblend,
 	input			ditherActive,
 	input   [1:0]	GPU_REG_Transparency,
@@ -30,7 +29,7 @@ module GPUPipeFullPipe(
 	input 			clearCache,
 	
 	// Left Side (All values stay the same from previous cycle if OkNext is FALSE)
-	input [8:0] 	iScrX_Mul2,
+	input [9:0] 	iScrX_Mul2,
 	input [8:0] 	iScrY,
 	
 	input [8:0]		iR_L,
@@ -66,11 +65,11 @@ module GPUPipeFullPipe(
 	
 	// Request Cache Fill
 	output          requClutCacheUpdateL,
-	output [19:0]   adrClutCacheUpdateL,
+	output [14:0]   adrClutCacheUpdateL,
 	input           updateClutCacheCompleteL,
 	
 	output          requClutCacheUpdateR,
-	output [19:0]   adrClutCacheUpdateR,
+	output [14:0]   adrClutCacheUpdateR,
 	input           updateClutCacheCompleteR,
 	
 	input           ClutCacheWrite,
@@ -147,7 +146,7 @@ module GPUPipeFullPipe(
 		.clk								(clk),
 		.i_nrst								(i_nrst),
 		
-		.CLUT_ID							(CLUT_ID),
+		.CLUT_ID							(GPU_REG_CLUT),
 		
 		.write								(ClutCacheWrite),
 		.writeIdx							(ClutWriteIndex),
@@ -404,7 +403,7 @@ module GPUPipeFullPipe(
 	wire finalMask_R = 1'b1;
 
 	assign write32		= {	finalMask_R,finalB_R,finalG_R,finalR_R,
-								finalMask_L,finalB_L,finalG_L,finalR_L };
+							finalMask_L,finalB_L,finalG_L,finalR_L };
 	assign pixelValid	= { oValidPixelR,oValidPixelL };
 	assign writePixel	= 1'b1;
 endmodule

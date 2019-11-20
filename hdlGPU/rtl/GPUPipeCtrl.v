@@ -48,7 +48,7 @@ module GPUPipeCtrl(
 	
 	// Request Cache Fill
 	output          requClutCacheUpdate,
-	output [19:0]   adrClutCacheUpdate,
+	output [14:0]   adrClutCacheUpdate,
 	input           updateClutCacheComplete,
 	
 	// Right Side
@@ -183,7 +183,7 @@ module GPUPipeCtrl(
 	
 	// FULL ADDRESS DECODING----
 	// CACHE LINE ADD
-	assign adrClutCacheUpdate  = { GPU_REG_CLUT[14:6] , colIndex, 5'b0 }; // Cache line is 32 byte. ==> 16 Colors.
+	assign adrClutCacheUpdate  = { GPU_REG_CLUT[14:6] , colIndex }; // Cache line is 32 byte. ==> 16 Colors.
 	// ----------------------------------------------------------
 		
 	// Select "CLUT" or "TEXTURE" or "WHITE with 0 mask value".

@@ -2,7 +2,7 @@ module CLUT_Cache(
 	input			clk,
 	input			i_nrst,
 	
-	input [15:0]	CLUT_ID,
+	input [14:0]	CLUT_ID,
 	
 	// Forced to do 8x32 bit cache line fill when CLUT lookup empty. (16 colors)
 	// --> Simplify for 4 bit texture. 1 Load
@@ -27,7 +27,7 @@ module CLUT_Cache(
 
 	// Detect change of clut.
 	wire clearCache = (CLUT_ID != CLUT_Internal);
-	reg [15:0] CLUT_Internal;
+	reg [14:0] CLUT_Internal;
 	always @ (posedge clk)
 	begin
 		CLUT_Internal <= CLUT_ID;
