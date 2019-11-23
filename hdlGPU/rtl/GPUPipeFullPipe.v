@@ -73,7 +73,7 @@ module GPUPipeFullPipe(
 	input           updateClutCacheCompleteR,
 	
 	input           ClutCacheWrite,
-	input   [6:0]   ClutWriteIndex,
+	input   [2:0]   ClutWriteIndex,
 	input  [31:0]   ClutCacheData,
 	
 	// Right Side
@@ -149,7 +149,7 @@ module GPUPipeFullPipe(
 		.CLUT_ID							(GPU_REG_CLUT),
 		
 		.write								(ClutCacheWrite),
-		.writeIdx							(ClutWriteIndex),
+		.writeIdxInBlk						(ClutWriteIndex),
 		.ColorIn							(ClutCacheData),
 
 		.readIdx1							(indexL),
