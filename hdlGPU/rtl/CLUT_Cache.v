@@ -10,12 +10,16 @@ module CLUT_Cache(
 	input [2:0]		writeIdxInBlk,
 	input [31:0]	ColorIn,
 
+	input			requ1,
 	input [7:0]		readIdx1,
 	output			isHit1,		// One cycle sooner than colorEntry1 output. (same time as READ)
+	output			isMiss1,
 	output [15:0]	colorEntry1,
 	
+	input			requ2,
 	input [7:0]		readIdx2,
 	output			isHit2,		// One cycle sooner than colorEntry2 output. (same time as READ)
+	output			isMiss2,
 	output [15:0]	colorEntry2
 );
 
@@ -89,8 +93,13 @@ module CLUT_Cache(
 		end
 	end
 	
-	assign isHit1		= Loaded[readIdx1[7:4]];
-	assign isHit2		= Loaded[readIdx2[7:4]];
+	wire cached1		= Loaded[readIdx1[7:4]];
+	wire cached2		= Loaded[readIdx2[7:4]];
+	assign isHit1		= cached1 & requ1;
+	assign isMiss1		= !cached1 & requ1;
+	assign isHit2		= cached2 & requ2;
+	assign isMiss2		= !cached2 & requ2;
+	
 	wire [31:0] vA		= CLUTStorage[pRaddrA[7:1]];
 	wire [31:0] vB		= CLUTStorage[pRaddrB[7:1]];
 	assign colorEntry1	= pRaddrA[0] ? vA[31:16] : vA[15:0];

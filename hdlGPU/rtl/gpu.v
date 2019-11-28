@@ -18,22 +18,37 @@ module gpu(
 	output			IRQRequest,
 	
 	// Video output...
-	output	[7:0]	red,
-	output	[7:0]	green,
-	output	[7:0]	blue,
+//	output	[7:0]	red,
+//	output	[7:0]	green,
+//	output	[7:0]	blue,
+//	output          owritePixelL,
+//	output          owritePixelR,
+	
+	//
+	// Temporary Memory Interface
+	//
+	output [19:0]   adr_o,   // ADR_O() address
+	input  [31:0]   dat_i,   // DAT_I() data in
+	output [31:0]   dat_o,   // DAT_O() data out
+	output  [2:0]	cnt_o,
+	output  [3:0]   sel_o,
+	output			wrt_o,
+	output			req_o,
+	input			ack_i,
+	
 	/*
 	output			hSync,
 	output			vSync, // cSync pin exist in real HW : hSync | vSync most likely
 	output			hBlank,
 	output			vBlank,
-	
-	// TODO Memory interface here...
 	*/
 	
-	output			pixelStencilOut,
-	
-	input			acceptCommand,
-	output [55:0]	memoryWriteCommand,
+	/*
+	input	[14:0]	iaddrWord,
+	input	[15:0]	iwriteBitSelect,
+	input	[15:0]	iwriteBitValue,
+	output	[15:0]	oStencilOut,
+	*/
 	
 	input			write,
 	input			read,
@@ -51,8 +66,8 @@ begin
 		if (gpuAdrA2) begin
 			cpuDataOut	=  reg1Out;
 		end else begin
-		// Register +0 Read
-		// TODO : if has 0xCX command, then return proper VRAM values...
+			// Register +0 Read
+			// TODO : if has 0xCX command, then return proper VRAM values... (READ VRAM to CPU with GPU Command)
 			cpuDataOut	=  regGpuInfo;
 		end
 	end else begin
@@ -73,9 +88,12 @@ wire readLFifo, readMFifo;
 wire readFifoLSB	= readFifo | readLFifo;
 wire readFifoMSB	= readFifo | readMFifo;
 
-assign memoryWriteCommand[ 2:0] = memoryCommand;
-assign memoryWriteCommand[55:3] = parameters;
+wire [55:0] memoryWriteCommand;
 reg  [52:0] parameters;
+assign memoryWriteCommand = { parameters, memoryCommand};
+// assign memoryWriteCommand_o = memoryWriteCommand;
+wire acceptCommand = 1'b1;  // TODO memory command FIFO acceptCommand to implement (well FIFO to implement)
+
 
 wire [15:0] LPixel = swap ? fifoDataOut[31:16] : fifoDataOut[15: 0];
 wire [15:0] RPixel = swap ? fifoDataOut[15: 0] : fifoDataOut[31:16];
@@ -88,12 +106,12 @@ always @(*)
 begin
 	case (memoryCommand)
 	// CPU 2 VRAM : [16,16,2,15,...]
-	3'd1:    parameters = 	{ { LPixel[15] | GPU_REG_ForcePixel15MaskSet    , LPixel[14:0]}
+	3'd1:    parameters = 	{ { LPixel[15] | GPU_REG_ForcePixel15MaskSet , LPixel[14:0]}
 							, { RPixel[15] | GPU_REG_ForcePixel15MaskSet , RPixel[14:0]}
 							, validL
 							, validR
-							, { scrY[8:0], currX[9:4] } 
-							, currX[3:1]
+							, { scrY[8:0], pixelX[9:4] } 
+							, pixelX[3:1]
 							, flush 
 							};
 	// FILL MEMORY SEGMENT
@@ -150,11 +168,11 @@ Fifo_instLSB
 	.empty_o		(isFifoEmptyLSB)
 );
 
-// TODO DMA Stuff
-wire gpuReadyReceiveDMA, gpuReadySendToCPU, gpuReceiveCmdReady, dmaDataRequest;
-
+// TODO GPU DMA Stuff
+wire gpuReadyReceiveDMA, gpuReceiveCmdReady, dmaDataRequest;
+reg  gpuReadySendToCPU;
 assign gpuReceiveCmdReady	= !isFifoFull;
-assign gpuReadyReceiveDMA	= !isFifoFull; // TODO later when doing DMA tranfer...
+assign gpuReadyReceiveDMA	= !isFifoFull;
 
 wire [31:0] reg1Out = { 
 					// Default : 1480.2.000h
@@ -232,8 +250,8 @@ reg			[11:0] GPU_REG_RangeX1;
 reg			[9:0] GPU_REG_RangeY0;
 reg			[9:0] GPU_REG_RangeY1;
 reg				  GPU_REG_ReverseFlag;
-reg					GPU_DisplayEvenOddLinesInterlace; // TODO
-reg					GPU_REG_CurrentInterlaceField; // TODO
+reg					GPU_DisplayEvenOddLinesInterlace;	// TODO
+reg					GPU_REG_CurrentInterlaceField;		// TODO
 
 // For RECT Commands.
 parameter SIZE_VAR	= 2'd0, SIZE_1x1 = 2'd1, SIZE_8x8 = 2'd2, SIZE_16x16 = 2'd3;
@@ -340,8 +358,8 @@ begin
 		GPU_REG_TexBasePageX		<= 4'd0;
 		GPU_REG_TexBasePageY		<= 1'b0;
 		GPU_REG_Transparency		<= 2'd0;
-		GPU_REG_TexFormat			<= 2'd0; // TODO ??
-		GPU_REG_DitherOn			<= 1'd0; // TODO ??
+		GPU_REG_TexFormat			<= 2'd0; //
+		GPU_REG_DitherOn			<= 1'd0; //
 		GPU_REG_DrawDisplayAreaOn	<= 1'b0; // Default by GP1(00h) definition.
 		GPU_REG_TextureDisable		<= 1'b0;
 		GPU_REG_TextureXFlip		<= 1'b0;
@@ -352,8 +370,8 @@ begin
 		GPU_REG_WindowTextureOffsetY<= 5'd0;
 		GPU_REG_DrawAreaX0			<= 10'd0;
 		GPU_REG_DrawAreaY0			<= 10'd0; // 8:0 on old GPU.
-		GPU_REG_DrawAreaX1			<= 10'd1023;	// TODO ??? Allow whole surface by default...
-		GPU_REG_DrawAreaY1			<= 10'd511;		// TODO ??? 10'd1023 on old GPU.
+		GPU_REG_DrawAreaX1			<= 10'd1023;	//
+		GPU_REG_DrawAreaY1			<= 10'd511;		//
 		GPU_REG_ForcePixel15MaskSet <= 0;
 		GPU_REG_CheckMaskBit		<= 0;
 		GPU_REG_CurrentInterlaceField <= 1; // Odd field by default (bit 14 = 1 on reset)
@@ -465,8 +483,6 @@ wire bIsBase0x				= (command[7:5]==3'b000);
 wire bIsTerminator			= (fifoDataOut[31:28] == 4'd5) & (fifoDataOut[15:12] == 4'd5);
 wire bIsMultiLineTerminator = (bIsLineCommand & bIsMultiLine & bIsTerminator);
 
-wire bIsPrimitiveLoaded;	// TODO : Execute next stage
-
 // [All attribute of commands]
 wire bIsRenderAttrib		= (bIsForECommand & (!command[4]) & (!command[3])) & (command[2:0]!=3'b000) & (command[2:0]!=3'b111); // E*, range 0..7 -> Select E1..E6 Only
 wire bIsNop         		= (bIsBase0x & (!(bIsBase01 | bIsBase02 | bIsBase1F)))	// Reject 01,02,1F
@@ -476,7 +492,7 @@ wire bIsPolyOrRect  		= (bIsPolyCommand | bIsRectCommand);
 // Line are not textured
 wire bIgnoreColor   		= bUseTexture   & !command[0];
 wire bSemiTransp    		= command[1];
-wire bUseTexture    		= bIsPolyOrRect &  command[2]; 										// Avoid texture fetching if we do LINE, Compute proper color for FILL.
+wire bUseTexture    		= bIsPolyOrRect &  command[2] & (!GPU_REG_TextureDisable); 										// Avoid texture fetching if we do LINE, Compute proper color for FILL.
 wire bIs4PointPoly  		= command[3] & bIsPolyCommand;
 wire bIsMultiLine   		= command[3] & bIsLineCommand;
 wire bIsPerVtxCol   		= (bIsPolyCommand | bIsLineCommand) & command[4];
@@ -591,7 +607,6 @@ wire  [6:0] adrXDst				= xCopyDirectionIncr ? counterXDst : OppAdrXDst;
 
 wire  [6:0] fullX				= (useDest           ? adrXDst : adrXSrc)          + { 1'b0, useDest ? RegX1[9:4] : RegX0[9:4] };
 
-wire [18:0] adrWord				= { fullY[8:0],fullX, 3'd0 }; // 32 Bit Word Adress.
 reg	 [ 6:0] counterXSrc,counterXDst;
 reg  [15:0] maskLeft;
 reg  [15:0] maskRight;
@@ -679,12 +694,14 @@ parameter 	X_TRI_NEXT		= 3'd1,
 			X_LINE_NEXT		= 3'd3,
 			X_TRI_BBLEFT	= 3'd4,
 			X_TRI_BBRIGHT	= 3'd5,
-			X_ASIS			= 3'd0;
+			X_ASIS			= 3'd0,
+			X_CV_START		= 3'd6;
 			
 parameter	Y_LINE_START	= 3'd1,
 			Y_LINE_NEXT		= 3'd2,
 			Y_TRI_START		= 3'd3,
 			Y_TRI_NEXT		= 3'd4,
+			Y_CV_ZERO		= 3'd5,
 			Y_ASIS			= 3'd0;
 
 wire 				extIX		= dir & changeX;
@@ -696,6 +713,7 @@ begin
 	X_LINE_NEXT:	nextPixelX	= nextLineX; // Optimize and merge with case 0
 	X_TRI_BBLEFT:	nextPixelX	= { minTriDAX0[11:1], 1'b0 };
 	X_TRI_BBRIGHT:	nextPixelX	= { maxTriDAX1[11:1], 1'b0 };
+	X_CV_START:		nextPixelX	= { 2'b0, RegX0[9:1], 1'b0 };
 	default:		nextPixelX	= pixelX;
 	endcase
 			
@@ -704,6 +722,7 @@ begin
 	Y_LINE_NEXT:	nextPixelY	= nextLineY;
 	Y_TRI_START:	nextPixelY	= minTriDAY0;
 	Y_TRI_NEXT:		nextPixelY	= pixelY + { 10'b0, 1'b1 };
+	Y_CV_ZERO:		nextPixelY	= 12'd0;
 	default:		nextPixelY	= pixelY;
 	endcase
 end
@@ -711,9 +730,33 @@ end
 reg pixelFound;
 reg enteredTriangle; reg setEnteredTriangle, resetEnteredTriangle;
 
+wire [14:0] currVRAMAdrBlock = {     pixelY[8:0],     pixelX[9:4] };
+reg [14:0]  storeVRAMAdrBlock;
+wire        differentBlock	 = (currVRAMAdrBlock != storeVRAMAdrBlock);	// Next Position is a different block.
+reg [1:0]	flagIsNewBlock;												// Register Flag set containing the change during SCANNING, it does NOT represent the PIXEL WRITE BACK OUTPUT ! (2 cycle latency)
+reg         setFirstPixel;
+// reg			resetBlockChange;
+wire		doBlockWork 	= differentBlock & (writePixelL | writePixelR);
 always @(posedge clk)
 begin
+	// Give priority to SET over RESET, and ONLY when we write an EFFECTIVE PIXEL.
+	if (setFirstPixel) begin
+		flagIsNewBlock = 2'b01;
+	end else begin
+		// [Inside the primitive, each time we emit a pixel]
+		if (doBlockWork) begin
+			if (flagIsNewBlock == 2'b01) begin
+				flagIsNewBlock = 2'b10;
+			end
+//		end else begin
+//			if (resetBlockChange) begin
+//				flagIsNewBlock = 2'b00;
+//			end
+		end
+	end
+	
 	if (loadNext) begin
+		storeVRAMAdrBlock = currVRAMAdrBlock; // BEFORE IT CHANGES (PixelX, PixelY)
 		pixelX = nextPixelX;
 		pixelY = nextPixelY;
 	end
@@ -795,7 +838,11 @@ reg [5:0] currWorkState,nextWorkState;	parameter
 										WAIT_2						= 6'd34,
 										WAIT_1						= 6'd35,
 										SELECT_PRIMITIVE			= 6'd36,
-										COPYCV_COPY					= 6'd37;
+										COPYCV_COPY					= 6'd37,
+										COPYCV_READSTENCIL			= 6'd38,
+										RECT_READ_MASK				= 6'd39,
+										SCAN_LINE_STENCIL_READ		= 6'd40,
+										COPYVC_TOCPU				= 6'd41;
 
 always @(posedge clk)
 begin
@@ -812,23 +859,19 @@ end
 //   CPU TO VRAM STATE SIGNALS & REGISTERS
 // --------------------------------------------------------------------------------------------
 
-// TODO :
-wire			canWrite = 1'b1;
-
 // [Computation value needed for control setup]
-
 wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
 //                          X       + WIDTH              - [1 or 2]
 wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
-wire  [9:0]		scrY	= currY + RegY0[9:0];
-wire [11:0]	nextX		= currX + { 12'd2 };
-wire [ 9:0]	nextY		= currY + { 10'd1 };
+wire  [9:0]		scrY	= pixelY[9:0] + RegY0[9:0];
+wire [11:0]	nextX		= pixelX + { 12'd2 };
+wire [ 9:0]	nextY		= pixelY[9:0] + { 10'd1 };
 wire		WidthNot1	= |RegSizeW[10:1];
 wire		endVertical	= (nextY == RegSizeH);
 
 // [Registers]
-reg  [11:0]		currX;
-reg  [ 9:0]		currY;
+// reg  [11:0]		currX;
+// reg  [ 9:0]		currY;
 reg				regSaveL,regSaveM;
 reg				swap;
 reg				lastPair;
@@ -846,30 +889,17 @@ begin
 	end else begin
 		swap = swap ^ changeSwap;
 	end
-	if (setY) begin
-		currY = 0;
-	end
-	if (incY) begin
-		currY = nextY;
-	end
-	if (setX) begin
-		currX = {2'b0, RegX0[9:1], 1'b0};
-	end
-	if (incX) begin
-		currX = nextX;
-	end
-	
 	if (readL | readM) begin
 		regSaveM = readM;
 		regSaveL = readL;
 	end
 end
+wire isNewBlockPixel;
 
 // [Control bit]
 reg setLastPair, resetLastPair;
 reg changeSwap;
 reg setSwap;
-reg incY,setY,incX,setX;
 reg readL;
 reg readM;
 assign readLFifo = readL;
@@ -896,14 +926,20 @@ reg IncY;
 reg [2:0] selNextX;
 reg [2:0] selNextY;
 
-wire			requestNextPixel = 1'b1;
 reg				writePixelL,writePixelR;
 // reg				readStencil;
-reg				writeStencil;
+// reg	[1:0]		writeStencil2;
 reg				assignRectSetup;
 
 reg [2:0]		memoryCommand;
 wire 			reachEdgeTriScan = (((pixelX > maxXTri) & !dir) || ((pixelX < minXTri) & dir));
+
+// Manage the adress of 16 pixel buffer cache for the BG (read/write) inside the Memory Manager
+// Need to be outside because controlled by main state machine.
+reg	[14:0]		PixelBGAdr;
+reg				isLoaded; ///////////// TODO : MANAGE THAT TOMORROW ////////////////
+reg				isWritten; // USE notMemoryBusyCurrCycle in state machine.
+
 always @(*)
 begin
 	// -----------------------
@@ -928,25 +964,31 @@ begin
 	writePixelL					= 0;
 	writePixelR					= 0;
 //	readStencil					= 0;
-	writeStencil				= 0;
+//	writeStencil2				= 2'b00;
 	changeX						= 0;
 	assignRectSetup				= 0;
 	setEnteredTriangle			= 0;
 	resetEnteredTriangle		= 0;
+//	resetBlockChange			= 0;
+	setFirstPixel				= 0;
 	
 	// -----------------------
 	//  CPU TO VRAM SIGNALS
 	// -----------------------
-	setLastPair = 0; resetLastPair = 0; setSwap = 0; incY = 0; setY = 0; setX = 1'b0; incX = 1'b0; changeSwap = 1'b0;
+	setLastPair = 0; resetLastPair = 0; setSwap = 0; changeSwap = 1'b0;
 	readL				= 0;
 	readM				= 0;
 	flush				= 0;
 	// -----------------------
 	
+	stencilWriteBitSelect	= 16'h0000;
+	stencilWriteBitValue	= 16'h0000;
+	stencilWordAdr			= 15'd0;
 	
 	case (currWorkState)
 	NOT_WORKING_DEFAULT_STATE:
 	begin
+		setFirstPixel			= 1;
 		assignRectSetup			= !bIsPerVtxCol;
 		resetEnteredTriangle	= 1;	// Put here, no worries about more specific cases.
 		case (issuePrimitive)
@@ -995,8 +1037,9 @@ begin
 		end else begin
 			// Next Cycle H=H-1, and we can parse from H-1 to 0 for each line...
 			// Reset X Counter. + Now we fill from H-1 to ZERO... force decrement here.
-			setY = 1; // Reset H Counter.
-			nextWorkState				= FILL_LINE;
+			loadNext		= 1;
+			selNextY		= Y_CV_ZERO;
+			nextWorkState	= FILL_LINE;
 		end
 	end
 	FILL_LINE:
@@ -1004,9 +1047,13 @@ begin
 		// Forced to decrement at each step in X
 		// [FILL COMMAND : [16 Bit 0BGR][16 bit empty][Adr 15 bit][4 bit empty][010]
 		if (acceptCommand) begin
-			memoryCommand		= 3'd2;
+			memoryCommand			= 3'd2;
+			stencilWriteBitSelect	= 16'hFFFF;
+			stencilWriteBitValue	= 16'h0000;
+			stencilWordAdr			= { scrY[8:0], scrSrcX };
 			if (isLastSegment) begin
-				incY = 1;
+				loadNext      = 1;
+				selNextY      = Y_TRI_NEXT;
 				resetXCounter = 1;
 				nextWorkState = (endVertical) ? NOT_WORKING_DEFAULT_STATE : FILL_LINE;
 			end else begin
@@ -1126,9 +1173,11 @@ begin
 	// --------------------------------------------------------------------
 	COPYCV_START:
 	begin
-		setX = 1'b1; //LOAD_X0_NOBIT0;
-		setY = 1'b1; //LOAD_Y0;
+		selNextX		= X_CV_START;
+		selNextY		= Y_CV_ZERO;
+		loadNext		= 1;
 		setSwap			= 1;
+		resetDir		= 1;
 		// Reset last pair by default, but if WIDTH == 1 -> different.
 		resetLastPair	= WidthNot1;
 		setLastPair		= !WidthNot1;
@@ -1138,8 +1187,18 @@ begin
 			// Read ALL DATA 1 item in advance -> Remove FIFO LATENCY ISSUE.
 			readL = 1'b1;
 			readM = !RegX0[0] & (WidthNot1);
-			nextWorkState	= COPYCV_COPY;
+			nextWorkState = GPU_REG_CheckMaskBit ? COPYCV_READSTENCIL : COPYCV_COPY;
 		end
+	end
+	COPYCV_READSTENCIL:
+	begin
+		//
+		// TODO Preread X,Y in advance too.
+		//
+		stencilWriteBitSelect	= 16'h0000;
+		stencilWordAdr			= { scrY[8:0], pixelX[9:4] };
+		stencilWriteBitValue	= 16'h0000;
+		nextWorkState = COPYCV_COPY;
 	end
 	COPYCV_COPY:
 	begin
@@ -1150,6 +1209,10 @@ begin
 		// -----------------------------
 		if (acceptCommand & canRead) begin
 			memoryCommand = 3'd1;
+			nextWorkState = GPU_REG_CheckMaskBit ? COPYCV_READSTENCIL : COPYCV_COPY;
+			
+			loadNext	= 1;
+//			resetBlockChange = 1;
 			
 			// [Last pair]
 			if (lastPair) begin
@@ -1160,7 +1223,7 @@ begin
 					readM		= RegSizeW[0] & RegSizeH[0]; // Pump out unused pixel in FIFO.
 					flush		= 1'b1;
 				end else begin
-					incY		= 1'b1;
+					selNextY	= Y_TRI_NEXT;
 					if (WidthNot1) begin
 						// WIDTH != 1, standard case
 						/* FIRST SEGMENT PATTERN 
@@ -1180,24 +1243,24 @@ begin
 							readL = 1'b1; readM = 1'b1;
 						end
 						2'b11: begin
-							readL = !nextY[0]; readM = nextY[0];
+							readL = !nextPixelY[0]; readM = nextPixelY[0];
 						end
 						endcase
 						changeSwap  = RegSizeW[0] & WidthNot1; // If width=1, do NOT swap.
 					end else begin
 						// Only 1 pixel WIDTH pattern...
 						// Alternate ODD/EVEN lines...
-						readL		= !nextY[0];
-						readM		=  nextY[0];
+						readL		= !nextPixelY[0];
+						readM		=  nextPixelY[0];
 						changeSwap	= 1'b1;
 					end
 				end
-				setX			= 1'b1;
+				selNextX		= X_CV_START;
 				resetLastPair	= WidthNot1;
 			end else begin
 				// [MIDDLE OR FIRST SEGMENT]
 				//    PRELOAD NEXT SEGMENT...
-				if (nextX == XE) begin
+				if (nextPixelX == XE) begin
 					/* LAST SEGMENT PATTERN
 						W=0	W=0	W=1		W=1
 						X=0	X=1	X=0		X=1
@@ -1212,7 +1275,7 @@ begin
 					end
 					2'b10: begin
 						// L on first line (even), M on second (odd)
-						readL = !currY[0]; readM = currY[0];
+						readL = !pixelY[0]; readM = pixelY[0];
 					end
 					2'b11: begin
 						readL = 1'b1; readM = 1'b1; 
@@ -1224,8 +1287,45 @@ begin
 					readL = 1'b1;
 					readM = 1'b1;
 				end
-				incX  = 1'b1;
+				changeX		= 1;
+				selNextX	= X_TRI_NEXT;
 			end
+			
+			//	0     Set mask while drawing (0=TextureBit15, 1=ForceBit15=1)   ;GPUSTAT.11
+			// reg               GPU_REG_ForcePixel15MaskSet;		// Stencil force to 1.
+			//	1     Check mask before draw (0=Draw Always, 1=Draw if Bit15=0) ;GPUSTAT.12
+			// reg               GPU_REG_CheckMaskBit; 			// Stencil Read/Compare Enabled
+			
+			case (pixelX[3:1])
+			3'h0: stencilWriteBitSelect = { 14'd0, ((!stencilReadBit[ 1] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 0] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL };
+			3'h1: stencilWriteBitSelect = { 12'd0, ((!stencilReadBit[ 3] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 2] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL , 2'd0 };
+			3'h2: stencilWriteBitSelect = { 10'd0, ((!stencilReadBit[ 5] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 4] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL , 4'd0 };
+			3'h3: stencilWriteBitSelect = {  8'd0, ((!stencilReadBit[ 7] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 6] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL , 6'd0 };
+			3'h4: stencilWriteBitSelect = {  6'd0, ((!stencilReadBit[ 9] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 8] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL , 8'd0 };
+			3'h5: stencilWriteBitSelect = {  4'd0, ((!stencilReadBit[11] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[10] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL ,10'd0 };
+			3'h6: stencilWriteBitSelect = {  2'd0, ((!stencilReadBit[13] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[12] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL ,12'd0 };
+			3'h7: stencilWriteBitSelect = {        ((!stencilReadBit[15] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[14] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL ,14'd0 };
+			endcase
+			
+			stencilWordAdr			= { scrY[8:0], pixelX[9:4] };
+			stencilWriteBitValue	= {
+				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
+				LPixel[15] | GPU_REG_ForcePixel15MaskSet
+			};
 		end
 	end
 	// --------------------------------------------------------------------
@@ -1236,6 +1336,40 @@ begin
 		// [PREAD COMMAND: [100][Index 5 bit] -> Next cycle have 16 bit through special port.
 		// Use BSTORE Command for burst loading.
 		nextWorkState = TMP_2;
+		
+		/*
+			Start : Request First Block. (X[3] is block ID (0/1))
+					If ((XLeft & 7)==7)
+						State = Start2
+					else
+						Wait
+			Start2:	Request 2nd block    (![X3])
+			Wait  : [Wait Command FIFO empty & Complete flag]
+					If ok -> Wait CPU
+			WaitCPU:
+					if ((NextXLeft & 7)==7 || ==0) {
+						State = ReadNext
+					else
+					
+					if (cpuReadValid) // Read GP0.
+						incX += 2;
+						Write pixel back.
+							State = Start2
+						} else {
+							State = AsIs;
+						}
+					else
+						wait cpu to read pixel...
+						State = AsIs;
+					end
+		 */
+		
+	end
+	COPYVC_TOCPU:
+	begin
+		// Detect edge transition... waiting for data received...
+		// Data already present -> Read from both buffer possible.
+		// Set gpuReadySendToCPU
 	end
 	// --------------------------------------------------------------------
 	//   TRIANGLE STATE MACHINE
@@ -1295,12 +1429,6 @@ begin
 		compoID	= 3'd5;	vecID = 1'b1;
 		nextWorkState = WAIT_3;
 	end
-	/*
-	WAIT_4: // 5 cycles to wait, we have division pipeline to wait for...
-	begin
-		nextWorkState = WAIT_3;
-	end
-	*/
 	WAIT_3: // 4 cycles to wait
 	begin
 		nextWorkState = WAIT_2;
@@ -1343,7 +1471,7 @@ begin
 	START_LINE_TEST_LEFT:
 	begin
 		if (isValidPixelL | isValidPixelR) begin // Line equation.
-			nextWorkState = SCAN_LINE;
+			nextWorkState = GPU_REG_CheckMaskBit ? SCAN_LINE_STENCIL_READ : SCAN_LINE;
 		end else begin
 			memorizeLineEqu = 1;
 			nextWorkState	= START_LINE_TEST_RIGHT;
@@ -1366,8 +1494,13 @@ begin
 			nextWorkState	= START_LINE_TEST_LEFT;
 		end else begin
 			resetPixelFound	= 1;
-			nextWorkState	= SCAN_LINE;
+			nextWorkState	= GPU_REG_CheckMaskBit ? SCAN_LINE_STENCIL_READ : SCAN_LINE;
 		end
+	end
+	SCAN_LINE_STENCIL_READ:
+	begin
+		stencilWordAdr			= { pixelY[8:0], pixelX[9:4] };
+		nextWorkState			= SCAN_LINE;
 	end
 	SCAN_LINE:
 	begin
@@ -1386,16 +1519,61 @@ begin
 				
 				// TODO Pixel writing logic
 				if (requestNextPixel) begin
+//					resetBlockChange = 1;
+					
 					// Write only if pixel pair is valid...
 					
-					writePixelL	= isValidPixelL /*& mask stuff */;
-					writePixelR	= isValidPixelR /*& mask stuff */;
+					writePixelL	= isValidPixelL  & ((GPU_REG_CheckMaskBit && (!selectPixelWriteMask[0])) || (!GPU_REG_CheckMaskBit));
+					writePixelR	= isValidPixelR  & ((GPU_REG_CheckMaskBit && (!selectPixelWriteMask[1])) || (!GPU_REG_CheckMaskBit));
+					
+					// writeStencil2 = { writePixelR , writePixelL };
 					
 					// Go to next pair whatever, as long as request is asking for new pair...
 					// normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
 					changeX		= 1;
 					loadNext	= 1;
 					selNextX	= X_TRI_NEXT;
+					
+					//
+					// [LATER ON, EVERYTHING MAY MOVE AS A WRITE BACK ONLY STAGE...
+					//
+					
+					//
+					// [WARNING : Can only evaluate the VALUE FOR WRITE BACK RIGHT AWAY ONLY WHEN NON TEXTURED]
+					//  Else it will happen at the write back stage inside the render pipeline...
+					//
+					case (pixelX[3:1])
+					3'h0: stencilWriteBitSelect = { 14'd0, /*((!stencilReadBit[1] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[0] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture};
+					3'h1: stencilWriteBitSelect = { 12'd0, /*((!stencilReadBit[3] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[2] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 2'd0 };
+					3'h2: stencilWriteBitSelect = { 10'd0, /*((!stencilReadBit[5] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[4] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 4'd0 };
+					3'h3: stencilWriteBitSelect = {  8'd0, /*((!stencilReadBit[7] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[6] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 6'd0 };
+					3'h4: stencilWriteBitSelect = {  6'd0, /*((!stencilReadBit[9] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[8] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 8'd0 };
+					3'h5: stencilWriteBitSelect = {  4'd0, /*((!stencilReadBit[5] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[4] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,10'd0 };
+					3'h6: stencilWriteBitSelect = {  2'd0, /*((!stencilReadBit[7] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[6] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,12'd0 };
+					3'h7: stencilWriteBitSelect = {        /*((!stencilReadBit[9] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[8] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,14'd0 };
+					endcase
+					
+					stencilWordAdr			= { pixelY[8:0], pixelX[9:4] };
+					stencilWriteBitValue	= {
+						// See upper warning : Support only NON TEXTURED VALUE WRITE BACK RIGHT AWAY.
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet
+					};			
+					
 				end
 			end else begin
 				loadNext	= 1;
@@ -1435,7 +1613,7 @@ begin
 	RECT_START:
 	begin
 		// Rect use PSTORE COMMAND. (2 pix per clock)
-		nextWorkState	= RECT_SCAN_LINE;
+		nextWorkState	= GPU_REG_CheckMaskBit ? RECT_READ_MASK : RECT_SCAN_LINE;
 		
 		if (earlyTriangleReject | isNegXAxis | preB[11]) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all, or NegativeSize => size = 0.
 			nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// Override state.
@@ -1445,6 +1623,10 @@ begin
 			selNextY		= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
 		end
 	end
+	RECT_READ_MASK:
+	begin
+		nextWorkState = RECT_SCAN_LINE;
+	end
 	RECT_SCAN_LINE:
 	begin
 		if (isBottomInsideBBox) begin // Not Y end yet ?
@@ -1452,11 +1634,15 @@ begin
 				// TODO Pixel writing logic
 				// TODO Mask -> If both invalid, force next pair, without write.
 				if (requestNextPixel) begin
+//					resetBlockChange = 1;
+
 					// Write only if pixel pair is valid...
 					
 					//if (maskLRValid & DrawAreaClipping) begin
-					writePixelL = isInsideBBoxTriRectL /* MASK */;
-					writePixelR = isInsideBBoxTriRectR /* MASK */;
+					
+					writePixelL   = isInsideBBoxTriRectL & ((GPU_REG_CheckMaskBit && (!selectPixelWriteMask[0])) || (!GPU_REG_CheckMaskBit));
+					writePixelR   = isInsideBBoxTriRectR & ((GPU_REG_CheckMaskBit && (!selectPixelWriteMask[1])) || (!GPU_REG_CheckMaskBit));
+					// writeStencil2 = { writePixelR , writePixelL };
 					//end
 					
 					// Go to next pair whatever, as long as request is asking for new pair...
@@ -1464,6 +1650,43 @@ begin
 					changeX		= 1;
 					loadNext	= 1;
 					selNextX	= X_TRI_NEXT;
+					
+					//
+					// [WARNING : Can only evaluate the VALUE FOR WRITE BACK RIGHT AWAY ONLY WHEN NON TEXTURED]
+					//  Else it will happen at the write back stage inside the render pipeline...
+					//
+					case (pixelX[3:1])
+					3'h0: stencilWriteBitSelect = { 14'd0, /*((!stencilReadBit[1] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[0] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture};
+					3'h1: stencilWriteBitSelect = { 12'd0, /*((!stencilReadBit[3] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[2] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 2'd0 };
+					3'h2: stencilWriteBitSelect = { 10'd0, /*((!stencilReadBit[5] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[4] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 4'd0 };
+					3'h3: stencilWriteBitSelect = {  8'd0, /*((!stencilReadBit[7] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[6] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 6'd0 };
+					3'h4: stencilWriteBitSelect = {  6'd0, /*((!stencilReadBit[9] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[8] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 8'd0 };
+					3'h5: stencilWriteBitSelect = {  4'd0, /*((!stencilReadBit[5] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[4] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,10'd0 };
+					3'h6: stencilWriteBitSelect = {  2'd0, /*((!stencilReadBit[7] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[6] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,12'd0 };
+					3'h7: stencilWriteBitSelect = {        /*((!stencilReadBit[9] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[8] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,14'd0 };
+					endcase
+					
+					stencilWordAdr			= currVRAMAdrBlock;
+					stencilWriteBitValue	= {
+						// See upper warning : Support only NON TEXTURED VALUE WRITE BACK RIGHT AWAY.
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet,
+						GPU_REG_ForcePixel15MaskSet
+					};
+					
 				end
 			end else begin
 				loadNext	= 1;
@@ -1471,6 +1694,7 @@ begin
 				selNextY	= Y_TRI_NEXT;
 				// No state change... Work on next line...
 			end
+			nextWorkState	= GPU_REG_CheckMaskBit ? RECT_READ_MASK : RECT_SCAN_LINE;
 		end else begin
 			nextWorkState = NOT_WORKING_DEFAULT_STATE;
 		end
@@ -1485,6 +1709,7 @@ begin
 		loadNext	= 1;
 		selNextX	= X_LINE_START;
 		selNextY	= Y_LINE_START;
+//		resetBlockChange = 1;
 		nextWorkState = GPU_REG_CheckMaskBit ? LINE_READ_MASK : LINE_DRAW;
 	end
 	LINE_READ_MASK:
@@ -1517,10 +1742,48 @@ begin
 			end
 			
 			// If pixel is valid and (no mask checking | mask check with value = 0)
-			if (isLineInsideDrawArea && ((GPU_REG_CheckMaskBit && (!selectPixelWriteMask)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
+			if (isLineInsideDrawArea && ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
+//				resetBlockChange = 1;
+				
 				writePixelL	 = isLineLeftPix;
 				writePixelR	 = isLineRightPix;
-				writeStencil = 1;
+				// writeStencil2 = { isLineRightPix , isLineLeftPix };
+				
+				//
+				// [WARNING : Can only evaluate the VALUE FOR WRITE BACK RIGHT AWAY ONLY WHEN NON TEXTURED]
+				//  Else it will happen at the write back stage inside the render pipeline...
+				//
+				case (pixelX[3:1])
+				3'h0: stencilWriteBitSelect = { 14'd0, /*((!stencilReadBit[1] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[0] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture};
+				3'h1: stencilWriteBitSelect = { 12'd0, /*((!stencilReadBit[3] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[2] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 2'd0 };
+				3'h2: stencilWriteBitSelect = { 10'd0, /*((!stencilReadBit[5] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[4] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 4'd0 };
+				3'h3: stencilWriteBitSelect = {  8'd0, /*((!stencilReadBit[7] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[6] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 6'd0 };
+				3'h4: stencilWriteBitSelect = {  6'd0, /*((!stencilReadBit[9] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[8] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture, 8'd0 };
+				3'h5: stencilWriteBitSelect = {  4'd0, /*((!stencilReadBit[5] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[4] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,10'd0 };
+				3'h6: stencilWriteBitSelect = {  2'd0, /*((!stencilReadBit[7] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[6] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,12'd0 };
+				3'h7: stencilWriteBitSelect = {        /*((!stencilReadBit[9] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelR & !bUseTexture, /*((!stencilReadBit[8] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) &*/ writePixelL & !bUseTexture,14'd0 };
+				endcase
+				
+				stencilWordAdr			= { pixelY[8:0], pixelX[9:4] };
+				stencilWriteBitValue	= {
+					// See upper warning : Support only NON TEXTURED VALUE WRITE BACK RIGHT AWAY.
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet,
+					GPU_REG_ForcePixel15MaskSet
+				};
 			end
 		end
 	end
@@ -1575,6 +1838,7 @@ begin
 	// Read FIFO when fifo is NOT empty or that we can decode the next item in the FIFO.
 	// TODO : Assume that FIFO always output the same value as the last read, even if read signal is FALSE ! Simplify state machine a LOT.
 	loadRectEdge = 0;
+	rstTextureCache = 0;
 	
 	case (currState)
 	DEFAULT_STATE:
@@ -1963,57 +2227,42 @@ StencilCache StencilCacheInstance(
 // assign pixelStencilOut = selectPixelWriteMask;
 always @(*)
 begin
-	case (pixelX[3:0])
-	4'h0: selectPixelWriteMask = stencilReadBit[ 0];
-	4'h1: selectPixelWriteMask = stencilReadBit[ 1];
-	4'h2: selectPixelWriteMask = stencilReadBit[ 2];
-	4'h3: selectPixelWriteMask = stencilReadBit[ 3];
-	4'h4: selectPixelWriteMask = stencilReadBit[ 4];
-	4'h5: selectPixelWriteMask = stencilReadBit[ 5];
-	4'h6: selectPixelWriteMask = stencilReadBit[ 6];
-	4'h7: selectPixelWriteMask = stencilReadBit[ 7];
-	4'h8: selectPixelWriteMask = stencilReadBit[ 8];
-	4'h9: selectPixelWriteMask = stencilReadBit[ 9];
-	4'hA: selectPixelWriteMask = stencilReadBit[10];
-	4'hB: selectPixelWriteMask = stencilReadBit[11];
-	4'hC: selectPixelWriteMask = stencilReadBit[12];
-	4'hD: selectPixelWriteMask = stencilReadBit[13];
-	4'hE: selectPixelWriteMask = stencilReadBit[14];
-	default: selectPixelWriteMask = stencilReadBit[15];
+	case (pixelX[3:1])
+	3'h0: selectPixelWriteMask = stencilReadBit[ 1: 0];
+	3'h1: selectPixelWriteMask = stencilReadBit[ 3: 2];
+	3'h2: selectPixelWriteMask = stencilReadBit[ 5: 4];
+	3'h3: selectPixelWriteMask = stencilReadBit[ 7: 6];
+	3'h4: selectPixelWriteMask = stencilReadBit[ 9: 8];
+	3'h5: selectPixelWriteMask = stencilReadBit[11:10];
+	3'h6: selectPixelWriteMask = stencilReadBit[13:12];
+	3'h7: selectPixelWriteMask = stencilReadBit[15:14];
 	endcase
 
-	case (pixelX[3:0])
-	4'h0: stencilWriteBitSelect 	= { 15'd0, writeStencil };
-	4'h1: stencilWriteBitSelect 	= { 14'd0, writeStencil , 1'd0 };
-	4'h2: stencilWriteBitSelect 	= { 13'd0, writeStencil , 2'd0 };
-	4'h3: stencilWriteBitSelect 	= { 12'd0, writeStencil , 3'd0 };
-	4'h4: stencilWriteBitSelect 	= { 11'd0, writeStencil , 4'd0 };
-	4'h5: stencilWriteBitSelect 	= { 10'd0, writeStencil , 5'd0 };
-	4'h6: stencilWriteBitSelect 	= {  9'd0, writeStencil , 6'd0 };
-	4'h7: stencilWriteBitSelect 	= {  8'd0, writeStencil , 7'd0 };
-	4'h8: stencilWriteBitSelect 	= {  7'd0, writeStencil , 8'd0 };
-	4'h9: stencilWriteBitSelect 	= {  6'd0, writeStencil , 9'd0 };
-	4'hA: stencilWriteBitSelect 	= {  5'd0, writeStencil ,10'd0 };
-	4'hB: stencilWriteBitSelect 	= {  4'd0, writeStencil ,11'd0 };
-	4'hC: stencilWriteBitSelect 	= {  3'd0, writeStencil ,12'd0 };
-	4'hD: stencilWriteBitSelect 	= {  2'd0, writeStencil ,13'd0 };
-	4'hE: stencilWriteBitSelect 	= {  1'd0, writeStencil ,14'd0 };
-	default: stencilWriteBitSelect	= {        writeStencil, 15'd0 };
+/*	case (pixelX[3:1])
+	3'h0: stencilWriteBitSelect 	= { 14'd0, writeStencil2 };
+	3'h1: stencilWriteBitSelect 	= { 12'd0, writeStencil2 , 2'd0 };
+	3'h2: stencilWriteBitSelect 	= { 10'd0, writeStencil2 , 4'd0 };
+	3'h3: stencilWriteBitSelect 	= {  8'd0, writeStencil2 , 6'd0 };
+	3'h4: stencilWriteBitSelect 	= {  6'd0, writeStencil2 , 8'd0 };
+	3'h5: stencilWriteBitSelect 	= {  4'd0, writeStencil2 ,10'd0 };
+	3'h6: stencilWriteBitSelect 	= {  2'd0, writeStencil2 ,12'd0 };
+	3'h7: stencilWriteBitSelect 	= {        writeStencil2 ,14'd0 };
 	endcase
 
-	stencilWriteBitValue = { 16{GPU_REG_ForcePixel15MaskSet} }; // TODO : When TEXTURED => (Value of texture | GPU_REG_ForcePixel15MaskSet)... Write back a lot more complex.
+	stencilWriteBitValue = { 16{ GPU_REG_ForcePixel15MaskSet} }; // TODO : When TEXTURED => (Value of texture | GPU_REG_ForcePixel15MaskSet)... Write back a lot more complex.
+ */
 end
 
 // [BYTE PIXEL ADR FROM X/Y]
 // YYYY.YYYY.YXXX.XXXX.XXX0 Byte.
 // YYYY.YYYY.YXXX.XXX_.____ {  
-wire [14:0]	stencilWordAdr = { pixelY[8:0], pixelX[9:4] };	// [19:0] : 1 MByte, [18:0] : 0.5 MegaHWord
+reg [14:0]	stencilWordAdr; // = { pixelY[8:0], pixelX[9:4] };	// [19:0] : 1 MByte, [18:0] : 0.5 MegaHWord
 
 								// Work by 16 HWord (pixels) => [14:0] 32k x 16 pixel block (32 byte => 16 bit cache)
 reg [15:0]	stencilWriteBitSelect, stencilWriteBitValue;
 wire [15:0] stencilReadBit;
-reg         selectPixelWriteMask;
-
+reg [1:0]   selectPixelWriteMask;
+wire        selectPixelWriteMaskLine = (!pixelX[0] & selectPixelWriteMask[0]) | (pixelX[0] & selectPixelWriteMask[1]);
 
 // TODO OPTIMIZE : can probably compute nextCondUseFIFO outside with : (nextLogicalState != WAIT_COMMAND_COMPLETE) & (nextLogicalState != DEFAULT_STATE)
 
@@ -2399,8 +2648,7 @@ wire signed [PREC+8:0] perPixelComponentIncrement = outputA + outputB;
 reg signed [PREC+8:0] RSX,RSY,GSX,GSY,BSX,BSY,USX,USY,VSX,VSY; // 1..10 Write, 0:Do nothing.
 
 wire /*reg*/ [3:0]	assignDivResult = { compoID6, vecID6 }; // 1..A, 0 none
-always @(posedge clk)
-begin
+always @(posedge clk) begin
 	if (assignDivResult == 4'd2) begin RSX = perPixelComponentIncrement; end
 	if (assignDivResult == 4'd3) begin RSY = perPixelComponentIncrement; end
 	if (assignDivResult == 4'd4) begin GSX = perPixelComponentIncrement; end
@@ -2505,15 +2753,6 @@ wire signed [7:0] pixUR = RegU0 + offUR[PREC+7:PREC];
 wire signed [7:0] pixVR = RegV0 + offVR[PREC+7:PREC];
 
 
-// TODO bAcceptPrimitive flag for previous stage.
-// Triangle setup.
-// Rectangle setup. => Use 4th line equation.
-// TODO Own state machine here... need multiple cycle to process the interpolant for RGBUV
-//			Probably pipelined division...
-//			End up with the following registers :
-//				UX UY UR UG UB = Value to add for screen space X or Y 1 pixel
-// 
-
 /*
 // Compute diff :
 	Y1-Y0
@@ -2531,16 +2770,363 @@ wire signed [7:0] pixVR = RegV0 + offVR[PREC+7:PREC];
 */
 // Texcoord = (Texcoord AND (NOT (Mask*8))) OR ((Offset AND Mask)*8)
 
-// TODO : When testing inside pixel, compute the screen space pixel adress 1 cycle sooner, IF Stencil compare ACTIVATED AND compare the Stencil cache result = 1. CAN early REJECT pixel.
-//			Note take care of that logic for line / rect too.
-
-wire [8:0] aR = pixRL + pixRR + pixUR;
-wire [8:0] aG = pixGL + pixGR + pixVR;
-wire [8:0] aB = pixBL + pixBR + pixVL + pixUL;
-assign red   = aR[8:1];
-assign green = aG[8:1];
-assign blue  = aB[8:1];
 //	assign green = (|PrimClut) ? VtxY2 + VtxY1 + VtxY0 : VtxG0 + VtxG1 + VtxG2;
 //	assign blue  = (|RegSizeW & |RegSizeH) ? VtxU2 + VtxU1 + VtxU0 : VtxB0 + VtxB1 + VtxB2;
+// wire requestLPix, requestRPix;
+
+// Do NOT REQUEST pixel if :
+// - Memory is busy reading Texture or Clut.
+// - Start a new block.
+// - 
+wire requestNextPixel = (!missTC) & (!writePixelOnNewBlock) & (!saveLoadOnGoing);
+reg lastSaveLoadOnGoing;
+always @(posedge clk)
+begin
+	lastSaveLoadOnGoing = saveLoadOnGoing;
+end
+wire resetPixelOnNewBlock = (saveLoadOnGoing == 0) && (lastSaveLoadOnGoing==1);
+wire notMemoryBusyCurrCycle;
+wire notMemoryBusyNextCycle;
+	
+// [Cache Texture swizzling vary with Texture Format]
+wire textureFormatTrueColor = (GPU_REG_TexFormat == PIX_16BIT);
+directCacheDoublePort directCacheDoublePortInst(
+	.clk								(clk),
+	.i_nrst								(i_nrst),
+	.clearCache							(rstTextureCache),
+	
+	// [Can spy all write on the bus and maintain cache integrity]
+	.textureFormatTrueColor				(textureFormatTrueColor),
+	.write								(TexCacheWrite),
+	.adressIn							(adrTexCacheWrite),
+	.dataIn								(TexCacheData),
+	
+	.requLookupA						(requDataTex_c0L),
+	.adressLookA						(adrTexReq_c0L),
+	.dataOutA							(dataTex_c1L),
+	.isHitA								(TexHit_c1L),
+	.isMissA							(TexMiss_c1L),
+
+	.requLookupB						(requDataTex_c0R),
+	.adressLookB						(adrTexReq_c0R),
+	.dataOutB							(dataTex_c1R),
+	.isHitB								(TexHit_c1R),
+	.isMissB							(TexMiss_c1R)
+);
+
+// ------------------------------------------------
+//    Plumbing
+// ------------------------------------------------
+// TEX$ feed updated $ data to cache.
+wire            TexCacheWrite;
+wire   [16:0]   adrTexCacheWrite;
+wire   [63:0]   TexCacheData;
+
+wire			requDataTex_c0L,requDataTex_c0R;
+wire  [18:0]	adrTexReq_c0L,adrTexReq_c0R;
+wire			TexHit_c1L,TexHit_c1R;
+wire			TexMiss_c1L,TexMiss_c1R;
+wire [15:0]		dataTex_c1L,dataTex_c1R;
+// ------------------------------------------------
+
+CLUT_Cache CLUT_CacheInst(
+	.clk								(clk),
+	.i_nrst								(i_nrst),
+	
+	.CLUT_ID							(RegC),
+	
+	.write								(ClutCacheWrite),
+	.writeIdxInBlk						(ClutWriteIndex),
+	.ColorIn							(ClutCacheData),
+
+	.requ1								(requDataClut_c1L),
+	.readIdx1							(indexPalL),
+	.isHit1								(ClutHit_c1L),
+	.isMiss1							(ClutMiss_c1L),
+	.colorEntry1						(dataClut_c2L),
+	
+	.requ2								(requDataClut_c1R),
+	.readIdx2							(indexPalR),
+	.isHit2								(ClutHit_c1R),
+	.isMiss2							(ClutMiss_c1R),
+	.colorEntry2						(dataClut_c2R)
+);
+
+// ------------------------------------------------
+//    Plumbing
+// ------------------------------------------------
+// CLUT$ feed updated $ data to cache.
+wire        	ClutCacheWrite;
+wire  [2:0]		ClutWriteIndex;
+wire [31:0]		ClutCacheData;
+
+wire			requDataClut_c1L,requDataClut_c1R;
+wire [7:0]		indexPalL,indexPalR;
+wire			ClutHit_c1L,ClutHit_c1R;
+wire			ClutMiss_c1L,ClutMiss_c1R;
+wire [15:0]		dataClut_c2L,dataClut_c2R;
+wire			saveLoadOnGoing;
+// ------------------------------------------------
+
+MemoryArbitrator MemoryArbitratorInstance(
+	.gpuClk					(clk),
+	.i_nRst					(i_nrst),
+	
+	// ---TODO Describe all fifo command ---
+	.memoryWriteCommand		(memoryWriteCommand),
+	.fifoFull				(commandFifoFull),
+	.fifoComplete			(commandFifoComplete),
+	
+	// -----------------------------------
+	// [GPU BUS SIDE MODE]
+	// -----------------------------------
+
+	// -- TEX$ Stuff --
+	// TEX$ Cache miss from L Side
+	.requTexCacheUpdateL	(requTexCacheUpdateL_i),
+	.adrTexCacheUpdateL		(adrTexCacheUpdateL_i),
+	.updateTexCacheCompleteL(updateTexCacheCompleteL_o),
+	
+	// TEX$ Cache miss from R Side
+	.requTexCacheUpdateR	(requTexCacheUpdateR_i),
+	.adrTexCacheUpdateR		(adrTexCacheUpdateR_i),
+	.updateTexCacheCompleteR(updateTexCacheCompleteR_o),
+	
+	// TEX$ feed updated $ data to cache.
+	.TexCacheWrite			(TexCacheWrite),
+	.adrTexCacheWrite		(adrTexCacheWrite),
+	.TexCacheData			(TexCacheData),
+	
+	// -- CLUT$ Stuff --
+	// CLUT$ Cache miss from L Side
+	.requClutCacheUpdateL	(requClutCacheUpdateL),
+	.adrClutCacheUpdateL	(adrClutCacheUpdateL),
+	.updateClutCacheCompleteL(updateClutCacheCompleteL),
+	// CLUT$ Cache miss from R Side
+	.requClutCacheUpdateR	(requClutCacheUpdateR),
+	.adrClutCacheUpdateR	(adrClutCacheUpdateR),
+	.updateClutCacheCompleteR(updateClutCacheCompleteR),
+	// CLUT$ feed updated $ data to cache.
+	.ClutCacheWrite			(ClutCacheWrite),
+	.ClutWriteIndex			(ClutWriteIndex),
+	.ClutCacheData			(ClutCacheData),
+	
+	// -- BG Read Stuff --
+	/*
+	.bgRequest				(bgRequest_i	),
+	.bgRequestAdr			(bgRequestAdr_i	),
+	.validbgPixel			(validbgPixel_o	),	// 0 Cycle Delay if data available in Cache.
+	.bgPixel				(bgPixel_o		),	// 0 Cycle Delay if data available in Cache.
+	
+	// -- BG Write Stuff --
+	.write32				(write32_i),
+	.bgWriteAdr				(bgWriteAdr_i),
+	.pixelValid				(pixelValid_i),
+	.flushBG				(flushBG_i),
+	.writePixelDone			(writePixelDone_o),
+
+	.notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
+	.notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
+	*/
+	.notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
+	.notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
+	
+	// Ask to write/read BG
+	.isBlending							(bSemiTransp),
+	.saveAdr							(saveAdr),
+	.loadAdr							(loadAdr),
+	.saveBGBlock						(saveBGBlock),			// Stay 1 for long, should use 0->1 TRANSITION on user side.
+	.exportedBGBlock					(exportedBGBlock),
+	.exportedMSKBGBlock					(exportedMSKBGBlock),
+	.saveLoadOnGoing					(saveLoadOnGoing),
+	
+	// BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
+	.importBGBlockSingleClock			(importBGBlockSingleClock),
+	.importedBGBlock					(importedBGBlock),
+	
+	// -----------------------------------
+	// [Fake Memory SIDE]
+	// -----------------------------------
+	
+	.adr_o					(adr_o),   // ADR_O() address
+	.dat_i					(dat_i),   // DAT_I() data in
+	.dat_o					(dat_o),   // DAT_O() data out
+	.cnt_o					(cnt_o),
+	.sel_o					(sel_o),
+	.wrt_o					(wrt_o),
+	.req_o					(req_o),
+	.ack_i					(ack_i)
+);
+
+
+// ------------------------------------------------
+//    Plumbing
+// ------------------------------------------------
+// -- TEX$ Stuff --
+// TEX$ Cache miss from L Side
+// TEX$ Cache miss from R Side
+wire           requTexCacheUpdateL_i,requTexCacheUpdateR_i;
+wire  [16:0]   adrTexCacheUpdateL_i,adrTexCacheUpdateR_i;
+wire           updateTexCacheCompleteL_o,updateTexCacheCompleteR_o;
+
+// -- CLUT$ Stuff --
+// CLUT$ Cache miss from L Side
+// CLUT$ Cache miss from R Side
+wire           requClutCacheUpdateL,requClutCacheUpdateR;
+wire  [14:0]   adrClutCacheUpdateL,adrClutCacheUpdateR;
+wire           updateClutCacheCompleteL,updateClutCacheCompleteR;
+// ------------------------------------------------
+
+// [Main State machine signals from pipeline]
+wire pausePipeline = writePixelOnNewBlock | missTC;	// Busy to write the BG/read BG/TEX$/CLUT$ memory access.
+wire missTC;
+wire writePixelOnNewBlock;
+
+GPUBackend GPUBackendInstance(
+	.clk								(clk),
+	.i_nrst								(i_nrst),
+	
+	// -------------------------------
+	// Control line for state machine
+	// -------------------------------
+	.i_pausePipeline					(pausePipeline),			// Freeze the data in the pipeline. Values stay as is.
+	.o_missTC							(missTC),					// Any Cache miss, stop going next pixels.
+	// Management on BG Block
+	.o_writePixelOnNewBlock				(writePixelOnNewBlock),	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
+	.i_resetPixelOnNewBlock				(resetPixelOnNewBlock),	// 1/ Clear 'o_writePixelOnNewBlock' flag. 2/ Clear MASK for new block.
+	
+	// -------------------------------
+	// GPU Setup
+	// -------------------------------
+	.GPU_REG_Transparency				(GPU_REG_Transparency			),
+	.GPU_REG_CLUT						(RegC							),
+	.GPU_TEX_DISABLE					(GPU_REG_TextureDisable			),
+	.GPU_REG_TexFormat					(GPU_REG_TexFormat				),
+	.noTexture							(!bUseTexture					),
+	.noblend							(bOpaque						),
+	.ditherActive						(bDither						),
+	.GPU_REG_TexBasePageX				(GPU_REG_TexBasePageX			),
+	.GPU_REG_TexBasePageY				(GPU_REG_TexBasePageY			),
+	.GPU_REG_TextureXFlip				(GPU_REG_TextureXFlip			),
+	.GPU_REG_TextureYFlip				(GPU_REG_TextureYFlip			),
+	.GPU_REG_WindowTextureMaskX			(GPU_REG_WindowTextureMaskX		),
+	.GPU_REG_WindowTextureMaskY			(GPU_REG_WindowTextureMaskY		),
+	.GPU_REG_WindowTextureOffsetX		(GPU_REG_WindowTextureOffsetX	),
+	.GPU_REG_WindowTextureOffsetY		(GPU_REG_WindowTextureOffsetY	),
+	
+	// -------------------------------
+	// Input Pixels from FrontEnd
+	// -------------------------------
+	.i_isNewBlock						(doBlockWork ? flagIsNewBlock : 2'b00), // Input Flag to the pipeline.
+	.iScrX_Mul2							(pixelX[9:0]),
+	.iScrY								(pixelY[8:0]),
+	
+	.iR_L								(pixRL),
+	.iG_L								(pixGL),
+	.iB_L								(pixBL),
+	.U_L 								(pixUL),
+	.V_L 								(pixVL),
+	.validPixel_L						(writePixelL),
+	
+	.iR_R								(pixRR),
+	.iG_R								(pixGR),
+	.iB_R								(pixBR),
+	.U_R 								(pixUR),
+	.V_R 								(pixVR),
+	.validPixel_R						(writePixelR),
+	
+	// -------------------------------
+	//  Request to Cache system ?
+	// -------------------------------
+	.requDataTex_c0L					(requDataTex_c0L),
+	.adrTexReq_c0L						(adrTexReq_c0L	),
+	.TexHit_c1L							(TexHit_c1L		),
+	.TexMiss_c1L						(TexMiss_c1L	),
+	.dataTex_c1L						(dataTex_c1L	),
+	
+	// Request Cache Fill
+	.requTexCacheUpdate_c1L				(requTexCacheUpdateL_i),
+	.adrTexCacheUpdate_c0L				(adrTexCacheUpdateL_i),
+	.updateTexCacheCompleteL			(updateTexCacheCompleteL_o),
+	
+	// Clut$ Side
+	.requDataClut_c1L					(requDataClut_c1L	),
+	.indexPalL							(indexPalL			),	// Temp
+	.ClutHit_c1L						(ClutHit_c1L		),			// 0 Latency between requ and Hit.
+	.ClutMiss_c1L						(ClutMiss_c1L		),
+	.dataClut_c2L						(dataClut_c2L		),
+	
+	// Request Cache Fill
+	.requClutCacheUpdateL				(requClutCacheUpdateL),
+	.adrClutCacheUpdateL				(adrClutCacheUpdateL),
+	.updateClutCacheCompleteL			(updateClutCacheCompleteL),
+	
+	// --- Tex$ Side ---
+	.requDataTex_c0R					(requDataTex_c0R),
+	.adrTexReq_c0R						(adrTexReq_c0R	),
+	.TexHit_c1R							(TexHit_c1R		),
+	.TexMiss_c1R						(TexMiss_c1R	),
+	.dataTex_c1R						(dataTex_c1R	),
+	
+	// Request Cache Fill
+	.requTexCacheUpdate_c1R				(requTexCacheUpdateR_i),
+	.adrTexCacheUpdate_c0R				(adrTexCacheUpdateR_i),
+	.updateTexCacheCompleteR			(updateTexCacheCompleteR_o),
+	
+	// Clut$ Side
+	.requDataClut_c1R					(requDataClut_c1R	),
+	.indexPalR							(indexPalR			),	// Temp
+	.ClutHit_c1R						(ClutHit_c1R		),			// 0 Latency between requ and Hit.
+	.ClutMiss_c1R						(ClutMiss_c1R		),
+	.dataClut_c2R						(dataClut_c2R		),
+	
+	// Request Cache Fill
+	.requClutCacheUpdateR				(requClutCacheUpdateR),
+	.adrClutCacheUpdateR				(adrClutCacheUpdateR),
+	.updateClutCacheCompleteR			(updateClutCacheCompleteR),
+	
+	// -------------------------------
+	//   DDR 
+	// -------------------------------
+
+	// Ask to write BG 
+	.loadAdr							(loadAdr			),
+	.saveAdr							(saveAdr			),
+	.saveBGBlock						(saveBGBlock		),			// Stay 1 for long, should use 0->1 TRANSITION on user side.
+	.exportedBGBlock					(exportedBGBlock	),
+	.exportedMSKBGBlock					(exportedMSKBGBlock	),
+	
+	// BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
+	.importBGBlockSingleClock			(importBGBlockSingleClock),
+	.importedBGBlock					(importedBGBlock)
+);
+
+// [UNCONNECTED FOR NOW]
+wire commandFifoFull, commandFifoComplete;
+
+wire  [1:0]		saveBGBlock;
+wire [14:0]		saveAdr,loadAdr;
+wire [255:0]	exportedBGBlock;
+wire [15:0]		exportedMSKBGBlock;
+// BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
+wire 			importBGBlockSingleClock;
+wire [255:0]	importedBGBlock;
+
+
+
+
+/*
+	// --- Just here to force synthesis of the circuit for now ---
+	wire [8:0] aR = pixRL + pixRR + pixUR;
+	wire [8:0] aG = pixGL + pixGR + pixVR;
+	wire [8:0] aB = pixBL + pixBR + pixVL + pixUL;
+	assign red   = aR[8:1];
+	assign green = aG[8:1];
+	assign blue  = aB[8:1];
+	assign owritePixelL = writePixelL;
+	assign owritePixelR = writePixelR;
+*/
+// ----------------------------------------------------------
+
 endmodule
 

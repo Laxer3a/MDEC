@@ -104,20 +104,23 @@ module MemoryArbitrator(
 	output  [2:0]   ClutWriteIndex,
 	output [31:0]   ClutCacheData,
 	
-	// -- BG Read Stuff --
-	input          bgRequest,
-	input  [17:0]  bgRequestAdr,
-	output         validbgPixel,
-	output [31:0]  bgPixel,
+	input			isBlending,
+	input  [14:0]	saveAdr,
+	input	[1:0]	saveBGBlock,			// 00:Do nothing, 01:First Block, 10 : Second and further blocks.
+											// First block does nothing if no blending (no BG load)
+											// Second block does LOAD/SAVE or LOAD only based on state.
+	input [255:0]	exportedBGBlock,
+	input  [15:0]	exportedMSKBGBlock,
 	
-	// -- BG Write Stuff --
-	input  [31:0]  write32,
-	input  [17:0]  bgWriteAdr,		// HOW TO DETECT CHANGE IN CHUNK ? Write BURST...
-	input   [1:0]  pixelValid, 		// Can select pixel we want to DO NOT WRITE. (Mask)
-	input		   flushBG,
-	output         writePixelDone,	// Needed ? Most likely... Timing issue here : do want to push 2 pixel per cycle when things going WELL. Should be able to have this flag set with combinatorial only...
-									// Memory side will need to manage a 8x32 bit block of memory block allowing to FLUSH the block ( bgWriteAdr[17:3] different from previous pixel write ). Most likely will generate the writePixelDone.
-
+	// BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
+	input  [14:0]	loadAdr,
+	output			importBGBlockSingleClock,
+	output  [255:0]	importedBGBlock,
+	
+	output			saveLoadOnGoing,
+	
+	output			notMemoryBusyCurrCycle,
+	output			notMemoryBusyNextCycle,
 	// -----------------------------------
 	// [DDR SIDE]
 	// -----------------------------------
@@ -135,15 +138,23 @@ module MemoryArbitrator(
     input    ack_i
 );
 
+assign importedBGBlock = cacheBGRead;
+assign saveLoadOnGoing = s_saveLoadOnGoing; reg s_saveLoadOnGoing;
+assign importBGBlockSingleClock = s_importBGBlockSingleClock; reg s_importBGBlockSingleClock;
+
 reg [255:0] cacheBGRead;
-reg  [15:0] cacheBGMsk;
-reg  [14:0] cacheBGAdr;
+// reg  [15:0] cacheBGMsk;
+// reg  [14:0] cacheBGAdr;
 reg  [17:0] baseAdr;
 reg  [31:0] regDatI;
-wire isDifferentBG = (cacheBGAdr != bgWriteAdr[17:3]);
+
+reg			lastsaveBGBlock;
+wire		doBGWork     = saveBGBlock[0] | saveBGBlock[1];
+wire		spikeBGBlock = doBGWork & !lastsaveBGBlock;
+always @(posedge gpuClk) begin lastsaveBGBlock = doBGWork; end
 
 assign ClutCacheData		= dat_i;
-assign bgPixel		 		= dat_i;
+// assign bgPixel		 		= busDataW;
 
 assign TexCacheData[63:32]	= dat_i;
 assign TexCacheData[31: 0]  = regDatI;
@@ -153,8 +164,10 @@ assign ClutWriteIndex		= currX[2:0];
 
 assign ClutCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd2);
 assign TexCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd3);
-assign validbgPixel			= s_writeGPU & (regReadMode[3:1] == 3'd1);
-assign writePixelDone		= s_writePixelDone;
+// wire   bgIsInCache			= (cacheBGAdr == bgRequestAdr[17:3]);
+// wire   s_validbgPixel		= bgIsInCache & bgRequest & (currState == DEFAULT_STATE); // Test State because we want to avoid TRUE while LOADING...
+// assign validbgPixel			= s_validbgPixel;
+// assign writePixelDone		= s_writePixelDone;
 assign updateTexCacheCompleteL	= s_updateTexCacheCompleteL;
 assign updateTexCacheCompleteR	= s_updateTexCacheCompleteR;
 assign updateClutCacheCompleteL	= s_updateClutCacheCompleteL;
@@ -164,14 +177,14 @@ assign updateClutCacheCompleteR	= s_updateClutCacheCompleteR;
 // GPU Side State machine...
 //
 reg [2:0] currState;
-parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'b001, WRITE_BLOCK = 3'b010;
+parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'b001, WRITE_BG = 3'b010, READ_BG = 3'b011;
 
 always @(posedge gpuClk)
 begin
 	if (i_nRst == 1'b0) begin
 		currState	= DEFAULT_STATE;
-		cacheBGAdr	= 15'h7FFF;
-		cacheBGMsk	= 16'd0;
+//		cacheBGAdr	= 15'h7FFF;
+//		cacheBGMsk	= 16'd0;
 		currX		= 4'd0;
 	end else begin
 		currState	= nextState;
@@ -179,7 +192,21 @@ begin
 		if (ReadMode[3:1] != 3'd0) begin
 			regReadMode = ReadMode;
 		end
+
+		if (loadBGInternal) begin
+			case (currX[2:0])
+			3'd0: begin cacheBGRead[ 31:  0] = dat_i; end
+			3'd1: begin cacheBGRead[ 63: 32] = dat_i; end
+			3'd2: begin cacheBGRead[ 95: 64] = dat_i; end
+			3'd3: begin cacheBGRead[127: 96] = dat_i; end
+			3'd4: begin cacheBGRead[159:128] = dat_i; end
+			3'd5: begin cacheBGRead[191:160] = dat_i; end
+			3'd6: begin cacheBGRead[223:192] = dat_i; end
+			3'd7: begin cacheBGRead[255:224] = dat_i; end
+			endcase
+		end
 		
+		/*
 		if (writePixelInternal) begin
 			case (bgWriteAdr[2:0])
 			3'd0: begin cacheBGRead[ 31:  0] = write32; cacheBGMsk[ 1: 0] = pixelValid; end
@@ -193,9 +220,27 @@ begin
 			endcase
 		end
 		
+		if (resetMSK) begin
+			cacheBGMsk[ 1: 0] = 2'b00;
+			cacheBGMsk[ 3: 2] = 2'b00;
+			cacheBGMsk[ 5: 4] = 2'b00;
+			cacheBGMsk[ 7: 6] = 2'b00;
+			cacheBGMsk[ 9: 8] = 2'b00;
+			cacheBGMsk[11:10] = 2'b00;
+			cacheBGMsk[13:12] = 2'b00;
+			cacheBGMsk[15:14] = 2'b00;
+		end
+		*/
+		
 		if (s_storeAdr) begin
 			baseAdr = s_busAdr[19:2];
 		end
+		
+		/*
+		if (s_storeCacheAdr) begin
+			cacheBGAdr = bgRequestAdr[17:3];
+		end
+		*/
 		
 		if (s_store) begin
 			regDatI = dat_i;
@@ -216,10 +261,9 @@ reg [19:0]	s_busAdr;	assign adr_o = s_busAdr;
 reg  [2:0]  s_cnt;		assign cnt_o = s_cnt;
 reg         s_busREQ;	assign req_o = s_busREQ;
 reg  [1:0]  busWMSK;	assign sel_o = {busWMSK[1],busWMSK[1],busWMSK[0],busWMSK[0]};
-reg [31:0]	busDataW;	assign dat_o = busDataW;
+reg [31:0]	busDataW;	assign dat_o = busDataW; // TODO NEVER ASSIGNED
 reg			busWRT;		assign wrt_o = !readStuff;
 // Input
-wire [31:0]	busDataR = dat_i;
 wire busACK		= ack_i;
 
 
@@ -228,6 +272,7 @@ reg readStuff;
 reg [2:0] nextState;
 reg writePixelInternal;
 reg [3:0] currX;
+wire [3:0] decodeX = currX;
 reg       incrX, resetX;
 reg s_store;
 reg s_writeGPU;
@@ -237,10 +282,14 @@ reg	s_updateTexCacheCompleteL;
 reg	s_updateTexCacheCompleteR;
 reg	s_updateClutCacheCompleteL;
 reg	s_updateClutCacheCompleteR;
+// reg s_storeCacheAdr;
+// reg resetMSK;
+reg loadBGInternal;
 
 wire isClutReq 		= requClutCacheUpdateL | requClutCacheUpdateR;
 wire isTexReq  		= requTexCacheUpdateL  | requTexCacheUpdateR;
-wire hasValidPixels = pixelValid[0] | pixelValid[1];
+wire isFirstBlockBlending = ((saveBGBlock == 2'b01) & isBlending);
+// wire hasValidPixels = pixelValid[0] | pixelValid[1];
 reg [3:0] ReadMode, regReadMode;
 always @(*)
 begin
@@ -250,8 +299,6 @@ begin
 	writePixelInternal	= 1'b0;
 	resetX				= 1'b0;
 	incrX				= 1'b0;
-	busWMSK				= 2'b00;
-	busDataW			= 32'd0;
 	s_cnt				= 3'd0;
 	s_busAdr			= 20'd0;
 	s_busREQ			= 1'b0;
@@ -264,6 +311,23 @@ begin
 	s_updateTexCacheCompleteR	= 1'b0;
 	s_updateClutCacheCompleteL	= 1'b0;
 	s_updateClutCacheCompleteR	= 1'b0;
+	s_saveLoadOnGoing				= 0;
+	s_importBGBlockSingleClock	= 0;
+	
+//	resetMSK			= 1'b0;
+//	s_storeCacheAdr		= 1'b0;
+	loadBGInternal		= 1'b0;
+
+	case (currX[2:0])
+	3'd0: begin busDataW = exportedBGBlock[ 31:  0]; busWMSK = exportedMSKBGBlock[ 1: 0]; end
+	3'd1: begin busDataW = exportedBGBlock[ 63: 32]; busWMSK = exportedMSKBGBlock[ 3: 2]; end
+	3'd2: begin busDataW = exportedBGBlock[ 95: 64]; busWMSK = exportedMSKBGBlock[ 5: 4]; end
+	3'd3: begin busDataW = exportedBGBlock[127: 96]; busWMSK = exportedMSKBGBlock[ 7: 6]; end
+	3'd4: begin busDataW = exportedBGBlock[159:128]; busWMSK = exportedMSKBGBlock[ 9: 8]; end
+	3'd5: begin busDataW = exportedBGBlock[191:160]; busWMSK = exportedMSKBGBlock[11:10]; end
+	3'd6: begin busDataW = exportedBGBlock[223:192]; busWMSK = exportedMSKBGBlock[13:12]; end
+	3'd7: begin busDataW = exportedBGBlock[255:224]; busWMSK = exportedMSKBGBlock[15:14]; end
+	endcase
 	
 	case (currState)
 	default:
@@ -274,81 +338,94 @@ begin
 	DEFAULT_STATE:
 	begin
 		if (!busACK) begin
-			if (bgRequest) begin
-				// [READ] For now read two pixel per block.
-				// ... BG Read ...
-				s_busAdr	= { bgRequestAdr, 2'b00 }; // Adr by 2 pixel 16 bit.
+/*
+			if (flushBG) begin
+				// [WRITE]
+				// Write back.
 				s_busREQ	= 1'b1;
 				s_storeAdr	= 1'b1;
-				s_cnt       = 3'd0; // 1 block of 32 bit.
-				ReadMode	= 4'b0010;
-				nextState	= READ_STATE;
+				s_busAdr	= { cacheBGAdr, 5'd0 };
+				
+				
+				nextState	= WRITE_BLOCK;
 			end else begin
-				if (isClutReq) begin
-					// [READ]
-					// ... CLUT$ Update ...
-					ReadMode = { 3'b010, requClutCacheUpdateR };
+*/
+/*				if (!bgIsInCache & bgRequest) begin	// Cache NOT LOADED and BG requested.
+					// [READ] For now read two pixel per block.
+					// ... BG Read ...
+					s_storeCacheAdr = 1'b1;
+					s_busAdr	= { bgRequestAdr, 2'b00 }; // Adr by 2 pixel 16 bit.
+					s_busREQ	= 1'b1;
 					s_storeAdr	= 1'b1;
-					if (requClutCacheUpdateL) begin
-						// Left First...
-						s_busAdr	= { adrClutCacheUpdateL, 5'd0 }; // Adr by 32 byte block.
-						s_busREQ	= 1'b1;
-						s_cnt       = 3'd7; // 8 block of 32 bit.
-						nextState	= READ_STATE;
-					end else begin
-						// Right Second...
-						s_busAdr	= { adrClutCacheUpdateR, 5'd0 }; // Adr by 32 byte block.
-						s_busREQ	= 1'b1;
-						s_cnt       = 3'd7; // 8 block of 32 bit.
-						nextState	= READ_STATE;
-					end
+					s_cnt       = 3'd7; // 1 block of 32 bit.
+					ReadMode	= 4'b0010;
+					resetMSK	= 1'b1;
+					nextState	= READ_STATE;
 				end else begin
-					if (isTexReq) begin
-						ReadMode = { 3'b011, requClutCacheUpdateR };
-						s_storeAdr	= 1'b1;
+ */
+			if (spikeBGBlock) begin
+				if (saveBGBlock == 2'b10 | isFirstBlockBlending)
+				begin
+					s_busREQ	= 1'b1;
+					s_cnt		= 3'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
+					nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
+					s_saveLoadOnGoing = 1;
+				end
+			end else begin
+					if (isClutReq) begin
 						// [READ]
-						// ... TEX$ Update ...
-						if (requTexCacheUpdateL) begin
+						// ... CLUT$ Update ...
+						ReadMode = { 3'b010, requClutCacheUpdateR };
+						s_storeAdr	= 1'b1;
+						if (requClutCacheUpdateL) begin
 							// Left First...
-							s_busAdr	= { adrTexCacheUpdateL, 3'd0 }; // Adr by 8 byte block.
+							s_busAdr	= { adrClutCacheUpdateL, 5'd0 }; // Adr by 32 byte block.
 							s_busREQ	= 1'b1;
-							s_cnt       = 3'd1; // 2 block of 32 bit.
+							s_cnt       = 3'd7; // 8 block of 32 bit.
 							nextState	= READ_STATE;
 						end else begin
 							// Right Second...
-							s_busAdr	= { adrTexCacheUpdateR, 3'd0 }; // Adr by 8 byte block.
+							s_busAdr	= { adrClutCacheUpdateR, 5'd0 }; // Adr by 32 byte block.
 							s_busREQ	= 1'b1;
-							s_cnt       = 3'd1; // 2 block of 32 bit.
+							s_cnt       = 3'd7; // 8 block of 32 bit.
 							nextState	= READ_STATE;
 						end
 					end else begin
-						if (hasValidPixels | flushBG) begin
-							
-							readStuff = 0;
-							if (isDifferentBG | flushBG) begin
-								// [WRITE]
-								// Write back.
+						if (isTexReq) begin
+							ReadMode = { 3'b011, requClutCacheUpdateR };
+							s_storeAdr	= 1'b1;
+							// [READ]
+							// ... TEX$ Update ...
+							if (requTexCacheUpdateL) begin
+								// Left First...
+								s_busAdr	= { adrTexCacheUpdateL, 3'd0 }; // Adr by 8 byte block.
 								s_busREQ	= 1'b1;
-								s_storeAdr	= 1'b1;
-								s_busAdr	= { cacheBGAdr, 5'd0 };
-								
-								// TODO : Could optimize BURST size based on cacheBGMsk complete.
-								s_cnt		= 3'd7;
-								
-								nextState	= WRITE_BLOCK;
+								s_cnt       = 3'd1; // 2 block of 32 bit.
+								nextState	= READ_STATE;
 							end else begin
+								// Right Second...
+								s_busAdr	= { adrTexCacheUpdateR, 3'd0 }; // Adr by 8 byte block.
+								s_busREQ	= 1'b1;
+								s_cnt       = 3'd1; // 2 block of 32 bit.
+								nextState	= READ_STATE;
+							end
+						end else begin
+/*
+							if (hasValidPixels) begin
 								// Store locally pixels...
 								s_writePixelDone	= 1;
 								writePixelInternal	= 1;
+							end else begin
+								// [TODO : FIFO]
+								// [READ/WRITE]
+								// readStuff = 1 or 0; // TODO
+								// FIFO & CO
+								// FILL COMMAND BURST.
 							end
-						end else begin
-							// [READ/WRITE]
-							// readStuff = 1 or 0; // TODO
-							// FIFO & CO
-							// FILL COMMAND BURST.
+*/
 						end
 					end
-				end
+//				end
 			end
 		end
 	end
@@ -357,10 +434,12 @@ begin
 		if (busACK) begin
 			incrX = 1'b1;
 			case (regReadMode[3:1])
+			/*
 			3'd1: // BG read 32 byte.
 			begin
-				s_writeGPU = 1'b1;
+				loadBGInternal = 1'b1;
 			end
+			*/
 			3'd2: // Clut 32 byte
 			begin
 				s_writeGPU = 1'b1;
@@ -368,7 +447,6 @@ begin
 					// Last value write (only 2)
 					s_updateClutCacheCompleteL = !regReadMode[0];
 					s_updateClutCacheCompleteR =  regReadMode[0];
-				end else begin
 				end
 			end
 			3'd3: // Texture 8 byte
@@ -384,42 +462,63 @@ begin
 			end
 			default:
 			begin
+				// Nothing...
 			end
 			endcase
 		end else begin
 			nextState = DEFAULT_STATE;
 		end
 	end
+	WRITE_BG:
+	begin
+		s_saveLoadOnGoing = 1;
+		if (busACK) begin
+			incrX = 1'b1;
+			s_busAdr = { saveAdr, currX[2:0], 2'b0 };
+			s_busREQ	= 1'b1;
+			readStuff = 1'b0; // WRITE SIGNAL.
+		end else begin
+			// END
+			s_busREQ  = isBlending;
+			nextState = isBlending ? READ_BG : DEFAULT_STATE;
+		end
+	end
+	READ_BG:
+	begin
+		s_saveLoadOnGoing = 1;
+		if (busACK) begin
+			incrX = 1'b1;
+			s_busAdr	= { loadAdr, currX[2:0], 2'b0 };
+			s_busREQ	= 1'b1;
+
+			loadBGInternal = 1'b1;
+		end else begin
+			s_importBGBlockSingleClock = 1;
+			nextState = DEFAULT_STATE;
+		end
+	end
+	/*
 	WRITE_BLOCK:
 	begin
 		readStuff	= 1'b0;
 		// TODO : Could optimize BURST size based on cacheBGMsk complete.
+		// TODO : Could optimize NO WRITE AT ALL IF ZERO bit in all MSK.
+		
 //		s_cnt		= currX[2:0];
 		
-		// [Write Burst]
+		// [Write Burst 32 byte]
 		if (busACK) begin
 			if (currX != 4'd8) begin
 				s_busAdr = { cacheBGAdr, currX[2:0], 2'b0 };
-				case (currX[2:0])
-				3'd0: begin busDataW = cacheBGRead[ 31:  0]; busWMSK = cacheBGMsk[ 1: 0]; end
-				3'd1: begin busDataW = cacheBGRead[ 63: 32]; busWMSK = cacheBGMsk[ 3: 2]; end
-				3'd2: begin busDataW = cacheBGRead[ 95: 64]; busWMSK = cacheBGMsk[ 5: 4]; end
-				3'd3: begin busDataW = cacheBGRead[127: 96]; busWMSK = cacheBGMsk[ 7: 6]; end
-				3'd4: begin busDataW = cacheBGRead[159:128]; busWMSK = cacheBGMsk[ 9: 8]; end
-				3'd5: begin busDataW = cacheBGRead[191:160]; busWMSK = cacheBGMsk[11:10]; end
-				3'd6: begin busDataW = cacheBGRead[223:192]; busWMSK = cacheBGMsk[13:12]; end
-				3'd7: begin busDataW = cacheBGRead[255:224]; busWMSK = cacheBGMsk[15:14]; end
-				endcase
-				
 				incrX		= 1'b1;
 				s_busREQ	= 1'b1;
 			end else begin
 				nextState	= DEFAULT_STATE;
 				resetX		= 1'b1;
-				s_busREQ	= 1'b0;
 			end
 		end
 	end
+	*/
 	endcase
 end
 

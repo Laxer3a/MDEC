@@ -21,13 +21,17 @@ module directCacheDoublePort(
 	input	[16:0]	adressIn,
 	input	[63:0]	dataIn,		// Upper module responsability to make 64 bit atomic write.
 	
+	input			requLookupA,
 	input	[18:0]	adressLookA,
 	output	[15:0]	dataOutA,
 	output			isHitA,
+	output			isMissA,
 
+	input			requLookupB,
 	input	[18:0]	adressLookB,
 	output	[15:0]	dataOutB,
-	output			isHitB
+	output			isHitB,
+	output			isMissB
 );
 	// LINEAR MAPPING :
 	// ccccPPPPPbbbbbLLL aaa <-- One line width for block in  16 bpp. (32 pixel   , 64 byte per line)
@@ -85,18 +89,27 @@ module directCacheDoublePort(
 
 	wire       lookActiveA	= Active[pRaddrA];
 	wire       lookActiveB	= Active[pRaddrB];
+	reg 	   pRequLookupA;
+	reg 	   pRequLookupB;
 	wire [WT-3:0] lookTagA	= D0A[WS:64];
 	wire [WT-3:0] lookTagB	= D0B[WS:64];
 
-	assign isHitA	= (lookTagA == pRaddrA) & pLookActiveA;
-	assign isHitB	= (lookTagB == pRaddrB) & pLookActiveB;
+	// Return HIT when NOT looking up for data...
+	wire hitA       = ((lookTagA == pRaddrA) & pLookActiveA);
+	wire hitB		= ((lookTagB == pRaddrB) & pLookActiveB);
+	assign isHitA	=   hitA  & pRequLookupA;
+	assign isHitB	=   hitB  & pRequLookupB;
+	assign isMissA	= (!hitA) & pRequLookupA;
+	assign isMissB	= (!hitB) & pRequLookupB;
 
 	reg pLookActiveA;
 	reg pLookActiveB;
 	always @ (posedge clk)
 	begin
-		pLookActiveA <= lookActiveA;
-		pLookActiveB <= lookActiveB;
+		pRequLookupA = requLookupA;
+		pRequLookupB = requLookupB;
+		pLookActiveA = lookActiveA;
+		pLookActiveB = lookActiveB;
 	end
 	
 	reg [15:0] dOutA;
