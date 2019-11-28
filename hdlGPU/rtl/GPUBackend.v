@@ -29,6 +29,7 @@ module GPUBackend(
 	input 	[4:0]	GPU_REG_WindowTextureMaskY,
 	input 	[4:0]	GPU_REG_WindowTextureOffsetX,
 	input 	[4:0]	GPU_REG_WindowTextureOffsetY,
+	input			GPU_REG_SetMaskBit,
 	
 	// -------------------------------
 	// Input Pixels from FrontEnd
@@ -373,8 +374,8 @@ module GPUBackend(
 		.write32					(writeBack32)
 	);
 	
-	wire finalBit15_L = 1'b1; // TODO LATER -> May need pipelining in CtrlPipeline if comes from current pixel ? Or rejected by validPixel ? or just GPU FLAG | for write back ?
-	wire finalBit15_R = 1'b1; // TODO LATER
+	wire finalBit15_L = GPU_REG_SetMaskBit;
+	wire finalBit15_R = GPU_REG_SetMaskBit;
 
 	// ---------------------------------------------
 	// WRITE PACK TO BACKGROUND

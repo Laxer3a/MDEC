@@ -3013,6 +3013,7 @@ GPUBackend GPUBackendInstance(
 	.GPU_REG_WindowTextureMaskY			(GPU_REG_WindowTextureMaskY		),
 	.GPU_REG_WindowTextureOffsetX		(GPU_REG_WindowTextureOffsetX	),
 	.GPU_REG_WindowTextureOffsetY		(GPU_REG_WindowTextureOffsetY	),
+	.GPU_REG_SetMaskBit					(GPU_REG_ForcePixel15MaskSet	),
 	
 	// -------------------------------
 	// Input Pixels from FrontEnd
