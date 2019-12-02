@@ -33,14 +33,16 @@ module GPUComputeOnly(
 	input [4:0]		bBG_R,
 	
 	// Bit 15 for Left and Right pixel.
-	input 			finalBit15_L,
-	input			finalBit15_R,
-
+	input 			iBGMskL,
+	input			iBGMskR,
 	// Final PIXEL to write back.
 	output [31:0]	write32
 );
 	wire [8:0]	oR_L,oG_L,oB_L,
 				oR_R,oG_R,oB_R;
+	
+	wire finalBit15_L = iBGMskL | (!noTexture & texelL[15]);
+	wire finalBit15_R = iBGMskR | (!noTexture & texelR[15]);
 	
 	Shading ShadingInstanceL (
 		.rTex								(texelL[ 4: 0]),
@@ -85,7 +87,7 @@ module GPUComputeOnly(
 		.px_g								(gShaded_L),
 		.px_b								(bShaded_L),
 
-		.px_STP								(texelL[15]),
+		.px_STP								(texelL[15] | noTexture),
 		.px_transparent						(iTransparentL),
 
 		.noblend							(noblend),
@@ -105,7 +107,7 @@ module GPUComputeOnly(
 		.px_g								(gShaded_R),
 		.px_b								(bShaded_R),
 
-		.px_STP								(texelR[15]),
+		.px_STP								(texelR[15] | noTexture),
 		.px_transparent						(iTransparentR),
 
 		.noblend							(noblend),

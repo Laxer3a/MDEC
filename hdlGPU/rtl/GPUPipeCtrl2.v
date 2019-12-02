@@ -35,7 +35,7 @@ module GPUPipeCtrl2(
 	input [8:0]		iR,
 	input [8:0]		iG,
 	input [8:0]		iB,
-	
+	input			iBGMSK,
 	input			validPixel_c0,
 	input  [1:0]	UCoordLSB,
 	input [18:0] 	texelAdress_c0,
@@ -52,6 +52,7 @@ module GPUPipeCtrl2(
 	output [ 8:0]	oScry,
 	output [15:0]	oTexel,
 	output 			oTransparent,
+	output			oBGMSK,
 	output  [8:0]	oR,
 	output  [8:0]	oG,
 	output  [8:0]	oB,
@@ -110,6 +111,7 @@ module GPUPipeCtrl2(
 	reg [8:0]	PiR_c1;
 	reg [8:0]	PiG_c1;
 	reg [8:0]	PiB_c1;
+	reg			PiBGMSK;
 	reg			PValidPixel_c1;
 	reg [1:0]	PUCoordLSB_c1;
 	reg [18:0] 	PtexelAdress_c1;
@@ -117,17 +119,18 @@ module GPUPipeCtrl2(
 	always @ (posedge clk)
 	begin
 		if (!pause || (i_nrst==0)) begin
-			PisTrueColor_c1		<= isTrueColor;
-			PnewBGCacheLine_c1	<= (i_nrst==0) ? 2'b00 : newBGCacheLine; // Beginning of a new primitive.
-			PiScrX_c1			<= iScrX;
-			PiScrY_c1			<= iScrY;
-			PiR_c1				<= iR;
-			PiG_c1				<= iG;
-			PiB_c1				<= iB;
-			PValidPixel_c1		<= (i_nrst==0) ? 1'b0 : validPixel_c0;
-			PUCoordLSB_c1		<= UCoordLSB;
-			PisTexturedPixel_c1	<= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
-			PtexelAdress_c1		<= texelAdress_c0;
+			PisTrueColor_c1		= isTrueColor;
+			PnewBGCacheLine_c1	= (i_nrst==0) ? 2'b00 : newBGCacheLine; // Beginning of a new primitive.
+			PiScrX_c1			= iScrX;
+			PiScrY_c1			= iScrY;
+			PiR_c1				= iR;
+			PiG_c1				= iG;
+			PiB_c1				= iB;
+			PiBGMSK				= iBGMSK;
+			PValidPixel_c1		= (i_nrst==0) ? 1'b0 : validPixel_c0;
+			PUCoordLSB_c1		= UCoordLSB;
+			PisTexturedPixel_c1	= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
+			PtexelAdress_c1		= texelAdress_c0;
 		end
 	end
 	
@@ -187,22 +190,22 @@ module GPUPipeCtrl2(
 	reg [8:0]	PPiR_c2;
 	reg [8:0]	PPiG_c2;
 	reg [8:0]	PPiB_c2;
+	reg			PPiBGMSK;
 	reg			PPValidPixel_c2;
-	reg [7:0]	PPindex_c2;
 	reg [15:0]	PPdataTex_c2;
 	always @ (posedge clk)
 	begin
 		if (!pause || (i_nrst==0)) begin
-			PPisTexturedPixel_c2 <= PisTexturedPixel_c1;
-			PPisTrueColor_c2	<= PisTrueColor_c1;
-			PPiScrX_c2			<= PiScrX_c1;
-			PPiScrY_c2			<= PiScrY_c1;
-			PPiR_c2				<= PiR_c1;
-			PPiG_c2				<= PiG_c1;
-			PPiB_c2				<= PiB_c1;
-			PPValidPixel_c2		<= (i_nrst==0) ? 1'b0 : PValidPixel_c1;
-			PPindex_c2			<= index_c1;
-			PPdataTex_c2		<= dataTex_c1;
+			PPisTexturedPixel_c2 = PisTexturedPixel_c1;
+			PPisTrueColor_c2	= PisTrueColor_c1;
+			PPiScrX_c2			= PiScrX_c1;
+			PPiScrY_c2			= PiScrY_c1;
+			PPiR_c2				= PiR_c1;
+			PPiG_c2				= PiG_c1;
+			PPiB_c2				= PiB_c1;
+			PPiBGMSK			= PiBGMSK;
+			PPValidPixel_c2		= (i_nrst==0) ? 1'b0 : PValidPixel_c1;
+			PPdataTex_c2		= dataTex_c1;
 		end
 		
 		if (!pause | resetLineFlag || (i_nrst == 0)) begin
@@ -227,7 +230,7 @@ module GPUPipeCtrl2(
 	end
 	
 	assign oNewBGCacheLine	= PPnewBGCacheLine_c2;
-	assign oTransparent		= !(|pixelOut[14:0]); // If all ZERO, then 1.
+	assign oTransparent		= (!(|pixelOut[14:0])) & (!GPU_TEX_DISABLE); // If all ZERO, then 1., SET TO 0 if TEXTURE DISABLED.
 	assign oTexel			= pixelOut;
 	assign oValidPixel		= PPValidPixel_c2;
 	assign oScrx			= PPiScrX_c2;
@@ -235,4 +238,5 @@ module GPUPipeCtrl2(
 	assign oR 				= PPiR_c2;
 	assign oG 				= PPiG_c2;
 	assign oB 				= PPiB_c2;
+	assign oBGMSK			= PPiBGMSK;
 endmodule

@@ -29,7 +29,6 @@ module GPUBackend(
 	input 	[4:0]	GPU_REG_WindowTextureMaskY,
 	input 	[4:0]	GPU_REG_WindowTextureOffsetX,
 	input 	[4:0]	GPU_REG_WindowTextureOffsetY,
-	input			GPU_REG_SetMaskBit,
 	
 	// -------------------------------
 	// Input Pixels from FrontEnd
@@ -44,6 +43,7 @@ module GPUBackend(
 	input [7:0]		U_L,
 	input [7:0]		V_L,
 	input			validPixel_L,
+	input			bgMSK_L,
 	
 	input [8:0]		iR_R,
 	input [8:0]		iG_R,
@@ -51,6 +51,12 @@ module GPUBackend(
 	input [7:0]		U_R,
 	input [7:0]		V_R,
 	input			validPixel_R,
+	input			bgMSK_R,
+	
+	// -------------------------------
+	//   Flush until 
+	// -------------------------------
+	input			flushLastBlock,
 	
 	// -------------------------------
 	//  Request to Cache system ?
@@ -103,6 +109,19 @@ module GPUBackend(
 	input           updateClutCacheCompleteR,
 	
 	// -------------------------------
+	//   Stencil Cache Write Back
+	// -------------------------------
+	// Write
+	output 			stencilWriteSig,
+	// Where to write
+	output [14:0]	stencilWriteAdr,
+	output  [2:0]	stencilWritePair,
+	// Where inside the pair
+	output	[1:0]	stencilWriteSelect,
+	// Value to write
+	output	[1:0]	stencilWriteValue,
+
+	// -------------------------------
 	//   DDR 
 	// -------------------------------
 	
@@ -128,9 +147,14 @@ module GPUBackend(
 	// - Load BG on first block if BLENDING ENABLED
 	// - Load/Save BG on next blocks
 	// - Skip if value is = 00.
+	always @ (posedge clk) begin
+		AssertionFalse1: assert (oNewBGCacheLineL == oNewBGCacheLineR) else $error( "Can not be different");
+	end
+	
+	
 	wire doBlockOp					= ((oNewBGCacheLineL == 2'b01) & !noblend) | oNewBGCacheLineL[1]; /* | oNewBGCacheLineR*/ // Should be the SAME, only one item needed
 	// Operating step is given to the memory module. (None,First,Second & Others)
-	assign saveBGBlock				= oNewBGCacheLineL;
+	assign saveBGBlock				= oNewBGCacheLineL | {flushLastBlock,flushLastBlock};
 	assign o_writePixelOnNewBlock	= doBlockOp;
 
 	// -----------------------------------------------
@@ -185,6 +209,7 @@ module GPUBackend(
 		.iR					(iR_L),
 		.iG					(iG_L),
 		.iB					(iB_L),
+		.iBGMSK				(bgMSK_L),
 		
 		.validPixel_c0		(validPixel_L),
 		.UCoordLSB			(U_L[1:0]),
@@ -205,6 +230,7 @@ module GPUBackend(
 		.oR					(oRL),
 		.oG					(oGL),
 		.oB					(oBL),
+		.oBGMSK				(oBGMSK_L),
 		
 		// --------------------------------------------
 		//  Memory Side
@@ -252,6 +278,7 @@ module GPUBackend(
 		.iR					(iR_R),
 		.iG					(iG_R),
 		.iB					(iB_R),
+		.iBGMSK				(bgMSK_R),
 		
 		.validPixel_c0		(validPixel_R),
 		.UCoordLSB			(U_R[1:0]),
@@ -272,6 +299,7 @@ module GPUBackend(
 		.oR					(oRR),
 		.oG					(oGR),
 		.oB					(oBR),
+		.oBGMSK				(oBGMSK_R),
 		
 		// --------------------------------------------
 		//  Memory Side
@@ -306,6 +334,7 @@ module GPUBackend(
 	wire [15:0]	oTexelL,oTexelR;
 	wire oTransparentL,oTransparentR;
 	wire [8:0]	oRL,oRR,oGL,oGR,oBL,oBR;
+	wire oBGMSK_L,oBGMSK_R;
 
 
 	reg [255:0] cacheBG;
@@ -349,6 +378,8 @@ module GPUBackend(
 		.texelR						(oTexelR),
 		.iTransparentL				(oTransparentL),
 		.iTransparentR				(oTransparentR),
+		.iBGMskL					(oBGMSK_L),
+		.iBGMskR					(oBGMSK_R),
 		
 		// Gouraud Side output
 		.iR_L						(oRL),
@@ -366,36 +397,55 @@ module GPUBackend(
 		.gBG_R						(pixelBG32[25:21]),
 		.bBG_R						(pixelBG32[30:26]),
 		
-		// Bit 15 for Left and Right pixel.
-		.finalBit15_L				(finalBit15_L),
-		.finalBit15_R				(finalBit15_R),
-
 		// Final PIXEL to write back.
 		.write32					(writeBack32)
 	);
 	
-	wire finalBit15_L = GPU_REG_SetMaskBit;
-	wire finalBit15_R = GPU_REG_SetMaskBit;
-
 	// ---------------------------------------------
 	// WRITE PACK TO BACKGROUND
 	// ---------------------------------------------
 	wire [31:0] writeBack32;
+	wire        writeSig	= !i_pausePipeline & (oValidPixelR | oValidPixelL);
+	wire [14:0] writeAdr 	= { oScryL, oScrxL[9:4] };
 	reg  [14:0] lastWriteAdrReg;
+	wire  [1:0] selPair		= {oValidPixelR,oValidPixelL};
+	wire  [2:0] pairID		= oScrxL[3:1];
+	
+	assign stencilWriteAdr		= writeAdr;				// 14:0 <- Block adress.
+	assign stencilWriteSig		= writeSig;				// 1	<- Perform write.
+	assign stencilWriteValue	= {oBGMSK_R,oBGMSK_L};	// 1:0	<- Value to write back. 
+	assign stencilWriteSelect	= selPair;				// 1:0	<- Which pixel need update.
+	assign stencilWritePair		= pairID;				// 2:0	<- Pair ID
+
 	always @(posedge clk)
 	begin
-		if ((oNewBGCacheLineL==2'b00) & !i_pausePipeline) begin
-			lastWriteAdrReg = { oScryL, oScrxL[9:4] };
-			case (oScrxL[3:1])
-			3'd0: begin cacheBG[ 31:  0] = writeBack32; cacheBGMsk[ 1: 0] = {oValidPixelR,oValidPixelL}; end
-			3'd1: begin cacheBG[ 63: 32] = writeBack32; cacheBGMsk[ 3: 2] = {oValidPixelR,oValidPixelL}; end
-			3'd2: begin cacheBG[ 95: 64] = writeBack32; cacheBGMsk[ 5: 4] = {oValidPixelR,oValidPixelL}; end
-			3'd3: begin cacheBG[127: 96] = writeBack32; cacheBGMsk[ 7: 6] = {oValidPixelR,oValidPixelL}; end
-			3'd4: begin cacheBG[159:128] = writeBack32; cacheBGMsk[ 9: 8] = {oValidPixelR,oValidPixelL}; end
-			3'd5: begin cacheBG[191:160] = writeBack32; cacheBGMsk[11:10] = {oValidPixelR,oValidPixelL}; end
-			3'd6: begin cacheBG[223:192] = writeBack32; cacheBGMsk[13:12] = {oValidPixelR,oValidPixelL}; end
-			3'd7: begin cacheBG[255:224] = writeBack32; cacheBGMsk[15:14] = {oValidPixelR,oValidPixelL}; end
-			endcase
+		if (writeSig) begin
+			lastWriteAdrReg = writeAdr;
+			if (oValidPixelR) begin
+				case (pairID)
+				3'd0: begin cacheBG[ 31: 16] = writeBack32[31:16]; cacheBGMsk[ 1] = selPair[1]; end
+				3'd1: begin cacheBG[ 63: 48] = writeBack32[31:16]; cacheBGMsk[ 3] = selPair[1]; end
+				3'd2: begin cacheBG[ 95: 80] = writeBack32[31:16]; cacheBGMsk[ 5] = selPair[1]; end
+				3'd3: begin cacheBG[127:112] = writeBack32[31:16]; cacheBGMsk[ 7] = selPair[1]; end
+				3'd4: begin cacheBG[159:144] = writeBack32[31:16]; cacheBGMsk[ 9] = selPair[1]; end
+				3'd5: begin cacheBG[191:176] = writeBack32[31:16]; cacheBGMsk[11] = selPair[1]; end
+				3'd6: begin cacheBG[223:208] = writeBack32[31:16]; cacheBGMsk[13] = selPair[1]; end
+				3'd7: begin cacheBG[255:240] = writeBack32[31:16]; cacheBGMsk[15] = selPair[1]; end
+				endcase
+			end
+
+			if (oValidPixelL) begin
+				case (pairID)
+				3'd0: begin cacheBG[ 15:  0] = writeBack32[15: 0]; cacheBGMsk[ 0] = selPair[0]; end
+				3'd1: begin cacheBG[ 47: 32] = writeBack32[15: 0]; cacheBGMsk[ 2] = selPair[0]; end
+				3'd2: begin cacheBG[ 79: 64] = writeBack32[15: 0]; cacheBGMsk[ 4] = selPair[0]; end
+				3'd3: begin cacheBG[111: 96] = writeBack32[15: 0]; cacheBGMsk[ 6] = selPair[0]; end
+				3'd4: begin cacheBG[143:128] = writeBack32[15: 0]; cacheBGMsk[ 8] = selPair[0]; end
+				3'd5: begin cacheBG[175:160] = writeBack32[15: 0]; cacheBGMsk[10] = selPair[0]; end
+				3'd6: begin cacheBG[207:192] = writeBack32[15: 0]; cacheBGMsk[12] = selPair[0]; end
+				3'd7: begin cacheBG[239:224] = writeBack32[15: 0]; cacheBGMsk[14] = selPair[0]; end
+				endcase
+			end
 		end else begin
 			if (importBGBlockSingleClock) begin
 				cacheBG		= importedBGBlock;

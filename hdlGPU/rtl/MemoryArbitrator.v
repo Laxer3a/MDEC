@@ -177,7 +177,7 @@ assign updateClutCacheCompleteR	= s_updateClutCacheCompleteR;
 // GPU Side State machine...
 //
 reg [2:0] currState;
-parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'b001, WRITE_BG = 3'b010, READ_BG = 3'b011;
+parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'b001, WRITE_BG = 3'b010, READ_BG = 3'b011, READ_BG_START = 3'b100;
 
 always @(posedge gpuClk)
 begin
@@ -270,14 +270,12 @@ wire busACK		= ack_i;
 
 reg readStuff;
 reg [2:0] nextState;
-reg writePixelInternal;
+//reg writePixelInternal;
 reg [3:0] currX;
-wire [3:0] decodeX = currX;
 reg       incrX, resetX;
 reg s_store;
 reg s_writeGPU;
 reg s_storeAdr;
-reg s_writePixelDone;
 reg	s_updateTexCacheCompleteL;
 reg	s_updateTexCacheCompleteR;
 reg	s_updateClutCacheCompleteL;
@@ -296,7 +294,7 @@ begin
 	// Default
 	readStuff			= 1'b1;
 	nextState			= currState;
-	writePixelInternal	= 1'b0;
+//	writePixelInternal	= 1'b0;
 	resetX				= 1'b0;
 	incrX				= 1'b0;
 	s_cnt				= 3'd0;
@@ -306,7 +304,6 @@ begin
 	s_store				= 1'b0;
 	s_storeAdr			= 1'b0;
 	s_writeGPU			= 1'b0;
-	s_writePixelDone	= 1'b0;
 	s_updateTexCacheCompleteL	= 1'b0;
 	s_updateTexCacheCompleteR	= 1'b0;
 	s_updateClutCacheCompleteL	= 1'b0;
@@ -364,13 +361,13 @@ begin
 				end else begin
  */
 			if (spikeBGBlock) begin
-				if (saveBGBlock == 2'b10 | isFirstBlockBlending)
+				if (saveBGBlock[1] | isFirstBlockBlending) // Work for Block 10 (Next) and 11 (Flush)
 				begin
 					s_busREQ	= 1'b1;
 					s_cnt		= 3'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
 					nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
-					s_saveLoadOnGoing = 1;
 				end
+				s_saveLoadOnGoing = 1; // Trick : if we have a spike but NOT with type 11 or 10, we still signal for GPU state machine.
 			end else begin
 					if (isClutReq) begin
 						// [READ]
@@ -409,20 +406,6 @@ begin
 								s_cnt       = 3'd1; // 2 block of 32 bit.
 								nextState	= READ_STATE;
 							end
-						end else begin
-/*
-							if (hasValidPixels) begin
-								// Store locally pixels...
-								s_writePixelDone	= 1;
-								writePixelInternal	= 1;
-							end else begin
-								// [TODO : FIFO]
-								// [READ/WRITE]
-								// readStuff = 1 or 0; // TODO
-								// FIFO & CO
-								// FILL COMMAND BURST.
-							end
-*/
 						end
 					end
 //				end
@@ -479,9 +462,16 @@ begin
 			readStuff = 1'b0; // WRITE SIGNAL.
 		end else begin
 			// END
-			s_busREQ  = isBlending;
-			nextState = isBlending ? READ_BG : DEFAULT_STATE;
+			s_busREQ  = 1'b0;
+			nextState = (isBlending && saveBGBlock != 2'd3) ? READ_BG_START : DEFAULT_STATE;	// If it is the FLUSH mode, we do NOT perform the READ at the end.
 		end
+	end
+	READ_BG_START:
+	begin
+		s_saveLoadOnGoing = 1;
+		s_busREQ	= 1'b1;
+		s_cnt		= 3'd7;
+		nextState	= READ_BG;
 	end
 	READ_BG:
 	begin
@@ -497,28 +487,6 @@ begin
 			nextState = DEFAULT_STATE;
 		end
 	end
-	/*
-	WRITE_BLOCK:
-	begin
-		readStuff	= 1'b0;
-		// TODO : Could optimize BURST size based on cacheBGMsk complete.
-		// TODO : Could optimize NO WRITE AT ALL IF ZERO bit in all MSK.
-		
-//		s_cnt		= currX[2:0];
-		
-		// [Write Burst 32 byte]
-		if (busACK) begin
-			if (currX != 4'd8) begin
-				s_busAdr = { cacheBGAdr, currX[2:0], 2'b0 };
-				incrX		= 1'b1;
-				s_busREQ	= 1'b1;
-			end else begin
-				nextState	= DEFAULT_STATE;
-				resetX		= 1'b1;
-			end
-		end
-	end
-	*/
 	endcase
 end
 

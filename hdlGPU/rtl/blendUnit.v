@@ -36,7 +36,7 @@ module blendUnit(
 	reg tblTransp;
 	always @(*)
 	begin
-		case ({px_transparent,px_STP,noblend})
+		case ({px_transparent,px_STP,!noblend})
 		3'd0: tblTransp = OPAQUE;				// x,x,x | STP 0 | Transparency OFF
 		3'd1: tblTransp = OPAQUE;				// x,x,x | STP 0 | Transparency ON
 		3'd2: tblTransp = OPAQUE;				// x,x,x | STP 1 | Transparency OFF
