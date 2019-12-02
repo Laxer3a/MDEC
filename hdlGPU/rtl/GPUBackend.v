@@ -147,9 +147,9 @@ module GPUBackend(
 	// - Load BG on first block if BLENDING ENABLED
 	// - Load/Save BG on next blocks
 	// - Skip if value is = 00.
-	always @ (posedge clk) begin
-		AssertionFalse1: assert (oNewBGCacheLineL == oNewBGCacheLineR) else $error( "Can not be different");
-	end
+//	always @ (posedge clk) begin
+//		AssertionFalse1: assert (oNewBGCacheLineL == oNewBGCacheLineR) else $error( "Can not be different");
+//	end
 	
 	
 	wire doBlockOp					= ((oNewBGCacheLineL == 2'b01) & !noblend) | oNewBGCacheLineL[1]; /* | oNewBGCacheLineR*/ // Should be the SAME, only one item needed

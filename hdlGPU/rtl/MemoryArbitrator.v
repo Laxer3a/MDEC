@@ -367,47 +367,47 @@ begin
 				nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
 				s_saveLoadOnGoing = 1; // Trick : if we have a spike but NOT with type 11 or 10, we still signal for GPU state machine.
 			end else begin
-					if (isClutReq) begin
-						// [READ]
-						// ... CLUT$ Update ...
-						ReadMode = { 3'b010, requClutCacheUpdateR };
+				if (isClutReq) begin
+					// [READ]
+					// ... CLUT$ Update ...
+					ReadMode = { 3'b010, requClutCacheUpdateR };
+					s_storeAdr	= 1'b1;
+					s_saveLoadOnGoing = 1;
+					if (requClutCacheUpdateL) begin
+						// Left First...
+						s_busAdr	= { adrClutCacheUpdateL, 5'd0 }; // Adr by 32 byte block.
+						s_busREQ	= 1'b1;
+						s_cnt       = 3'd7; // 8 block of 32 bit.
+						nextState	= READ_STATE;
+					end else begin
+						// Right Second...
+						s_busAdr	= { adrClutCacheUpdateR, 5'd0 }; // Adr by 32 byte block.
+						s_busREQ	= 1'b1;
+						s_cnt       = 3'd7; // 8 block of 32 bit.
+						nextState	= READ_STATE;
+					end
+				end else begin
+					if (isTexReq) begin
+						ReadMode = { 3'b011, requClutCacheUpdateR };
 						s_storeAdr	= 1'b1;
 						s_saveLoadOnGoing = 1;
-						if (requClutCacheUpdateL) begin
+						// [READ]
+						// ... TEX$ Update ...
+						if (requTexCacheUpdateL) begin
 							// Left First...
-							s_busAdr	= { adrClutCacheUpdateL, 5'd0 }; // Adr by 32 byte block.
+							s_busAdr	= { adrTexCacheUpdateL, 3'd0 }; // Adr by 8 byte block.
 							s_busREQ	= 1'b1;
-							s_cnt       = 3'd7; // 8 block of 32 bit.
+							s_cnt       = 3'd1; // 2 block of 32 bit.
 							nextState	= READ_STATE;
 						end else begin
 							// Right Second...
-							s_busAdr	= { adrClutCacheUpdateR, 5'd0 }; // Adr by 32 byte block.
+							s_busAdr	= { adrTexCacheUpdateR, 3'd0 }; // Adr by 8 byte block.
 							s_busREQ	= 1'b1;
-							s_cnt       = 3'd7; // 8 block of 32 bit.
+							s_cnt       = 3'd1; // 2 block of 32 bit.
 							nextState	= READ_STATE;
 						end
-					end else begin
-						if (isTexReq) begin
-							ReadMode = { 3'b011, requClutCacheUpdateR };
-							s_storeAdr	= 1'b1;
-							s_saveLoadOnGoing = 1;
-							// [READ]
-							// ... TEX$ Update ...
-							if (requTexCacheUpdateL) begin
-								// Left First...
-								s_busAdr	= { adrTexCacheUpdateL, 3'd0 }; // Adr by 8 byte block.
-								s_busREQ	= 1'b1;
-								s_cnt       = 3'd1; // 2 block of 32 bit.
-								nextState	= READ_STATE;
-							end else begin
-								// Right Second...
-								s_busAdr	= { adrTexCacheUpdateR, 3'd0 }; // Adr by 8 byte block.
-								s_busREQ	= 1'b1;
-								s_cnt       = 3'd1; // 2 block of 32 bit.
-								nextState	= READ_STATE;
-							end
-						end
 					end
+				end
 			end
 		end
 	end
