@@ -47,9 +47,12 @@ module directCacheDoublePort(
 //														: { adressIn[19:17],adressIn[10:5],adressIn[16:11],adressIn[4:0]}; // 5,6,6,5
 	wire [16:0] swizzleAddr = textureFormatTrueColor 	? { adressIn[16:13],adressIn[7:3],adressIn[12:8],adressIn[2:0]}  // 4,5,5,3
 														: { adressIn[16:14],adressIn[7:2],adressIn[13:8],adressIn[1:0]}; // 5,6,6,2
-	
-	parameter WT = 10; 	// 2KB Version
-	parameter NE = 255;
+
+	wire [16:0] swizzleLookA= textureFormatTrueColor 	? { adressLookA[18:15],adressLookA[9:5],adressLookA[14:10],adressLookA[4:2]}  // 4,5,5,3
+														: { adressLookA[18:16],adressLookA[9:4],adressLookA[15:10],adressLookA[3:2]}; // 5,6,6,2
+	wire [16:0] swizzleLookB= textureFormatTrueColor 	? { adressLookB[18:15],adressLookB[9:5],adressLookB[14:10],adressLookB[4:2]}  // 4,5,5,3
+														: { adressLookB[18:16],adressLookB[9:4],adressLookB[15:10],adressLookB[3:2]}; // 5,6,6,2
+														
 //	parameter WT = 11; 	// 4KB Version
 //	parameter NE = 511;
 
@@ -59,10 +62,9 @@ module directCacheDoublePort(
 	// ------------- 2 KB Version ----------
 	// [20:11][10:3][2:0]		256 Entries x 8 Byte (4x2) = 2 KB.
 	//  10 bit 8bit  3bit
-	parameter WS = WT + 61;					// 72 (4KB) vs 71 (2KB
-	reg [WS:0] RAMStorage[NE:0];			// 72/71 + 512 vs 256 entries.
-	reg [NE:0] Active;						// 512 vs 256 active bit.
-	reg [WT-3:0] pRaddrA,pRaddrB;			// 9 or 8 bit address
+	reg [71:0] RAMStorage[255:0];			// 72/71 + 512 vs 256 entries.
+	reg [255:0] Active;						// 512 vs 256 active bit.
+	reg [7:0] pRaddrA,pRaddrB;			// 9 or 8 bit address
 
 	reg [2:1] pIndexA,pIndexB;
 	
@@ -70,46 +72,64 @@ module directCacheDoublePort(
 	begin
 		if (write)
 		begin
-			RAMStorage[swizzleAddr[WT-3:0]]	<= { swizzleAddr[WT-3:0], dataIn[63: 0] };
-//			D0A								<= { swizzleAddr[WT-3:0], dataIn[63: 0] };		// DID CAUSE INFERENCE ISSUE, NOT ENABLING RAM BLOCK
-//			D0B								<= { swizzleAddr[WT-3:0], dataIn[63: 0] };
+			RAMStorage[swizzleAddr[7:0]]	<= { swizzleAddr[7:0], dataIn[63: 0] };
+//			D0A								<= { swizzleAddr[7:0], dataIn[63: 0] };		// DID CAUSE INFERENCE ISSUE, NOT ENABLING RAM BLOCK
+//			D0B								<= { swizzleAddr[7:0], dataIn[63: 0] };
 //		end else begin
-//			D0A								<= RAMStorage[adressLookA[WT:2]];
-//			D0B								<= RAMStorage[adressLookB[WT:2]];
+//			D0A								<= RAMStorage[adressLookA[10:2]];
+//			D0B								<= RAMStorage[adressLookB[10:2]];
 		end
 		
-		pRaddrA	<= adressLookA[WT-1:2];
-		pRaddrB	<= adressLookB[WT-1:2];
+		pRaddrA	<= swizzleLookA[7:0];
+		pRaddrB	<= swizzleLookB[7:0];
 	end
-//	reg  [WS:0]	D0A;
+//	reg  [71:0]	D0A;
 //	reg  [WS:0]	D0B;
 
-	wire  [WS:0]	D0A = RAMStorage[pRaddrA];
-	wire  [WS:0]	D0B = RAMStorage[pRaddrB];
+	wire  [71:0]	D0A = RAMStorage[pRaddrA];
+	wire  [71:0]	D0B = RAMStorage[pRaddrB];
 
 	wire       lookActiveA	= Active[pRaddrA];
 	wire       lookActiveB	= Active[pRaddrB];
 	reg 	   pRequLookupA;
 	reg 	   pRequLookupB;
-	wire [WT-3:0] lookTagA	= D0A[WS:64];
-	wire [WT-3:0] lookTagB	= D0B[WS:64];
+	wire [7:0] lookTagA	= D0A[71:64];
+	wire [7:0] lookTagB	= D0B[71:64];
 
 	// Return HIT when NOT looking up for data...
 	wire hitA       = ((lookTagA == pRaddrA) & pLookActiveA);
 	wire hitB		= ((lookTagB == pRaddrB) & pLookActiveB);
 	assign isHitA	=   hitA  & pRequLookupA;
 	assign isHitB	=   hitB  & pRequLookupB;
-	assign isMissA	= (!hitA) & pRequLookupA;
-	assign isMissB	= (!hitB) & pRequLookupB;
+	wire spikeMissA = ((!hitA) & pRequLookupA);
+	wire spikeMissB = ((!hitB) & pRequLookupB);
+	assign isMissA	= spikeMissA | (stickyMissA & !hitA);	// Note : Sticky BIT does not RETURN 1 when isHit is generated.
+	assign isMissB	= spikeMissB | (stickyMissB & !hitB);
 
 	reg pLookActiveA;
 	reg pLookActiveB;
+	reg stickyMissA, stickyMissB;
 	always @ (posedge clk)
 	begin
 		pRequLookupA = requLookupA;
 		pRequLookupB = requLookupB;
 		pLookActiveA = lookActiveA;
 		pLookActiveB = lookActiveB;
+		
+		if (isHitA) begin
+			stickyMissA = 0;
+		end else begin
+			if (isMissA) begin
+				stickyMissA = 1;
+			end
+		end
+		if (isHitB) begin
+			stickyMissB = 0;
+		end else begin
+			if (isMissB) begin
+				stickyMissB = 1;
+			end
+		end
 	end
 	
 	reg [15:0] dOutA;
@@ -137,106 +157,106 @@ module directCacheDoublePort(
 	always @ (posedge clk)
 	begin
 		if ((i_nrst == 0) | clearCache) begin
-			Active[0] <= 1'b0;
-			Active[1] <= 1'b0;
-			Active[2] <= 1'b0;
-			Active[3] <= 1'b0;
-			Active[4] <= 1'b0;
-			Active[5] <= 1'b0;
-			Active[6] <= 1'b0;
-			Active[7] <= 1'b0;
-			Active[8] <= 1'b0;
-			Active[9] <= 1'b0;
-			Active[10] <= 1'b0;
-			Active[11] <= 1'b0;
-			Active[12] <= 1'b0;
-			Active[13] <= 1'b0;
-			Active[14] <= 1'b0;
-			Active[15] <= 1'b0;
-			Active[16] <= 1'b0;
-			Active[17] <= 1'b0;
-			Active[18] <= 1'b0;
-			Active[19] <= 1'b0;
-			Active[20] <= 1'b0;
-			Active[21] <= 1'b0;
-			Active[22] <= 1'b0;
-			Active[23] <= 1'b0;
-			Active[24] <= 1'b0;
-			Active[25] <= 1'b0;
-			Active[26] <= 1'b0;
-			Active[27] <= 1'b0;
-			Active[28] <= 1'b0;
-			Active[29] <= 1'b0;
-			Active[30] <= 1'b0;
-			Active[31] <= 1'b0;
-			Active[32] <= 1'b0;
-			Active[33] <= 1'b0;
-			Active[34] <= 1'b0;
-			Active[35] <= 1'b0;
-			Active[36] <= 1'b0;
-			Active[37] <= 1'b0;
-			Active[38] <= 1'b0;
-			Active[39] <= 1'b0;
-			Active[40] <= 1'b0;
-			Active[41] <= 1'b0;
-			Active[42] <= 1'b0;
-			Active[43] <= 1'b0;
-			Active[44] <= 1'b0;
-			Active[45] <= 1'b0;
-			Active[46] <= 1'b0;
-			Active[47] <= 1'b0;
-			Active[48] <= 1'b0;
-			Active[49] <= 1'b0;
-			Active[50] <= 1'b0;
-			Active[51] <= 1'b0;
-			Active[52] <= 1'b0;
-			Active[53] <= 1'b0;
-			Active[54] <= 1'b0;
-			Active[55] <= 1'b0;
-			Active[56] <= 1'b0;
-			Active[57] <= 1'b0;
-			Active[58] <= 1'b0;
-			Active[59] <= 1'b0;
-			Active[60] <= 1'b0;
-			Active[61] <= 1'b0;
-			Active[62] <= 1'b0;
-			Active[63] <= 1'b0;
-			Active[64] <= 1'b0;
-			Active[65] <= 1'b0;
-			Active[66] <= 1'b0;
-			Active[67] <= 1'b0;
-			Active[68] <= 1'b0;
-			Active[69] <= 1'b0;
-			Active[70] <= 1'b0;
-			Active[71] <= 1'b0;
-			Active[72] <= 1'b0;
-			Active[73] <= 1'b0;
-			Active[74] <= 1'b0;
-			Active[75] <= 1'b0;
-			Active[76] <= 1'b0;
-			Active[77] <= 1'b0;
-			Active[78] <= 1'b0;
-			Active[79] <= 1'b0;
-			Active[80] <= 1'b0;
-			Active[81] <= 1'b0;
-			Active[82] <= 1'b0;
-			Active[83] <= 1'b0;
-			Active[84] <= 1'b0;
-			Active[85] <= 1'b0;
-			Active[86] <= 1'b0;
-			Active[87] <= 1'b0;
-			Active[88] <= 1'b0;
-			Active[89] <= 1'b0;
-			Active[90] <= 1'b0;
-			Active[91] <= 1'b0;
-			Active[92] <= 1'b0;
-			Active[93] <= 1'b0;
-			Active[94] <= 1'b0;
-			Active[95] <= 1'b0;
-			Active[96] <= 1'b0;
-			Active[97] <= 1'b0;
-			Active[98] <= 1'b0;
-			Active[99] <= 1'b0;
+			Active[  0] <= 1'b0;
+			Active[  1] <= 1'b0;
+			Active[  2] <= 1'b0;
+			Active[  3] <= 1'b0;
+			Active[  4] <= 1'b0;
+			Active[  5] <= 1'b0;
+			Active[  6] <= 1'b0;
+			Active[  7] <= 1'b0;
+			Active[  8] <= 1'b0;
+			Active[  9] <= 1'b0;
+			Active[ 10] <= 1'b0;
+			Active[ 11] <= 1'b0;
+			Active[ 12] <= 1'b0;
+			Active[ 13] <= 1'b0;
+			Active[ 14] <= 1'b0;
+			Active[ 15] <= 1'b0;
+			Active[ 16] <= 1'b0;
+			Active[ 17] <= 1'b0;
+			Active[ 18] <= 1'b0;
+			Active[ 19] <= 1'b0;
+			Active[ 20] <= 1'b0;
+			Active[ 21] <= 1'b0;
+			Active[ 22] <= 1'b0;
+			Active[ 23] <= 1'b0;
+			Active[ 24] <= 1'b0;
+			Active[ 25] <= 1'b0;
+			Active[ 26] <= 1'b0;
+			Active[ 27] <= 1'b0;
+			Active[ 28] <= 1'b0;
+			Active[ 29] <= 1'b0;
+			Active[ 30] <= 1'b0;
+			Active[ 31] <= 1'b0;
+			Active[ 32] <= 1'b0;
+			Active[ 33] <= 1'b0;
+			Active[ 34] <= 1'b0;
+			Active[ 35] <= 1'b0;
+			Active[ 36] <= 1'b0;
+			Active[ 37] <= 1'b0;
+			Active[ 38] <= 1'b0;
+			Active[ 39] <= 1'b0;
+			Active[ 40] <= 1'b0;
+			Active[ 41] <= 1'b0;
+			Active[ 42] <= 1'b0;
+			Active[ 43] <= 1'b0;
+			Active[ 44] <= 1'b0;
+			Active[ 45] <= 1'b0;
+			Active[ 46] <= 1'b0;
+			Active[ 47] <= 1'b0;
+			Active[ 48] <= 1'b0;
+			Active[ 49] <= 1'b0;
+			Active[ 50] <= 1'b0;
+			Active[ 51] <= 1'b0;
+			Active[ 52] <= 1'b0;
+			Active[ 53] <= 1'b0;
+			Active[ 54] <= 1'b0;
+			Active[ 55] <= 1'b0;
+			Active[ 56] <= 1'b0;
+			Active[ 57] <= 1'b0;
+			Active[ 58] <= 1'b0;
+			Active[ 59] <= 1'b0;
+			Active[ 60] <= 1'b0;
+			Active[ 61] <= 1'b0;
+			Active[ 62] <= 1'b0;
+			Active[ 63] <= 1'b0;
+			Active[ 64] <= 1'b0;
+			Active[ 65] <= 1'b0;
+			Active[ 66] <= 1'b0;
+			Active[ 67] <= 1'b0;
+			Active[ 68] <= 1'b0;
+			Active[ 69] <= 1'b0;
+			Active[ 70] <= 1'b0;
+			Active[ 71] <= 1'b0;
+			Active[ 72] <= 1'b0;
+			Active[ 73] <= 1'b0;
+			Active[ 74] <= 1'b0;
+			Active[ 75] <= 1'b0;
+			Active[ 76] <= 1'b0;
+			Active[ 77] <= 1'b0;
+			Active[ 78] <= 1'b0;
+			Active[ 79] <= 1'b0;
+			Active[ 80] <= 1'b0;
+			Active[ 81] <= 1'b0;
+			Active[ 82] <= 1'b0;
+			Active[ 83] <= 1'b0;
+			Active[ 84] <= 1'b0;
+			Active[ 85] <= 1'b0;
+			Active[ 86] <= 1'b0;
+			Active[ 87] <= 1'b0;
+			Active[ 88] <= 1'b0;
+			Active[ 89] <= 1'b0;
+			Active[ 90] <= 1'b0;
+			Active[ 91] <= 1'b0;
+			Active[ 92] <= 1'b0;
+			Active[ 93] <= 1'b0;
+			Active[ 94] <= 1'b0;
+			Active[ 95] <= 1'b0;
+			Active[ 96] <= 1'b0;
+			Active[ 97] <= 1'b0;
+			Active[ 98] <= 1'b0;
+			Active[ 99] <= 1'b0;
 			Active[100] <= 1'b0;
 			Active[101] <= 1'b0;
 			Active[102] <= 1'b0;
@@ -653,107 +673,107 @@ module directCacheDoublePort(
 		*/
 		end else begin
 			if (write) begin
-				case (swizzleAddr[WT:3])
-				8'd0 : Active[0] <= 1'b1;
-				8'd1 : Active[1] <= 1'b1;
-				8'd2 : Active[2] <= 1'b1;
-				8'd3 : Active[3] <= 1'b1;
-				8'd4 : Active[4] <= 1'b1;
-				8'd5 : Active[5] <= 1'b1;
-				8'd6 : Active[6] <= 1'b1;
-				8'd7 : Active[7] <= 1'b1;
-				8'd8 : Active[8] <= 1'b1;
-				8'd9 : Active[9] <= 1'b1;
-				8'd10 : Active[10] <= 1'b1;
-				8'd11 : Active[11] <= 1'b1;
-				8'd12 : Active[12] <= 1'b1;
-				8'd13 : Active[13] <= 1'b1;
-				8'd14 : Active[14] <= 1'b1;
-				8'd15 : Active[15] <= 1'b1;
-				8'd16 : Active[16] <= 1'b1;
-				8'd17 : Active[17] <= 1'b1;
-				8'd18 : Active[18] <= 1'b1;
-				8'd19 : Active[19] <= 1'b1;
-				8'd20 : Active[20] <= 1'b1;
-				8'd21 : Active[21] <= 1'b1;
-				8'd22 : Active[22] <= 1'b1;
-				8'd23 : Active[23] <= 1'b1;
-				8'd24 : Active[24] <= 1'b1;
-				8'd25 : Active[25] <= 1'b1;
-				8'd26 : Active[26] <= 1'b1;
-				8'd27 : Active[27] <= 1'b1;
-				8'd28 : Active[28] <= 1'b1;
-				8'd29 : Active[29] <= 1'b1;
-				8'd30 : Active[30] <= 1'b1;
-				8'd31 : Active[31] <= 1'b1;
-				8'd32 : Active[32] <= 1'b1;
-				8'd33 : Active[33] <= 1'b1;
-				8'd34 : Active[34] <= 1'b1;
-				8'd35 : Active[35] <= 1'b1;
-				8'd36 : Active[36] <= 1'b1;
-				8'd37 : Active[37] <= 1'b1;
-				8'd38 : Active[38] <= 1'b1;
-				8'd39 : Active[39] <= 1'b1;
-				8'd40 : Active[40] <= 1'b1;
-				8'd41 : Active[41] <= 1'b1;
-				8'd42 : Active[42] <= 1'b1;
-				8'd43 : Active[43] <= 1'b1;
-				8'd44 : Active[44] <= 1'b1;
-				8'd45 : Active[45] <= 1'b1;
-				8'd46 : Active[46] <= 1'b1;
-				8'd47 : Active[47] <= 1'b1;
-				8'd48 : Active[48] <= 1'b1;
-				8'd49 : Active[49] <= 1'b1;
-				8'd50 : Active[50] <= 1'b1;
-				8'd51 : Active[51] <= 1'b1;
-				8'd52 : Active[52] <= 1'b1;
-				8'd53 : Active[53] <= 1'b1;
-				8'd54 : Active[54] <= 1'b1;
-				8'd55 : Active[55] <= 1'b1;
-				8'd56 : Active[56] <= 1'b1;
-				8'd57 : Active[57] <= 1'b1;
-				8'd58 : Active[58] <= 1'b1;
-				8'd59 : Active[59] <= 1'b1;
-				8'd60 : Active[60] <= 1'b1;
-				8'd61 : Active[61] <= 1'b1;
-				8'd62 : Active[62] <= 1'b1;
-				8'd63 : Active[63] <= 1'b1;
-				8'd64 : Active[64] <= 1'b1;
-				8'd65 : Active[65] <= 1'b1;
-				8'd66 : Active[66] <= 1'b1;
-				8'd67 : Active[67] <= 1'b1;
-				8'd68 : Active[68] <= 1'b1;
-				8'd69 : Active[69] <= 1'b1;
-				8'd70 : Active[70] <= 1'b1;
-				8'd71 : Active[71] <= 1'b1;
-				8'd72 : Active[72] <= 1'b1;
-				8'd73 : Active[73] <= 1'b1;
-				8'd74 : Active[74] <= 1'b1;
-				8'd75 : Active[75] <= 1'b1;
-				8'd76 : Active[76] <= 1'b1;
-				8'd77 : Active[77] <= 1'b1;
-				8'd78 : Active[78] <= 1'b1;
-				8'd79 : Active[79] <= 1'b1;
-				8'd80 : Active[80] <= 1'b1;
-				8'd81 : Active[81] <= 1'b1;
-				8'd82 : Active[82] <= 1'b1;
-				8'd83 : Active[83] <= 1'b1;
-				8'd84 : Active[84] <= 1'b1;
-				8'd85 : Active[85] <= 1'b1;
-				8'd86 : Active[86] <= 1'b1;
-				8'd87 : Active[87] <= 1'b1;
-				8'd88 : Active[88] <= 1'b1;
-				8'd89 : Active[89] <= 1'b1;
-				8'd90 : Active[90] <= 1'b1;
-				8'd91 : Active[91] <= 1'b1;
-				8'd92 : Active[92] <= 1'b1;
-				8'd93 : Active[93] <= 1'b1;
-				8'd94 : Active[94] <= 1'b1;
-				8'd95 : Active[95] <= 1'b1;
-				8'd96 : Active[96] <= 1'b1;
-				8'd97 : Active[97] <= 1'b1;
-				8'd98 : Active[98] <= 1'b1;
-				8'd99 : Active[99] <= 1'b1;
+				case (swizzleAddr[7:0])
+				8'd0   : Active[  0] <= 1'b1;
+				8'd1   : Active[  1] <= 1'b1;
+				8'd2   : Active[  2] <= 1'b1;
+				8'd3   : Active[  3] <= 1'b1;
+				8'd4   : Active[  4] <= 1'b1;
+				8'd5   : Active[  5] <= 1'b1;
+				8'd6   : Active[  6] <= 1'b1;
+				8'd7   : Active[  7] <= 1'b1;
+				8'd8   : Active[  8] <= 1'b1;
+				8'd9   : Active[  9] <= 1'b1;
+				8'd10  : Active[ 10] <= 1'b1;
+				8'd11  : Active[ 11] <= 1'b1;
+				8'd12  : Active[ 12] <= 1'b1;
+				8'd13  : Active[ 13] <= 1'b1;
+				8'd14  : Active[ 14] <= 1'b1;
+				8'd15  : Active[ 15] <= 1'b1;
+				8'd16  : Active[ 16] <= 1'b1;
+				8'd17  : Active[ 17] <= 1'b1;
+				8'd18  : Active[ 18] <= 1'b1;
+				8'd19  : Active[ 19] <= 1'b1;
+				8'd20  : Active[ 20] <= 1'b1;
+				8'd21  : Active[ 21] <= 1'b1;
+				8'd22  : Active[ 22] <= 1'b1;
+				8'd23  : Active[ 23] <= 1'b1;
+				8'd24  : Active[ 24] <= 1'b1;
+				8'd25  : Active[ 25] <= 1'b1;
+				8'd26  : Active[ 26] <= 1'b1;
+				8'd27  : Active[ 27] <= 1'b1;
+				8'd28  : Active[ 28] <= 1'b1;
+				8'd29  : Active[ 29] <= 1'b1;
+				8'd30  : Active[ 30] <= 1'b1;
+				8'd31  : Active[ 31] <= 1'b1;
+				8'd32  : Active[ 32] <= 1'b1;
+				8'd33  : Active[ 33] <= 1'b1;
+				8'd34  : Active[ 34] <= 1'b1;
+				8'd35  : Active[ 35] <= 1'b1;
+				8'd36  : Active[ 36] <= 1'b1;
+				8'd37  : Active[ 37] <= 1'b1;
+				8'd38  : Active[ 38] <= 1'b1;
+				8'd39  : Active[ 39] <= 1'b1;
+				8'd40  : Active[ 40] <= 1'b1;
+				8'd41  : Active[ 41] <= 1'b1;
+				8'd42  : Active[ 42] <= 1'b1;
+				8'd43  : Active[ 43] <= 1'b1;
+				8'd44  : Active[ 44] <= 1'b1;
+				8'd45  : Active[ 45] <= 1'b1;
+				8'd46  : Active[ 46] <= 1'b1;
+				8'd47  : Active[ 47] <= 1'b1;
+				8'd48  : Active[ 48] <= 1'b1;
+				8'd49  : Active[ 49] <= 1'b1;
+				8'd50  : Active[ 50] <= 1'b1;
+				8'd51  : Active[ 51] <= 1'b1;
+				8'd52  : Active[ 52] <= 1'b1;
+				8'd53  : Active[ 53] <= 1'b1;
+				8'd54  : Active[ 54] <= 1'b1;
+				8'd55  : Active[ 55] <= 1'b1;
+				8'd56  : Active[ 56] <= 1'b1;
+				8'd57  : Active[ 57] <= 1'b1;
+				8'd58  : Active[ 58] <= 1'b1;
+				8'd59  : Active[ 59] <= 1'b1;
+				8'd60  : Active[ 60] <= 1'b1;
+				8'd61  : Active[ 61] <= 1'b1;
+				8'd62  : Active[ 62] <= 1'b1;
+				8'd63  : Active[ 63] <= 1'b1;
+				8'd64  : Active[ 64] <= 1'b1;
+				8'd65  : Active[ 65] <= 1'b1;
+				8'd66  : Active[ 66] <= 1'b1;
+				8'd67  : Active[ 67] <= 1'b1;
+				8'd68  : Active[ 68] <= 1'b1;
+				8'd69  : Active[ 69] <= 1'b1;
+				8'd70  : Active[ 70] <= 1'b1;
+				8'd71  : Active[ 71] <= 1'b1;
+				8'd72  : Active[ 72] <= 1'b1;
+				8'd73  : Active[ 73] <= 1'b1;
+				8'd74  : Active[ 74] <= 1'b1;
+				8'd75  : Active[ 75] <= 1'b1;
+				8'd76  : Active[ 76] <= 1'b1;
+				8'd77  : Active[ 77] <= 1'b1;
+				8'd78  : Active[ 78] <= 1'b1;
+				8'd79  : Active[ 79] <= 1'b1;
+				8'd80  : Active[ 80] <= 1'b1;
+				8'd81  : Active[ 81] <= 1'b1;
+				8'd82  : Active[ 82] <= 1'b1;
+				8'd83  : Active[ 83] <= 1'b1;
+				8'd84  : Active[ 84] <= 1'b1;
+				8'd85  : Active[ 85] <= 1'b1;
+				8'd86  : Active[ 86] <= 1'b1;
+				8'd87  : Active[ 87] <= 1'b1;
+				8'd88  : Active[ 88] <= 1'b1;
+				8'd89  : Active[ 89] <= 1'b1;
+				8'd90  : Active[ 90] <= 1'b1;
+				8'd91  : Active[ 91] <= 1'b1;
+				8'd92  : Active[ 92] <= 1'b1;
+				8'd93  : Active[ 93] <= 1'b1;
+				8'd94  : Active[ 94] <= 1'b1;
+				8'd95  : Active[ 95] <= 1'b1;
+				8'd96  : Active[ 96] <= 1'b1;
+				8'd97  : Active[ 97] <= 1'b1;
+				8'd98  : Active[ 98] <= 1'b1;
+				8'd99  : Active[ 99] <= 1'b1;
 				8'd100 : Active[100] <= 1'b1;
 				8'd101 : Active[101] <= 1'b1;
 				8'd102 : Active[102] <= 1'b1;
@@ -1175,5 +1195,4 @@ module directCacheDoublePort(
 		pIndexA	<= adressLookA[1:0];
 		pIndexB	<= adressLookB[1:0];
 	end
-		
 endmodule

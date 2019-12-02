@@ -97,7 +97,7 @@ module GPUPipeCtrl2(
 	wire isTexturedPixel_c0 	= validPixel_c0 & !GPU_TEX_DISABLE;
 
 	// REQUEST TO TEX$ : VALID PIXEL TEXTURED
-	assign	requDataTex_c0		= (isTexturedPixel_c0 /* & (!loadingText) & (!requestMissTexture_c1) */) /*| endRequestMissTexture*/; // Note : (!requestMissTexture) not necessary, but makes signal clearer (requ last 1 cycle instead of 2 in case of MISS)
+	assign	requDataTex_c0		= (isTexturedPixel_c0 | missT_c1/* & (!loadingText) & (!requestMissTexture_c1) */) /*| endRequestMissTexture*/; // Note : (!requestMissTexture) not necessary, but makes signal clearer (requ last 1 cycle instead of 2 in case of MISS)
 	assign	adrTexReq_c0		= selPauseTex ? PtexelAdress_c1 : texelAdress_c0;
 	
 	// -------------------------------------------------------------

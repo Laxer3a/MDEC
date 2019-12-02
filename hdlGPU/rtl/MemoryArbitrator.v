@@ -334,6 +334,7 @@ begin
 	end
 	DEFAULT_STATE:
 	begin
+		resetX = 1;
 		if (!busACK) begin
 /*
 			if (flushBG) begin
@@ -360,13 +361,10 @@ begin
 					nextState	= READ_STATE;
 				end else begin
  */
-			if (spikeBGBlock) begin
-				if (saveBGBlock[1] | isFirstBlockBlending) // Work for Block 10 (Next) and 11 (Flush)
-				begin
-					s_busREQ	= 1'b1;
-					s_cnt		= 3'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
-					nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
-				end
+			if (spikeBGBlock & (saveBGBlock[1] | isFirstBlockBlending)) begin
+				s_busREQ	= 1'b1;
+				s_cnt		= 3'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
+				nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
 				s_saveLoadOnGoing = 1; // Trick : if we have a spike but NOT with type 11 or 10, we still signal for GPU state machine.
 			end else begin
 					if (isClutReq) begin
@@ -374,6 +372,7 @@ begin
 						// ... CLUT$ Update ...
 						ReadMode = { 3'b010, requClutCacheUpdateR };
 						s_storeAdr	= 1'b1;
+						s_saveLoadOnGoing = 1;
 						if (requClutCacheUpdateL) begin
 							// Left First...
 							s_busAdr	= { adrClutCacheUpdateL, 5'd0 }; // Adr by 32 byte block.
@@ -391,6 +390,7 @@ begin
 						if (isTexReq) begin
 							ReadMode = { 3'b011, requClutCacheUpdateR };
 							s_storeAdr	= 1'b1;
+							s_saveLoadOnGoing = 1;
 							// [READ]
 							// ... TEX$ Update ...
 							if (requTexCacheUpdateL) begin
@@ -408,7 +408,6 @@ begin
 							end
 						end
 					end
-//				end
 			end
 		end
 	end
@@ -416,6 +415,7 @@ begin
 	begin
 		if (busACK) begin
 			incrX = 1'b1;
+			s_busREQ	= 1'b1;
 			case (regReadMode[3:1])
 			/*
 			3'd1: // BG read 32 byte.
@@ -434,6 +434,7 @@ begin
 			end
 			3'd3: // Texture 8 byte
 			begin
+				s_busAdr =  requTexCacheUpdateL ? { adrTexCacheUpdateL, currX[0],2'd0 } : { adrTexCacheUpdateR, currX[0],2'd0 };
 				if (currX[2:0] == 3'b000) begin
 					s_store = 1;
 				end else begin
@@ -449,6 +450,7 @@ begin
 			end
 			endcase
 		end else begin
+			s_busREQ	= 1'b0;
 			nextState = DEFAULT_STATE;
 		end
 	end
