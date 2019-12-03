@@ -1742,7 +1742,9 @@ parameter	DEFAULT_STATE		=4'd0,
 			WIDTH_HEIGHT_STATE	=4'd5,
 			LOAD_XY1			=4'd6,
 			LOAD_XY2			=4'd7,
-			WAIT_COMMAND_COMPLETE = 4'd8;
+			WAIT_COMMAND_COMPLETE = 4'd8,
+			COLOR_LOAD_GARAGE   =4'd9,
+			VERTEX_LOAD_GARAGE	=4'd10;
 			
 reg  [3:0] currState,nextLogicalState;
 wire [3:0] nextState;
@@ -1886,7 +1888,7 @@ begin
 		increaseVertexCounter	= 0;
 		storeCommand       		= 0;
 		loadUV					= 0;
-		loadRGB					= 1;
+		loadRGB					= canIssueWork; // Reach the COLOR_LOAD state while a primitive is rendering... Forbid to LOAD COLOR.
 		loadVertices			= 0;
 		loadAllRGB				= 0;
 		loadClutPage			= 0;
@@ -1896,6 +1898,48 @@ begin
 		// Special case to test TERMINATOR (comes instead of COLOR value !!!)
 		nextCondUseFIFO			= !(bIsLineCommand & bIsMultiLine & bIsTerminator);
 		nextLogicalState		=  (bIsLineCommand & bIsMultiLine & bIsTerminator) ? DEFAULT_STATE : VERTEX_LOAD;
+	end
+	COLOR_LOAD_GARAGE:
+	begin
+		//
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= 0; // Reach the COLOR_LOAD state while a primitive is rendering... Forbid to LOAD COLOR.
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		issuePrimitive			= NO_ISSUE;
+		// Special case to test TERMINATOR (comes instead of COLOR value !!!)
+		nextCondUseFIFO			= canIssueWork;
+		nextLogicalState		= canIssueWork ? COLOR_LOAD : COLOR_LOAD_GARAGE;
+	end
+	VERTEX_LOAD_GARAGE:
+	begin
+		//
+		loadE5Offsets			= 0; loadTexPageE1 = 0; loadTexWindowSetting = 0; loadDrawAreaTL = 0; loadDrawAreaBR = 0; loadMaskSetting = 0;
+		loadCoord1				= 0; loadCoord2	= 0;
+		setIRQ					= 0;
+		resetVertexCounter		= 0;
+		increaseVertexCounter	= 0;
+		storeCommand       		= 0;
+		loadUV					= 0;
+		loadRGB					= 0; // Reach the COLOR_LOAD state while a primitive is rendering... Forbid to LOAD COLOR.
+		loadVertices			= 0;
+		loadAllRGB				= 0;
+		loadClutPage			= 0;
+		loadTexPage				= 0;
+		loadSize				= 0; loadSizeParam = 2'b0;
+		issuePrimitive			= NO_ISSUE;
+		// Special case to test TERMINATOR (comes instead of COLOR value !!!)
+		nextCondUseFIFO			= canIssueWork;
+		nextLogicalState		= canIssueWork ? VERTEX_LOAD : VERTEX_LOAD_GARAGE;
 	end
 	// Step 1
 	VERTEX_LOAD:
@@ -1968,12 +2012,17 @@ begin
 						issuePrimitive	= NO_ISSUE;
 					end
 				
-					if (bIsPerVtxCol) begin
-						nextCondUseFIFO		= 1; // TODO : Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
-						nextLogicalState	= FifoDataValid ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
+					//
+					// The logic of this state machine is that when we reach the current state it is a VALID state.
+					// The problem we fix here is that multiple primitive command (Quad, Multiline) emit a rendering command and we reach the NEXT command parameter and executed it.
+					// As a result, next vertex/color can override the primitive we are just trying to draw...
+					// [This logic is also in the UV_LOAD]
+					//
+					nextCondUseFIFO		= (issuePrimitive == NO_ISSUE); //	TODO ??? OLD COMMENT Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
+					if (issuePrimitive != NO_ISSUE) begin
+						nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
 					end else begin
-						nextCondUseFIFO		= (issuePrimitive == NO_ISSUE);
-						nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
+						nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
 					end
 				end
 			end
@@ -2045,14 +2094,38 @@ begin
 				nextCondUseFIFO		= !(canIssueWork & FifoDataValid);	// Instead of FIFO state, it uses
 				nextLogicalState	=  (canIssueWork & FifoDataValid) ? WAIT_COMMAND_COMPLETE : UV_LOAD;	// For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
 			end else begin
+			
+				//
+				// The logic of this state machine is that when we reach the current state it is a VALID state.
+				// The problem we fix here is that multiple primitive command (Quad, Multiline) emit a rendering command and we reach the NEXT command parameter and executed it.
+				// As a result, next vertex/color can override the primitive we are just trying to draw...
+				// [This logic is also in the UV_LOAD]
+				//
+				nextCondUseFIFO		= (issuePrimitive == NO_ISSUE); //	TODO ??? OLD COMMENT Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
+				if (issuePrimitive != NO_ISSUE) begin
+					nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
+				end else begin
+					nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
+				end
+			
 				if (bIsPerVtxCol) begin
-					nextCondUseFIFO		= 1;
-					nextLogicalState	= FifoDataValid ? COLOR_LOAD : UV_LOAD; // Next Vertex or stay current vertex until loaded.
+					if (issuePrimitive != NO_ISSUE) begin
+						nextCondUseFIFO		= 0;
+						nextLogicalState	= COLOR_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
+					end else begin
+						nextCondUseFIFO		= 1;
+						nextLogicalState	= FifoDataValid ? COLOR_LOAD : UV_LOAD; // Next Vertex or stay current vertex until loaded.
+					end
 				end else begin
 					// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
 					// Can not issue if data is not valid.
-					nextCondUseFIFO		= (issuePrimitive == NO_ISSUE);
-					nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
+					if (issuePrimitive != NO_ISSUE) begin
+						nextCondUseFIFO		= 0;
+						nextLogicalState	= VERTEX_LOAD_GARAGE;	// Next Vertex stuff...
+					end else begin
+						nextCondUseFIFO		= 1;
+						nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
+					end
 				end
 			end
 		end
@@ -2129,6 +2202,14 @@ begin
 	end
 	endcase
 end
+
+// WE Read from the FIFO when FIFO has data, but also when the GPU is not busy rendering, else we stop loading commands...
+// By blocking the state machine, we also block all the controls more easily. (Vertex loading, command issue, etc...)
+wire canReadFIFO			= isFifoNotEmpty & canIssueWork;
+wire readFifo				= (nextCondUseFIFO & canReadFIFO);
+assign nextState			= ((!nextCondUseFIFO) | readFifo) ? nextLogicalState : currState;
+assign issuePrimitiveReal	= canIssueWork ? issuePrimitive : NO_ISSUE;
+
 
 StencilCache StencilCacheInstance(
 	.clk					(clk),
@@ -2252,15 +2333,6 @@ end
 wire        selectPixelWriteMaskLine = (!pixelX[0] & stencilReadValue[0]) | (pixelX[0] & stencilReadValue[1]);
 
 // TODO OPTIMIZE : can probably compute nextCondUseFIFO outside with : (nextLogicalState != WAIT_COMMAND_COMPLETE) & (nextLogicalState != DEFAULT_STATE)
-
-// WE Read from the FIFO when FIFO has data, but also when the GPU is not busy rendering, else we stop loading commands...
-// By blocking the state machine, we also block all the controls more easily. (Vertex loading, command issue, etc...)
-wire canReadFIFO			= isFifoNotEmpty & canIssueWork;
-wire readFifo				= (nextCondUseFIFO & canReadFIFO);
-assign nextState			= ((!nextCondUseFIFO) | readFifo) ? nextLogicalState : currState;
-assign issuePrimitiveReal	= canIssueWork ? issuePrimitive : NO_ISSUE;
-
-
 
 
 wire isV0 = ((!bIsLineCommand) & (vertCnt == 2'd0) | (vertCnt == 2'd3)) | (bIsLineCommand & !vertCnt[0]); // Vertex 4 primitive load in zero for second triangle.
