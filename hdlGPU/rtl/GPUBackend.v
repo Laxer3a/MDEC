@@ -7,6 +7,7 @@ module GPUBackend(
 	// -------------------------------
 	input			i_pausePipeline,			// Freeze the data in the pipeline. Values stay as is.
 	output			o_missTC,					// Any Cache miss, stop going next pixels.
+	output			o_pixelInFlight,
 	// Management on BG Block
 	output			o_writePixelOnNewBlock,	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
 	input			i_resetPixelOnNewBlock,	// 1/ Clear 'o_writePixelOnNewBlock' flag. 2/ Clear MASK for new block.
@@ -188,6 +189,9 @@ module GPUBackend(
 	wire missT_c1L,missC_c1L,missT_c1R,missC_c1R;
 	wire validPixelC1L,validPixelC1R;
 	
+	assign o_pixelInFlight = pixelInFlightL | pixelInFlightR;
+	wire pixelInFlightL,pixelInFlightR;
+	
 	GPUPipeCtrl2 GPUPipeCtrl2L(
 		.clk				(clk),
 		.i_nrst				(i_nrst),
@@ -200,6 +204,8 @@ module GPUBackend(
 		// --- ALL STAGES : Just STOP ---
 		.pause				(i_pausePipeline),
 		.resetLineFlag		(i_resetPixelOnNewBlock),
+		.pixelInFlight		(pixelInFlightL),
+
 		
 		// --- Stage 0 Input ---
 		// Left Side (All values stay the same from previous cycle if OkNext is FALSE)
@@ -269,6 +275,7 @@ module GPUBackend(
 		// --- ALL STAGES : Just STOP ---
 		.pause				(i_pausePipeline),
 		.resetLineFlag		(i_resetPixelOnNewBlock),
+		.pixelInFlight		(pixelInFlightR),
 		
 		// --- Stage 0 Input ---
 		// Left Side (All values stay the same from previous cycle if OkNext is FALSE)

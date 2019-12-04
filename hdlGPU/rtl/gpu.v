@@ -23,6 +23,7 @@ module gpu(
 //	output	[7:0]	blue,
 //	output          owritePixelL,
 //	output          owritePixelR,
+	output	[31:0]	mydebugCnt,
 	
 	//
 	// Temporary Memory Interface
@@ -55,6 +56,19 @@ module gpu(
 	input 	[31:0]	cpuDataIn,
 	output reg [31:0]	cpuDataOut
 );
+
+// ------------------ Debug Stuff --------------
+reg [31:0] rdebugCnt;
+always @(posedge clk)
+begin
+	if (i_nrst == 0) begin
+		rdebugCnt = 32'd0;
+	end else begin
+		rdebugCnt = rdebugCnt + 32'd1;
+	end
+end
+assign mydebugCnt =rdebugCnt;
+// ---------------------------------------------
 
 wire writeFifo		= !gpuAdrA2 & gpuSel & write;
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
@@ -92,8 +106,7 @@ wire [55:0] memoryWriteCommand;
 reg  [52:0] parameters;
 assign memoryWriteCommand = { parameters, memoryCommand};
 // assign memoryWriteCommand_o = memoryWriteCommand;
-wire acceptCommand = 1'b1;  // TODO memory command FIFO acceptCommand to implement (well FIFO to implement)
-
+wire commandFIFOaccept = (1'b1 && !saveLoadOnGoing);  // TODO memory command FIFO acceptCommand to implement (well FIFO to implement)
 
 wire [15:0] LPixel = swap ? fifoDataOut[31:16] : fifoDataOut[15: 0];
 wire [15:0] RPixel = swap ? fifoDataOut[15: 0] : fifoDataOut[31:16];
@@ -856,7 +869,8 @@ reg [5:0] currWorkState,nextWorkState;	parameter
 										COPYCV_READSTENCIL			= 6'd38,
 										RECT_READ_MASK				= 6'd39,
 										COPYVC_TOCPU				= 6'd40,
-										LINE_END					= 6'd41;
+										LINE_END					= 6'd41,
+										FLUSH_COMPLETE_STATE		= 6'd42;
 
 always @(posedge clk)
 begin
@@ -1075,7 +1089,7 @@ begin
 	begin
 		// Forced to decrement at each step in X
 		// [FILL COMMAND : [16 Bit 0BGR][16 bit empty][Adr 15 bit][4 bit empty][010]
-		if (acceptCommand) begin
+		if (commandFIFOaccept) begin // else it will wait...
 			memoryCommand		= 3'd2;
 			writeStencil		= 1;
 			if (isLastSegment) begin
@@ -1106,7 +1120,7 @@ begin
 	end
 	CPY_LINE_START_UNALIGNED:// [CPY_LINE_START_UNALIGNED]
 	begin
-		if (acceptCommand) begin
+		if (commandFIFOaccept) begin
 			// TODO : ReadBlock(adr);
 			incrementXCounter		= 1; // SRC COUNTER
 			switchReadStoreBlock	= 1;
@@ -1115,7 +1129,7 @@ begin
 	end
 	CPY_LINE_BLOCK:	// [CPY_LINE_BLOCK]
 	begin
-		if (acceptCommand) begin
+		if (commandFIFOaccept) begin
 			// TODO : ReadBlock(adr);
 			incrementXCounter		= 1; // SRC COUNTER
 			switchReadStoreBlock	= 1;
@@ -1146,7 +1160,7 @@ begin
 	begin
 		/* TODO : State machine write part.
 		useDest = 1;
-		if (acceptCommand) begin
+		if (commandFIFOaccept) begin
 			// TODO : WriteBlock(adr)
 			incrementXCounter		= 1; // DST COUNTER
 			nextWorkState			= CPY_WR_BLOCK;
@@ -1157,7 +1171,7 @@ begin
 	begin
 		/* TODO : State machine write part.
 		useDest = 1;
-		if (acceptCommand) begin
+		if (commandFIFOaccept) begin
 			// TODO : WriteBlock(adr)
 			if (isLastSegmentDst) begin
 				decrementH_ResetXCounter	= 1;
@@ -1225,7 +1239,7 @@ begin
 		// At the current pixel X,Y we preload the FIFO for the NEXT X,Y coordinate.
 		// So setup of readL/readM are ONE PAIR in advance compare to the scanning...
 		// -----------------------------
-		if (acceptCommand & canRead) begin
+		if (commandFIFOaccept & canRead) begin
 			memoryCommand = 3'd1;
 			nextWorkState = COPYCV_COPY;
 			
@@ -1562,14 +1576,11 @@ begin
 					selNextY		= reachEdgeTriScan ? Y_TRI_NEXT : Y_ASIS;
 					// Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
 					// -> Need to detect that we scan too far and met nobody and avoid out of bound search.
-					nextWorkState	= reachEdgeTriScan ? (enteredTriangle ? NOT_WORKING_DEFAULT_STATE : SCAN_LINE_CATCH_END) : SCAN_LINE;
+					nextWorkState	= reachEdgeTriScan ? (enteredTriangle ? FLUSH_COMPLETE_STATE : SCAN_LINE_CATCH_END) : SCAN_LINE;
 				end
 			end
 		end else begin
-			flush			= 1;
-			if (!saveLoadOnGoing) begin
-				nextWorkState	= NOT_WORKING_DEFAULT_STATE;
-			end
+			nextWorkState	= FLUSH_COMPLETE_STATE;
 		end
 	end
 	SCAN_LINE_CATCH_END:
@@ -1636,10 +1647,7 @@ begin
 			end
 			nextWorkState	= GPU_REG_CheckMaskBit ? RECT_READ_MASK : RECT_SCAN_LINE;
 		end else begin
-			flush			= 1;
-			if (!saveLoadOnGoing) begin
-				nextWorkState	= NOT_WORKING_DEFAULT_STATE;
-			end
+			nextWorkState	= FLUSH_COMPLETE_STATE;
 		end
 	end
 	
@@ -1681,7 +1689,7 @@ begin
 			loadNext	= 1;
 			
 			if ((pixelX == RegX1) && (pixelY == RegY1)) begin
-				nextWorkState	= LINE_END; // Override nextWorkState from setup in this.
+				nextWorkState	= FLUSH_COMPLETE_STATE; // Override nextWorkState from setup in this.
 			end
 			
 			// If pixel is valid and (no mask checking | mask check with value = 0)
@@ -1694,11 +1702,14 @@ begin
 			end
 		end
 	end
-	LINE_END:
+	FLUSH_COMPLETE_STATE:
 	begin
-		flush			= 1;
-		if (!saveLoadOnGoing) begin
-			nextWorkState	= NOT_WORKING_DEFAULT_STATE;
+		// We stopped emitting pixels, now we have to check that :
+		// - No memory transaction is running anymore.
+		// - No pixel are in flight.
+		if (!saveLoadOnGoing && !pixelInFlight) begin
+			flush = 1'b1;
+			nextWorkState = NOT_WORKING_DEFAULT_STATE;
 		end
 	end
 	// --- TEMP DEBUG STUFF ---
@@ -1711,6 +1722,7 @@ begin
 	end
 	endcase
 end
+wire pixelInFlight;
 
 reg resetVertexCounter;
 reg increaseVertexCounter;
@@ -3163,6 +3175,7 @@ GPUBackend GPUBackendInstance(
 	//   Flush until 
 	// -------------------------------
 	.flushLastBlock						(flush),
+	.o_pixelInFlight					(pixelInFlight),
 	
 	// -------------------------------
 	//   DDR 

@@ -44,6 +44,7 @@ module GPUPipeCtrl2(
 	output			missT_c1,			// TRUE garantee it is about VALID pixel/request.
 	output			missC_c1,			// TRUE garantee it is about VALID pixel/request.
 	output			validPixel_c1,
+	output			pixelInFlight,
 	
 	// --- Stage 2 Write back Control ---
 	output	[1:0]	oNewBGCacheLine,
@@ -228,7 +229,8 @@ module GPUPipeCtrl2(
 			pixelOut = 16'h7FFF;
 		end
 	end
-	
+
+	assign pixelInFlight	= PPValidPixel_c2 | PValidPixel_c1;
 	assign oNewBGCacheLine	= PPnewBGCacheLine_c2;
 	assign oTransparent		= (!(|pixelOut[14:0])) & (!GPU_TEX_DISABLE); // If all ZERO, then 1., SET TO 0 if TEXTURE DISABLED.
 	assign oTexel			= pixelOut;

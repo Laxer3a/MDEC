@@ -139,7 +139,7 @@ module MemoryArbitrator(
 );
 
 assign importedBGBlock = cacheBGRead;
-assign saveLoadOnGoing = s_saveLoadOnGoing; reg s_saveLoadOnGoing;
+assign saveLoadOnGoing = regSaveLoadOnGoing;
 assign importBGBlockSingleClock = s_importBGBlockSingleClock; reg s_importBGBlockSingleClock;
 
 reg [255:0] cacheBGRead;
@@ -176,9 +176,7 @@ assign updateClutCacheCompleteR	= s_updateClutCacheCompleteR;
 //
 // GPU Side State machine...
 //
-reg [2:0] currState;
-parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'b001, WRITE_BG = 3'b010, READ_BG = 3'b011, READ_BG_START = 3'b100;
-
+reg regSaveLoadOnGoing;
 always @(posedge gpuClk)
 begin
 	if (i_nRst == 1'b0) begin
@@ -186,6 +184,7 @@ begin
 //		cacheBGAdr	= 15'h7FFF;
 //		cacheBGMsk	= 16'd0;
 		currX		= 4'd0;
+		regSaveLoadOnGoing	= 1'b0;
 	end else begin
 		currState	= nextState;
 		
@@ -241,6 +240,9 @@ begin
 			cacheBGAdr = bgRequestAdr[17:3];
 		end
 		*/
+		if (s_storeColor) begin
+			regFillColor = memoryWriteCommand[54:40];
+		end
 		
 		if (s_store) begin
 			regDatI = dat_i;
@@ -253,8 +255,17 @@ begin
 				currX = 0;
 			end
 		end
+		
+		if (s_setLoadOnGoing) begin
+			regSaveLoadOnGoing	= 1'b1;
+		end else begin
+			if (s_resetLoadOnGoing) begin
+				regSaveLoadOnGoing = 1'b0;
+			end
+		end
 	end
 end
+reg [14:0]  regFillColor;
 
 // Output
 reg [19:0]	s_busAdr;	assign adr_o = s_busAdr;
@@ -274,6 +285,7 @@ reg [2:0] nextState;
 reg [3:0] currX;
 reg       incrX, resetX;
 reg s_store;
+reg s_storeColor;
 reg s_writeGPU;
 reg s_storeAdr;
 reg	s_updateTexCacheCompleteL;
@@ -283,11 +295,14 @@ reg	s_updateClutCacheCompleteR;
 // reg s_storeCacheAdr;
 // reg resetMSK;
 reg loadBGInternal;
+reg s_setLoadOnGoing,s_resetLoadOnGoing;
 
 wire isClutReq 		= requClutCacheUpdateL | requClutCacheUpdateR;
 wire isTexReq  		= requTexCacheUpdateL  | requTexCacheUpdateR;
 wire isFirstBlockBlending = ((saveBGBlock == 2'b01) & isBlending);
 // wire hasValidPixels = pixelValid[0] | pixelValid[1];
+reg [2:0] currState;
+parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'd1, WRITE_BG = 3'd2, READ_BG = 3'd3, READ_BG_START = 3'd4, FILL_BG = 3'd5;
 reg [3:0] ReadMode, regReadMode;
 always @(*)
 begin
@@ -304,27 +319,34 @@ begin
 	s_store				= 1'b0;
 	s_storeAdr			= 1'b0;
 	s_writeGPU			= 1'b0;
+	s_storeColor		= 1'b0;
 	s_updateTexCacheCompleteL	= 1'b0;
 	s_updateTexCacheCompleteR	= 1'b0;
 	s_updateClutCacheCompleteL	= 1'b0;
 	s_updateClutCacheCompleteR	= 1'b0;
-	s_saveLoadOnGoing				= 0;
+	s_setLoadOnGoing	= 0;
+	s_resetLoadOnGoing	= 0;
 	s_importBGBlockSingleClock	= 0;
 	
 //	resetMSK			= 1'b0;
 //	s_storeCacheAdr		= 1'b0;
 	loadBGInternal		= 1'b0;
 
-	case (currX[2:0])
-	3'd0: begin busDataW = exportedBGBlock[ 31:  0]; busWMSK = exportedMSKBGBlock[ 1: 0]; end
-	3'd1: begin busDataW = exportedBGBlock[ 63: 32]; busWMSK = exportedMSKBGBlock[ 3: 2]; end
-	3'd2: begin busDataW = exportedBGBlock[ 95: 64]; busWMSK = exportedMSKBGBlock[ 5: 4]; end
-	3'd3: begin busDataW = exportedBGBlock[127: 96]; busWMSK = exportedMSKBGBlock[ 7: 6]; end
-	3'd4: begin busDataW = exportedBGBlock[159:128]; busWMSK = exportedMSKBGBlock[ 9: 8]; end
-	3'd5: begin busDataW = exportedBGBlock[191:160]; busWMSK = exportedMSKBGBlock[11:10]; end
-	3'd6: begin busDataW = exportedBGBlock[223:192]; busWMSK = exportedMSKBGBlock[13:12]; end
-	3'd7: begin busDataW = exportedBGBlock[255:224]; busWMSK = exportedMSKBGBlock[15:14]; end
-	endcase
+	if (currState != FILL_BG) begin
+		case (currX[2:0])
+		3'd0: begin busDataW = exportedBGBlock[ 31:  0]; busWMSK = exportedMSKBGBlock[ 1: 0]; end
+		3'd1: begin busDataW = exportedBGBlock[ 63: 32]; busWMSK = exportedMSKBGBlock[ 3: 2]; end
+		3'd2: begin busDataW = exportedBGBlock[ 95: 64]; busWMSK = exportedMSKBGBlock[ 5: 4]; end
+		3'd3: begin busDataW = exportedBGBlock[127: 96]; busWMSK = exportedMSKBGBlock[ 7: 6]; end
+		3'd4: begin busDataW = exportedBGBlock[159:128]; busWMSK = exportedMSKBGBlock[ 9: 8]; end
+		3'd5: begin busDataW = exportedBGBlock[191:160]; busWMSK = exportedMSKBGBlock[11:10]; end
+		3'd6: begin busDataW = exportedBGBlock[223:192]; busWMSK = exportedMSKBGBlock[13:12]; end
+		3'd7: begin busDataW = exportedBGBlock[255:224]; busWMSK = exportedMSKBGBlock[15:14]; end
+		endcase
+	end else begin
+		busDataW = {1'b0,regFillColor,1'b0,regFillColor};		
+		busWMSK  = 2'b11;
+	end
 	
 	case (currState)
 	default:
@@ -361,50 +383,60 @@ begin
 					nextState	= READ_STATE;
 				end else begin
  */
-			if (spikeBGBlock & (saveBGBlock[1] | isFirstBlockBlending)) begin
+			if (memoryWriteCommand[2:0] != 0) begin
+				s_cnt		= 3'd7;
 				s_busREQ	= 1'b1;
-				s_cnt		= 3'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
-				nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
-				s_saveLoadOnGoing = 1; // Trick : if we have a spike but NOT with type 11 or 10, we still signal for GPU state machine.
+				s_busAdr	= { memoryWriteCommand[21:7] , 5'd0 };
+				s_storeColor = 1'b1;
+				s_storeAdr	= 1'b1;
+				nextState	= FILL_BG; // Same write logic, except I use the memoryWriteCommand as data source.
+				s_setLoadOnGoing = 1;
 			end else begin
-				if (isClutReq) begin
-					// [READ]
-					// ... CLUT$ Update ...
-					ReadMode = { 3'b010, requClutCacheUpdateR };
-					s_storeAdr	= 1'b1;
-					s_saveLoadOnGoing = 1;
-					if (requClutCacheUpdateL) begin
-						// Left First...
-						s_busAdr	= { adrClutCacheUpdateL, 5'd0 }; // Adr by 32 byte block.
-						s_busREQ	= 1'b1;
-						s_cnt       = 3'd7; // 8 block of 32 bit.
-						nextState	= READ_STATE;
-					end else begin
-						// Right Second...
-						s_busAdr	= { adrClutCacheUpdateR, 5'd0 }; // Adr by 32 byte block.
-						s_busREQ	= 1'b1;
-						s_cnt       = 3'd7; // 8 block of 32 bit.
-						nextState	= READ_STATE;
-					end
+				if (spikeBGBlock & (saveBGBlock[1] | isFirstBlockBlending)) begin
+					s_busREQ	= 1'b1;
+					s_cnt		= 3'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
+					nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
+					s_setLoadOnGoing = 1; // Trick : if we have a spike but NOT with type 11 or 10, we still signal for GPU state machine.
 				end else begin
-					if (isTexReq) begin
-						ReadMode = { 3'b011, requClutCacheUpdateR };
-						s_storeAdr	= 1'b1;
-						s_saveLoadOnGoing = 1;
+					if (isClutReq) begin
 						// [READ]
-						// ... TEX$ Update ...
-						if (requTexCacheUpdateL) begin
+						// ... CLUT$ Update ...
+						ReadMode = { 3'b010, requClutCacheUpdateR };
+						s_storeAdr	= 1'b1;
+						s_setLoadOnGoing = 1;
+						if (requClutCacheUpdateL) begin
 							// Left First...
-							s_busAdr	= { adrTexCacheUpdateL, 3'd0 }; // Adr by 8 byte block.
+							s_busAdr	= { adrClutCacheUpdateL, 5'd0 }; // Adr by 32 byte block.
 							s_busREQ	= 1'b1;
-							s_cnt       = 3'd1; // 2 block of 32 bit.
+							s_cnt       = 3'd7; // 8 block of 32 bit.
 							nextState	= READ_STATE;
 						end else begin
 							// Right Second...
-							s_busAdr	= { adrTexCacheUpdateR, 3'd0 }; // Adr by 8 byte block.
+							s_busAdr	= { adrClutCacheUpdateR, 5'd0 }; // Adr by 32 byte block.
 							s_busREQ	= 1'b1;
-							s_cnt       = 3'd1; // 2 block of 32 bit.
+							s_cnt       = 3'd7; // 8 block of 32 bit.
 							nextState	= READ_STATE;
+						end
+					end else begin
+						if (isTexReq) begin
+							ReadMode = { 3'b011, requClutCacheUpdateR };
+							s_storeAdr	= 1'b1;
+							s_setLoadOnGoing = 1;
+							// [READ]
+							// ... TEX$ Update ...
+							if (requTexCacheUpdateL) begin
+								// Left First...
+								s_busAdr	= { adrTexCacheUpdateL, 3'd0 }; // Adr by 8 byte block.
+								s_busREQ	= 1'b1;
+								s_cnt       = 3'd1; // 2 block of 32 bit.
+								nextState	= READ_STATE;
+							end else begin
+								// Right Second...
+								s_busAdr	= { adrTexCacheUpdateR, 3'd0 }; // Adr by 8 byte block.
+								s_busREQ	= 1'b1;
+								s_cnt       = 3'd1; // 2 block of 32 bit.
+								nextState	= READ_STATE;
+							end
 						end
 					end
 				end
@@ -456,7 +488,6 @@ begin
 	end
 	WRITE_BG:
 	begin
-		s_saveLoadOnGoing = 1;
 		if (busACK) begin
 			incrX = 1'b1;
 			s_busAdr = { saveAdr, currX[2:0], 2'b0 };
@@ -465,19 +496,36 @@ begin
 		end else begin
 			// END
 			s_busREQ  = 1'b0;
-			nextState = (isBlending && saveBGBlock != 2'd3) ? READ_BG_START : DEFAULT_STATE;	// If it is the FLUSH mode, we do NOT perform the READ at the end.
+			if (isBlending && saveBGBlock != 2'd3) begin // If it is the FLUSH mode, we do NOT perform the READ at the end.
+				nextState = READ_BG_START;	
+			end else begin
+				s_resetLoadOnGoing = 1;
+				nextState = DEFAULT_STATE;
+			end
+		end
+	end
+	FILL_BG:
+	begin
+		if (busACK) begin
+			incrX = 1'b1;
+			s_busAdr	= { baseAdr[17:3], currX[2:0], 2'd0 };
+			s_busREQ	= 1'b1;
+			readStuff	= 1'b0; // WRITE SIGNAL.
+		end else begin
+			// END
+			s_busREQ	= 1'b0;
+			s_resetLoadOnGoing = 1;
+			nextState	= DEFAULT_STATE;
 		end
 	end
 	READ_BG_START:
 	begin
-		s_saveLoadOnGoing = 1;
 		s_busREQ	= 1'b1;
 		s_cnt		= 3'd7;
 		nextState	= READ_BG;
 	end
 	READ_BG:
 	begin
-		s_saveLoadOnGoing = 1;
 		if (busACK) begin
 			incrX = 1'b1;
 			s_busAdr	= { loadAdr, currX[2:0], 2'b0 };
@@ -485,6 +533,7 @@ begin
 
 			loadBGInternal = 1'b1;
 		end else begin
+			s_resetLoadOnGoing = 1;
 			s_importBGBlockSingleClock = 1;
 			nextState = DEFAULT_STATE;
 		end
