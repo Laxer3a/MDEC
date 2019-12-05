@@ -779,7 +779,7 @@ begin
 		end
 	end
 	
-	if (writePixelL | writePixelL) begin
+	if (writePixelL | writePixelR) begin
 		storeVRAMAdrBlock = currVRAMAdrBlock;
 	end
 	
@@ -1006,7 +1006,7 @@ begin
 	setFirstPixel				= 0;
 	setStencilMode				= 0;
 	writeStencil				= 0;
-
+	stencilReadSig				= 0;
 	
 	// -----------------------
 	//  CPU TO VRAM SIGNALS
@@ -1507,6 +1507,7 @@ begin
 	begin
 		if (isValidPixelL | isValidPixelR) begin // Line equation.
 			nextWorkState = SCAN_LINE;
+			stencilReadSig	= 1;
 		end else begin
 			memorizeLineEqu = 1;
 			nextWorkState	= START_LINE_TEST_RIGHT;
@@ -1529,12 +1530,14 @@ begin
 			nextWorkState	= START_LINE_TEST_LEFT;
 		end else begin
 			resetPixelFound	= 1;
+			stencilReadSig	= 1;
 			nextWorkState	= SCAN_LINE;
 		end
 	end
 	SCAN_LINE:
 	begin
 		if (isBottomInsideBBox) begin
+			stencilReadSig	= 1;
 			//
 			// TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
 			//        Warning : Care of single pixel write logic + and non increment of X.
@@ -1601,8 +1604,8 @@ begin
 	RECT_START:
 	begin
 		// Rect use PSTORE COMMAND. (2 pix per clock)
-		nextWorkState	= GPU_REG_CheckMaskBit ? RECT_READ_MASK : RECT_SCAN_LINE;
-		
+		nextWorkState	= RECT_SCAN_LINE;
+		stencilReadSig	= 1;
 		if (earlyTriangleReject | isNegXAxis | preB[11]) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all, or NegativeSize => size = 0.
 			nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// Override state.
 		end else begin
@@ -1611,27 +1614,17 @@ begin
 			selNextY		= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
 		end
 	end
-	RECT_READ_MASK:
-	begin
-		nextWorkState = RECT_SCAN_LINE;
-	end
 	RECT_SCAN_LINE:
 	begin
+		stencilReadSig	= 1;
 		if (isBottomInsideBBox) begin // Not Y end yet ?
 			if (isRightPLXmaxTri) begin // Work by pair. Is left side of pair is inside rendering area. ( < right border )
 				// TODO Pixel writing logic
 				// TODO Mask -> If both invalid, force next pair, without write.
 				if (requestNextPixel) begin
-//					resetBlockChange = 1;
-
 					// Write only if pixel pair is valid...
-					
-					//if (maskLRValid & DrawAreaClipping) begin
-					
 					writePixelL   = isInsideBBoxTriRectL & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
 					writePixelR   = isInsideBBoxTriRectR & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
-					// writeStencil2 = { writePixelR , writePixelL };
-					//end
 					
 					// Go to next pair whatever, as long as request is asking for new pair...
 					// normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
@@ -1645,7 +1638,7 @@ begin
 				selNextY	= Y_TRI_NEXT;
 				// No state change... Work on next line...
 			end
-			nextWorkState	= GPU_REG_CheckMaskBit ? RECT_READ_MASK : RECT_SCAN_LINE;
+			nextWorkState	= RECT_SCAN_LINE;
 		end else begin
 			nextWorkState	= FLUSH_COMPLETE_STATE;
 		end
@@ -1661,11 +1654,6 @@ begin
 		selNextX	= X_LINE_START;
 		selNextY	= Y_LINE_START;
 //		resetBlockChange = 1;
-		nextWorkState = GPU_REG_CheckMaskBit ? LINE_READ_MASK : LINE_DRAW;
-	end
-	LINE_READ_MASK:
-	begin
-//		readStencil	  = 1;
 		nextWorkState = LINE_DRAW;
 	end
 	LINE_DRAW:
@@ -1695,6 +1683,7 @@ begin
 			// If pixel is valid and (no mask checking | mask check with value = 0)
 			if (isLineInsideDrawArea && ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
 //				resetBlockChange = 1;
+				stencilReadSig	= 1;
 				
 				writePixelL	 = isLineLeftPix;
 				writePixelR	 = isLineRightPix;
@@ -2228,6 +2217,7 @@ StencilCache StencilCacheInstance(
 	
 	.fullMode				(stencilFullMode),
 	.writeValue16			(stencilWriteValue16),
+	.writeMask16			(stencilWriteMask16),
 	.readValue16			(stencilReadValue16),
 	
 	// -------------------------------
@@ -2264,6 +2254,7 @@ begin
 	stencilWriteValue
 	*/
 	stencilWriteValue16	= 16'd0;	// For now... FILL ONLY.
+	stencilWriteMask16	= 16'hFFFF;	// For now... FILL ONLY.
 	
 	case (stencilMode)
 	default:
@@ -2304,16 +2295,21 @@ end
 // ------------------------------------------------------------------------
 //   Plumbing
 reg			stencilFullMode;
-reg  	[15:0]	stencilWriteValue16;
+reg  	[15:0]	stencilWriteValue16, stencilWriteMask16;
 
 wire  	[15:0]	stencilReadValue16;
-wire 			stencilWriteSig,stencilReadSig;
+wire 			stencilWriteSig;
+reg				stencilReadSig;
 wire  	[14:0]	stencilWriteAdr,stencilReadAdr;
 wire  	 [2:0]	stencilReadPair,stencilWritePair;
 wire	 [1:0]	stencilReadValue,stencilReadSelect,stencilWriteValue,stencilWriteSelect;
 // ------------------------------------------------------------------------
 
-
+// Valid address for primitive : LINE/TRIANGLE/RECTANGLE.
+// TODO : Valid address for VRAM<->VRAM / CPU->VRAM copy mode...
+assign stencilReadAdr		= { nextPixelY[8:0], nextPixelX[9:4] };		//
+assign stencilReadPair		= { nextPixelX[3:1] };						//
+assign stencilReadSelect	= { 1'b1, 1'b1 };							// TODO Change if LINE [Dynamic] vs RECT/TRIANGLE [11]
 
 // assign pixelStencilOut = selectPixelWriteMask;
 /* TODOSTENCIL
@@ -3204,21 +3200,6 @@ wire [15:0]		exportedMSKBGBlock;
 wire 			importBGBlockSingleClock;
 wire [255:0]	importedBGBlock;
 
-
-
-
-/*
-	// --- Just here to force synthesis of the circuit for now ---
-	wire [8:0] aR = pixRL + pixRR + pixUR;
-	wire [8:0] aG = pixGL + pixGR + pixVR;
-	wire [8:0] aB = pixBL + pixBR + pixVL + pixUL;
-	assign red   = aR[8:1];
-	assign green = aG[8:1];
-	assign blue  = aB[8:1];
-	assign owritePixelL = writePixelL;
-	assign owritePixelR = writePixelR;
-*/
-// ----------------------------------------------------------
 
 endmodule
 

@@ -420,7 +420,8 @@ module GPUBackend(
 	
 	assign stencilWriteAdr		= writeAdr;				// 14:0 <- Block adress.
 	assign stencilWriteSig		= writeSig;				// 1	<- Perform write.
-	assign stencilWriteValue	= {oBGMSK_R,oBGMSK_L};	// 1:0	<- Value to write back. 
+	assign stencilWriteValue	= {	oBGMSK_R & oValidPixelR,
+									oBGMSK_L & oValidPixelL };	// 1:0	<- Value to write back. = BGMSK_R (original/sticky bit) with Force set flag & ACTIVE PIXEL.
 	assign stencilWriteSelect	= selPair;				// 1:0	<- Which pixel need update.
 	assign stencilWritePair		= pairID;				// 2:0	<- Pair ID
 
