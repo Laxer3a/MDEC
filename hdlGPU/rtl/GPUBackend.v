@@ -152,10 +152,14 @@ module GPUBackend(
 //		AssertionFalse1: assert (oNewBGCacheLineL == oNewBGCacheLineR) else $error( "Can not be different");
 //	end
 	
-	
-	wire doBlockOp					= ((oNewBGCacheLineL == 2'b01) & !noblend) | oNewBGCacheLineL[1]; /* | oNewBGCacheLineR*/ // Should be the SAME, only one item needed
+	// 00 : [Nothing]
+	// 01 : First pair,
+	// 10 : Next Pair,
+	// 11 : Last Pair / Flush.
+	wire [1:0] pairCode				= ((oNewBGCacheLineL == 2'b01) & noblend) ? 2'b00 : (oNewBGCacheLineL | {flushLastBlock,flushLastBlock}); 	
+	wire doBlockOp					= pairCode[0] | pairCode[1]; /* | oNewBGCacheLineR*/ // Should be the SAME, only one item needed
 	// Operating step is given to the memory module. (None,First,Second & Others)
-	assign saveBGBlock				= oNewBGCacheLineL | {flushLastBlock,flushLastBlock};
+	assign saveBGBlock				= pairCode;
 	assign o_writePixelOnNewBlock	= doBlockOp;
 
 	// -----------------------------------------------

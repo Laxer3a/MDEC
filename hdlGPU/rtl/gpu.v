@@ -1651,27 +1651,15 @@ begin
 	begin
 		/* Line Setup, Triangle setup may be... */
 		loadNext	= 1;
+		stencilReadSig	= 1;
 		selNextX	= X_LINE_START;
 		selNextY	= Y_LINE_START;
-//		resetBlockChange = 1;
 		nextWorkState = LINE_DRAW;
 	end
 	LINE_DRAW:
 	begin
-		/*	TODO :
-			- If using blending, first request BG for current pixel.
-			- Line have no texture --> Bit 15 written is always 0.   (STENCIL CACHE UPDATE TOO)
-				Line / Untextured
-				=> (0 | GPU_REG_ForcePixel15MaskSet) => Bit 15 write = GPU_REG_ForcePixel15MaskSet for lines. 
-				Textured
-				=> Texture Bit 15 | GPU_REG_ForcePixel15MaskSet
-			- if (((GPU_REG_CheckMaskBit) & ReadStencil==0) | !GPU_REG_CheckMaskBit)
-			
-			If GPU_REG_CheckMaskBit have a READ STATE first -> (2 state/cycle per pixel)
-		 */
-		nextWorkState = GPU_REG_CheckMaskBit ? LINE_READ_MASK : LINE_DRAW;
-
 		if (requestNextPixel) begin
+			stencilReadSig	= 1;
 			selNextX	= X_LINE_NEXT;
 			selNextY	= Y_LINE_NEXT;
 			loadNext	= 1;
@@ -1682,12 +1670,8 @@ begin
 			
 			// If pixel is valid and (no mask checking | mask check with value = 0)
 			if (isLineInsideDrawArea && ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
-//				resetBlockChange = 1;
-				stencilReadSig	= 1;
-				
 				writePixelL	 = isLineLeftPix;
 				writePixelR	 = isLineRightPix;
-				// writeStencil2 = { isLineRightPix , isLineLeftPix };
 			end
 		end
 	end
@@ -1712,7 +1696,6 @@ begin
 	endcase
 end
 wire pixelInFlight;
-
 reg resetVertexCounter;
 reg increaseVertexCounter;
 reg loadRGB,loadUV,loadVertices,loadAllRGB;
@@ -2309,7 +2292,8 @@ wire	 [1:0]	stencilReadValue,stencilReadSelect,stencilWriteValue,stencilWriteSel
 // TODO : Valid address for VRAM<->VRAM / CPU->VRAM copy mode...
 assign stencilReadAdr		= { nextPixelY[8:0], nextPixelX[9:4] };		//
 assign stencilReadPair		= { nextPixelX[3:1] };						//
-assign stencilReadSelect	= { 1'b1, 1'b1 };							// TODO Change if LINE [Dynamic] vs RECT/TRIANGLE [11]
+// Select 11 for other primitives, or the correct pixel for the read for LINES.
+assign stencilReadSelect	= { !bIsLineCommand | nextPixelX[0] , !bIsLineCommand | (!nextPixelX[0]) };
 
 // assign pixelStencilOut = selectPixelWriteMask;
 /* TODOSTENCIL
