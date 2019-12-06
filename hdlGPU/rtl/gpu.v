@@ -103,6 +103,11 @@ wire readFifoLSB	= readFifo | readLFifo;
 wire readFifoMSB	= readFifo | readMFifo;
 
 wire [55:0] memoryWriteCommand;
+parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
+			MEM_CMD_FILL		= 3'b010,
+			// Other command to come later...
+			MEM_CMD_NONE		= 3'b000;
+			
 reg  [52:0] parameters;
 assign memoryWriteCommand = { parameters, memoryCommand};
 // assign memoryWriteCommand_o = memoryWriteCommand;
@@ -122,24 +127,23 @@ always @(*)
 begin
 	case (memoryCommand)
 	// CPU 2 VRAM : [16,16,2,15,...]
-	3'd1:    parameters = 	{ { LPixel[15] | GPU_REG_ForcePixel15MaskSet , LPixel[14:0]}
-							, { RPixel[15] | GPU_REG_ForcePixel15MaskSet , RPixel[14:0]}
-							, cmd1ValidL
-							, cmd1ValidR
-							, { scrY[8:0], pixelX[9:4] }
-							, pixelX[3:1]
-							, flush 
-							};
+	MEM_CMD_PIXEL2VRAM:    parameters = 	{ { LPixel[15] | GPU_REG_ForcePixel15MaskSet , LPixel[14:0]}	// [55:40] LEFT PIXEL
+											, { RPixel[15] | GPU_REG_ForcePixel15MaskSet , RPixel[14:0]}	// [39:24] RIGHT PIXEL !!!! (REVERSED CONVENTION !!!)
+											, cmd1ValidR, cmd1ValidL										// [23:22]
+											, { scrY[8:0], pixelX[9:4] }									// [21: 7]
+											, pixelX[3:1]													// [ 6: 4]
+											, flush 														// [    3]
+											};
 	// FILL MEMORY SEGMENT
-	3'd2:    parameters =	{ { 1'b0, RegB0[7:3] , RegG0[7:3] , RegR0[7:3] }               
-							, 16'd0
-							, 1'b1 // Dont care, but used in check SW.
-							, 1'b0
-							, { scrY[8:0], scrSrcX }
-							, 3'd0
-							, 1'b1
-							};
-							
+	MEM_CMD_FILL:			parameters =	{ { 1'b0, RegB0[7:3] , RegG0[7:3] , RegR0[7:3] }				// [55:40]
+											, 16'd0															// [39:24]
+											, 1'b1 // Dont care, but used in check SW.						// [23]
+											, 1'b0															// [22]
+											, { scrY[8:0], scrSrcX }										// [21:7]
+											, 3'd0															// [ 6:4]
+											, 1'b1															// [   3]
+											};
+
 	default: parameters = 53'd0;
 	endcase
 end
@@ -846,7 +850,7 @@ reg [5:0] currWorkState,nextWorkState;	parameter
 										START_LINE_TEST_RIGHT		= 6'd15,
 										SCAN_LINE					= 6'd16,
 										SCAN_LINE_CATCH_END			= 6'd17,
-										LINE_READ_MASK				= 6'd18,
+										// LINE_READ_MASK			= 6'd18, DEPRECATED
 										TMP_2 						= 6'd19,
 										TMP_3 						= 6'd20,
 										TMP_4 						= 6'd21,
@@ -866,7 +870,7 @@ reg [5:0] currWorkState,nextWorkState;	parameter
 										WAIT_1						= 6'd35,
 										SELECT_PRIMITIVE			= 6'd36,
 										COPYCV_COPY					= 6'd37,
-										COPYCV_READSTENCIL			= 6'd38,
+										// COPYCV_READSTENCIL		= 6'd38, DEPRECATED
 										RECT_READ_MASK				= 6'd39,
 										COPYVC_TOCPU				= 6'd40,
 										LINE_END					= 6'd41,
@@ -978,7 +982,7 @@ begin
 	// -----------------------
 	// Default Value Section
 	// -----------------------
-	memoryCommand				= 3'b000;
+	memoryCommand				= MEM_CMD_NONE;
 	nextWorkState				= currWorkState;
 	incrementXCounter			= 0;
 	resetXCounter				= 0;
@@ -1090,7 +1094,7 @@ begin
 		// Forced to decrement at each step in X
 		// [FILL COMMAND : [16 Bit 0BGR][16 bit empty][Adr 15 bit][4 bit empty][010]
 		if (commandFIFOaccept) begin // else it will wait...
-			memoryCommand		= 3'd2;
+			memoryCommand		= MEM_CMD_FILL;
 			writeStencil		= 1;
 			if (isLastSegment) begin
 				loadNext      = 1;
@@ -1240,7 +1244,7 @@ begin
 		// So setup of readL/readM are ONE PAIR in advance compare to the scanning...
 		// -----------------------------
 		if (commandFIFOaccept & canRead) begin
-			memoryCommand = 3'd1;
+			memoryCommand = MEM_CMD_PIXEL2VRAM;
 			nextWorkState = COPYCV_COPY;
 			
 			loadNext	= 1;
@@ -1322,45 +1326,6 @@ begin
 				changeX		= 1;
 				selNextX	= X_TRI_NEXT;
 			end
-			
-			//	0     Set mask while drawing (0=TextureBit15, 1=ForceBit15=1)   ;GPUSTAT.11
-			// reg               GPU_REG_ForcePixel15MaskSet;		// Stencil force to 1.
-			//	1     Check mask before draw (0=Draw Always, 1=Draw if Bit15=0) ;GPUSTAT.12
-			// reg               GPU_REG_CheckMaskBit; 			// Stencil Read/Compare Enabled
-
-			// TODO : Stencil for RAM COPY.
-			/*
-			case (pixelX[3:1])
-			3'h0: stencilWriteBitSelect = { 14'd0, ((!stencilReadBit[ 1] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 0] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL };
-			3'h1: stencilWriteBitSelect = { 12'd0, ((!stencilReadBit[ 3] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 2] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL , 2'd0 };
-			3'h2: stencilWriteBitSelect = { 10'd0, ((!stencilReadBit[ 5] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 4] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL , 4'd0 };
-			3'h3: stencilWriteBitSelect = {  8'd0, ((!stencilReadBit[ 7] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 6] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL , 6'd0 };
-			3'h4: stencilWriteBitSelect = {  6'd0, ((!stencilReadBit[ 9] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[ 8] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL , 8'd0 };
-			3'h5: stencilWriteBitSelect = {  4'd0, ((!stencilReadBit[11] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[10] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL ,10'd0 };
-			3'h6: stencilWriteBitSelect = {  2'd0, ((!stencilReadBit[13] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[12] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL ,12'd0 };
-			3'h7: stencilWriteBitSelect = {        ((!stencilReadBit[15] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validR, ((!stencilReadBit[14] & GPU_REG_CheckMaskBit) | (!GPU_REG_CheckMaskBit)) & validL ,14'd0 };
-			endcase
-			
-			stencilWordAdr			= { scrY[8:0], pixelX[9:4] };
-			stencilWriteBitValue	= {
-				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				LPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				RPixel[15] | GPU_REG_ForcePixel15MaskSet,
-				LPixel[15] | GPU_REG_ForcePixel15MaskSet
-			};
-			*/
 		end
 	end
 	// --------------------------------------------------------------------

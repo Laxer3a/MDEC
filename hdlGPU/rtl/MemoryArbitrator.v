@@ -138,6 +138,13 @@ module MemoryArbitrator(
     input    ack_i
 );
 
+// TODO : Put those constant into single constant file...
+parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
+			MEM_CMD_FILL		= 3'b010,
+			// Other command to come later...
+			MEM_CMD_NONE		= 3'b000;
+
+
 assign importedBGBlock = cacheBGRead;
 assign saveLoadOnGoing = regSaveLoadOnGoing;
 assign importBGBlockSingleClock = s_importBGBlockSingleClock; reg s_importBGBlockSingleClock;
@@ -241,7 +248,13 @@ begin
 		end
 		*/
 		if (s_storeColor) begin
-			regFillColor = memoryWriteCommand[54:40];
+			regFillColor	= memoryWriteCommand[55:40];	// LPixel
+			regPixColorR	= (memoryWriteCommand[2:0] == MEM_CMD_FILL) ?	memoryWriteCommand[55:40]
+																		:	memoryWriteCommand[39:24];	// RPixel
+																		
+			regValidPair	= (memoryWriteCommand[2:0] == MEM_CMD_FILL) ?	2'b11 : memoryWriteCommand[23:22];
+			regPairID		=  memoryWriteCommand[6:4];
+			// FLUSH = memoryWriteCommand[0];
 		end
 		
 		if (s_store) begin
@@ -265,7 +278,10 @@ begin
 		end
 	end
 end
-reg [14:0]  regFillColor;
+reg [15:0]  regFillColor;
+reg [15:0]	regPixColorR;
+reg  [1:0]	regValidPair;
+reg  [2:0]	regPairID;
 
 // Output
 reg [19:0]	s_busAdr;	assign adr_o = s_busAdr;
@@ -302,7 +318,7 @@ wire isTexReq  		= requTexCacheUpdateL  | requTexCacheUpdateR;
 wire isFirstBlockBlending = ((saveBGBlock == 2'b01) & isBlending);
 // wire hasValidPixels = pixelValid[0] | pixelValid[1];
 reg [2:0] currState;
-parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'd1, WRITE_BG = 3'd2, READ_BG = 3'd3, READ_BG_START = 3'd4, FILL_BG = 3'd5;
+parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'd1, WRITE_BG = 3'd2, READ_BG = 3'd3, READ_BG_START = 3'd4, FILL_BG = 3'd5, WRITE_PIXPAIR = 3'd7;
 reg [3:0] ReadMode, regReadMode;
 always @(*)
 begin
@@ -332,7 +348,7 @@ begin
 //	s_storeCacheAdr		= 1'b0;
 	loadBGInternal		= 1'b0;
 
-	if (currState != FILL_BG) begin
+	if ((currState != FILL_BG) && (currState != WRITE_PIXPAIR)) begin
 		case (currX[2:0])
 		3'd0: begin busDataW = exportedBGBlock[ 31:  0]; busWMSK = exportedMSKBGBlock[ 1: 0]; end
 		3'd1: begin busDataW = exportedBGBlock[ 63: 32]; busWMSK = exportedMSKBGBlock[ 3: 2]; end
@@ -344,8 +360,8 @@ begin
 		3'd7: begin busDataW = exportedBGBlock[255:224]; busWMSK = exportedMSKBGBlock[15:14]; end
 		endcase
 	end else begin
-		busDataW = {1'b0,regFillColor,1'b0,regFillColor};		
-		busWMSK  = 2'b11;
+		busDataW = {regPixColorR,regFillColor};
+		busWMSK  = regValidPair;
 	end
 	
 	case (currState)
@@ -384,12 +400,26 @@ begin
 				end else begin
  */
 			if (memoryWriteCommand[2:0] != 0) begin
-				s_cnt		= 3'd7;
 				s_busREQ	= 1'b1;
 				s_busAdr	= { memoryWriteCommand[21:7] , 5'd0 };
 				s_storeColor = 1'b1;
 				s_storeAdr	= 1'b1;
-				nextState	= FILL_BG; // Same write logic, except I use the memoryWriteCommand as data source.
+				case (memoryWriteCommand[2:0])
+				MEM_CMD_PIXEL2VRAM:
+				begin
+					nextState	= WRITE_PIXPAIR;
+					s_cnt		= 3'd0; // 1 Pair
+				end
+				MEM_CMD_FILL:
+				begin
+					nextState	= FILL_BG;
+					s_cnt		= 3'd7; // 8 Pair
+				end
+				default:
+				begin
+					// Do nothing.
+				end
+				endcase
 				s_setLoadOnGoing = 1;
 			end else begin
 				if (spikeBGBlock & (saveBGBlock[1] | isFirstBlockBlending)) begin
@@ -502,6 +532,22 @@ begin
 				s_resetLoadOnGoing = 1;
 				nextState = DEFAULT_STATE;
 			end
+		end
+	end
+	WRITE_PIXPAIR:
+	begin
+		//
+		// Our current implementation is very stupid. Real one could also cache the pixel into a buffer, and flush when adress change or when flush bit of the command occurs. (supported from original state machine)
+		//
+		if (busACK) begin
+			s_busAdr	= { baseAdr[17:3], regPairID, 2'b0 };
+			s_busREQ	= 1'b1;
+			readStuff	= 1'b0; // WRITE SIGNAL.
+		end else begin
+			// END
+			s_busREQ  = 1'b0;
+			s_resetLoadOnGoing = 1;
+			nextState = DEFAULT_STATE;
 		end
 	end
 	FILL_BG:
