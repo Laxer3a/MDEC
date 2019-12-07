@@ -120,15 +120,17 @@ wire validR        = swap ? regSaveL : regSaveM;
 reg flush;
 
 wire [5:0] scrSrcX = counterXSrc[5:0] + RegX0[9:4];
-wire cmd1ValidL = (validL & !GPU_REG_CheckMaskBit) | (validL & stencilReadValue[0]);
-wire cmd1ValidR = (validR & !GPU_REG_CheckMaskBit) | (validR & stencilReadValue[1]);
+wire cmd1ValidL = (validL & !GPU_REG_CheckMaskBit) | (validL & (!stencilReadValue[0]));
+wire cmd1ValidR = (validR & !GPU_REG_CheckMaskBit) | (validR & (!stencilReadValue[1]));
+wire WRPixelL15 = LPixel[15] | GPU_REG_ForcePixel15MaskSet; // No sticky bit from source.
+wire WRPixelR15 = RPixel[15] | GPU_REG_ForcePixel15MaskSet; // No sticky bit from source.
 
 always @(*)
 begin
 	case (memoryCommand)
 	// CPU 2 VRAM : [16,16,2,15,...]
-	MEM_CMD_PIXEL2VRAM:    parameters = 	{ { LPixel[15] | GPU_REG_ForcePixel15MaskSet , LPixel[14:0]}	// [55:40] LEFT PIXEL
-											, { RPixel[15] | GPU_REG_ForcePixel15MaskSet , RPixel[14:0]}	// [39:24] RIGHT PIXEL !!!! (REVERSED CONVENTION !!!)
+	MEM_CMD_PIXEL2VRAM:    parameters = 	{ { WRPixelL15 , LPixel[14:0] }									// [55:40] LEFT PIXEL
+											, { WRPixelR15 , RPixel[14:0] }									// [39:24] RIGHT PIXEL !!!! (REVERSED CONVENTION !!!)
 											, cmd1ValidR, cmd1ValidL										// [23:22]
 											, { scrY[8:0], pixelX[9:4] }									// [21: 7]
 											, pixelX[3:1]													// [ 6: 4]
@@ -896,6 +898,7 @@ wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
 //                          X       + WIDTH              - [1 or 2]
 wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
 wire  [9:0]		scrY	= pixelY[9:0] + RegY0[9:0];
+wire  [9:0]  nextScrY	= nextPixelY[9:0] + RegY0[9:0];
 wire [11:0]	nextX		= pixelX + { 12'd2 };
 wire [ 9:0]	nextY		= pixelY[9:0] + { 10'd1 };
 wire		WidthNot1	= |RegSizeW[10:1];
@@ -976,6 +979,7 @@ reg				isLoaded; ///////////// TODO : MANAGE THAT TOMORROW ////////////////
 reg				isWritten; // USE notMemoryBusyCurrCycle in state machine.
 reg	[1:0]		setStencilMode;
 reg 			writeStencil;
+reg				copyCVMode;
 
 always @(*)
 begin
@@ -1011,6 +1015,7 @@ begin
 	setStencilMode				= 0;
 	writeStencil				= 0;
 	stencilReadSig				= 0;
+	copyCVMode					= 0;
 	
 	// -----------------------
 	//  CPU TO VRAM SIGNALS
@@ -1065,6 +1070,7 @@ begin
 			if (bIsCopyVVCommand) begin
 				nextWorkState = COPY_START;
 			end else if (bIsCopyCVCommand) begin
+				setStencilMode		= 2'd3;
 				nextWorkState = COPYCV_START;
 			end else begin
 				// bIsCopyVCCommandbegin obviously...
@@ -1223,6 +1229,7 @@ begin
 		loadNext		= 1;
 		setSwap			= 1;
 		resetDir		= 1;
+		copyCVMode		= 1;
 		// Reset last pair by default, but if WIDTH == 1 -> different.
 		resetLastPair	= WidthNot1;
 		setLastPair		= !WidthNot1;
@@ -1233,6 +1240,7 @@ begin
 			readL = 1'b1;
 			readM = !RegX0[0] & (WidthNot1);
 			nextWorkState = COPYCV_COPY;
+			stencilReadSig	= 1;
 		end
 	end
 	COPYCV_COPY:
@@ -1243,12 +1251,13 @@ begin
 		// At the current pixel X,Y we preload the FIFO for the NEXT X,Y coordinate.
 		// So setup of readL/readM are ONE PAIR in advance compare to the scanning...
 		// -----------------------------
+		stencilReadSig	= 1;
+		copyCVMode		= 1;
 		if (commandFIFOaccept & canRead) begin
 			memoryCommand = MEM_CMD_PIXEL2VRAM;
 			nextWorkState = COPYCV_COPY;
-			
-			loadNext	= 1;
-//			resetBlockChange = 1;
+			writeStencil  = 1;
+			loadNext	  = 1;
 			
 			// [Last pair]
 			if (lastPair) begin
@@ -2203,40 +2212,31 @@ begin
 	*/
 	stencilWriteValue16	= 16'd0;	// For now... FILL ONLY.
 	stencilWriteMask16	= 16'hFFFF;	// For now... FILL ONLY.
-	
-	case (stencilMode)
-	default:
-	begin
-		// Work for Triangle/Line/Rect primtive
-		stencilFullMode		= 0;
-		stencilWriteSigC	= stencilWriteSig;
-		stencilWriteAdrC	= stencilWriteAdr;
-		stencilWritePairC	= stencilWritePair;
-		stencilWriteSelectC	= stencilWriteSelect;
-		stencilWriteValueC	= stencilWriteValue;
-	end
-	2'd2:
-	begin
+
+	if (stencilMode == 2'd2) begin
 		// Work for FILL command.
 		stencilFullMode		= 1;
 		stencilWriteSigC	= writeStencil;
 		stencilWriteAdrC	= { scrY[8:0], scrSrcX };
-		
-		// Don't care, same as case 3 to save logic.
-		stencilWritePairC	= pixelX[3:1];
-		stencilWriteSelectC	= { cmd1ValidR , cmd1ValidL };
-		stencilWriteValueC	= { RPixel[15] , LPixel[15] };
-	end
-	2'd3:
-	begin
+	end else begin
+		// Work for Triangle/Line/Rect primtive
+		// CPU->VRAM
 		stencilFullMode		= 0;
-		stencilWriteSigC	= writeStencil;
-		stencilWriteAdrC	= { scrY[8:0], pixelX[9:4] };
+		stencilWriteSigC	= (stencilMode == 2'd3) ? writeStencil               : stencilWriteSig;
+		stencilWriteAdrC	= (stencilMode == 2'd3) ? { scrY[8:0], pixelX[9:4] } : stencilWriteAdr;
+	end
+
+	if (stencilMode == 2'd3) begin
+		// CPU->VRAM
 		stencilWritePairC	= pixelX[3:1];
 		stencilWriteSelectC	= { cmd1ValidR , cmd1ValidL };
-		stencilWriteValueC	= { RPixel[15] , LPixel[15] };
+		stencilWriteValueC	= { WRPixelR15 , WRPixelL15 };
+	end else begin
+		// Triangle/Line/Rect (Ignored for FILL VRAM)
+		stencilWritePairC	= stencilWritePair;
+		stencilWriteSelectC	= stencilWriteSelect;
+		stencilWriteValueC	= stencilWriteValue;
 	end
-	endcase
 end
 
 
@@ -2253,40 +2253,15 @@ wire  	 [2:0]	stencilReadPair,stencilWritePair;
 wire	 [1:0]	stencilReadValue,stencilReadSelect,stencilWriteValue,stencilWriteSelect;
 // ------------------------------------------------------------------------
 
-// Valid address for primitive : LINE/TRIANGLE/RECTANGLE.
-// TODO : Valid address for VRAM<->VRAM / CPU->VRAM copy mode...
-assign stencilReadAdr		= { nextPixelY[8:0], nextPixelX[9:4] };		//
+assign stencilReadAdr		= { copyCVMode ? nextScrY[8:0] : nextPixelY[8:0], nextPixelX[9:4] };		//
 assign stencilReadPair		= { nextPixelX[3:1] };						//
 // Select 11 for other primitives, or the correct pixel for the read for LINES.
 assign stencilReadSelect	= { !bIsLineCommand | nextPixelX[0] , !bIsLineCommand | (!nextPixelX[0]) };
 
-// assign pixelStencilOut = selectPixelWriteMask;
-/* TODOSTENCIL
-always @(*)
-begin
-	case (pixelX[3:1])
-	3'h0: selectPixelWriteMask = stencilReadBit[ 1: 0];
-	3'h1: selectPixelWriteMask = stencilReadBit[ 3: 2];
-	3'h2: selectPixelWriteMask = stencilReadBit[ 5: 4];
-	3'h3: selectPixelWriteMask = stencilReadBit[ 7: 6];
-	3'h4: selectPixelWriteMask = stencilReadBit[ 9: 8];
-	3'h5: selectPixelWriteMask = stencilReadBit[11:10];
-	3'h6: selectPixelWriteMask = stencilReadBit[13:12];
-	3'h7: selectPixelWriteMask = stencilReadBit[15:14];
-	endcase
-
-end
-*/
-
 // [BYTE PIXEL ADR FROM X/Y]
 // YYYY.YYYY.YXXX.XXXX.XXX0 Byte.
 // YYYY.YYYY.YXXX.XXX_.____ {  
-// TODOSTENCIL reg [14:0]	stencilWordAdr; // = { pixelY[8:0], pixelX[9:4] };	// [19:0] : 1 MByte, [18:0] : 0.5 MegaHWord
 
-								// Work by 16 HWord (pixels) => [14:0] 32k x 16 pixel block (32 byte => 16 bit cache)
-// TODOSTENCIL reg [15:0]	stencilWriteBitSelect, stencilWriteBitValue;
-// TODOSTENCIL wire [15:0] stencilReadBit;
-// TODOSTENCIL reg [1:0]   selectPixelWriteMask;
 wire        selectPixelWriteMaskLine = (!pixelX[0] & stencilReadValue[0]) | (pixelX[0] & stencilReadValue[1]);
 
 // TODO OPTIMIZE : can probably compute nextCondUseFIFO outside with : (nextLogicalState != WAIT_COMMAND_COMPLETE) & (nextLogicalState != DEFAULT_STATE)
