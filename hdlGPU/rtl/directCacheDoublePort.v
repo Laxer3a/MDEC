@@ -53,68 +53,60 @@ module directCacheDoublePort(
 	wire [16:0] swizzleLookB= textureFormatTrueColor 	? { adressLookB[18:15],adressLookB[9:5],adressLookB[14:10],adressLookB[4:2]}  // 4,5,5,3
 														: { adressLookB[18:16],adressLookB[9:4],adressLookB[15:10],adressLookB[3:2]}; // 5,6,6,2
 														
-//	parameter WT = 11; 	// 4KB Version
-//	parameter NE = 511;
-
 	// ------------- 4 KB Version ----------
 	// [20:12][11:3][2:0]		512 Entries x 8 Byte (4x2) = 4 KB.
 	//   9 bit 9bit  3bit
 	// ------------- 2 KB Version ----------
 	// [20:11][10:3][2:0]		256 Entries x 8 Byte (4x2) = 2 KB.
 	//  10 bit 8bit  3bit
-	reg [71:0] RAMStorage[255:0];			// 72/71 + 512 vs 256 entries.
+	reg [72:0] RAMStorage[255:0];			// 72/71 + 512 vs 256 entries.
 	reg [255:0] Active;						// 512 vs 256 active bit.
 	reg [7:0] pRaddrA,pRaddrB;			// 9 or 8 bit address
 
 	reg [2:1] pIndexA,pIndexB;
+	reg [8:0] pRTagA,pRTagB;
 	
 	always @ (posedge clk)
 	begin
 		if (write)
 		begin
-			RAMStorage[swizzleAddr[7:0]]	<= { swizzleAddr[7:0], dataIn[63: 0] };
-//			D0A								<= { swizzleAddr[7:0], dataIn[63: 0] };		// DID CAUSE INFERENCE ISSUE, NOT ENABLING RAM BLOCK
-//			D0B								<= { swizzleAddr[7:0], dataIn[63: 0] };
-//		end else begin
-//			D0A								<= RAMStorage[adressLookA[10:2]];
-//			D0B								<= RAMStorage[adressLookB[10:2]];
+			RAMStorage[swizzleAddr[7:0]]	<= { swizzleAddr[16:8], dataIn[63: 0] };
 		end
 		
 		pRaddrA	<= swizzleLookA[7:0];
 		pRaddrB	<= swizzleLookB[7:0];
+		pRTagA	<= swizzleLookA[16:8];
+		pRTagB	<= swizzleLookB[16:8];
 	end
-//	reg  [71:0]	D0A;
-//	reg  [WS:0]	D0B;
 
-	wire  [71:0]	D0A = RAMStorage[pRaddrA];
-	wire  [71:0]	D0B = RAMStorage[pRaddrB];
+	wire  [72:0]	D0A = RAMStorage[pRaddrA];	// Latency 1 (Pipelined address : RAM read)
+	wire  [72:0]	D0B = RAMStorage[pRaddrB];
 
-	wire       lookActiveA	= Active[pRaddrA];
+	wire       lookActiveA	= Active[pRaddrA];	// Latency 1 (Use pipelined adress to read register at same time as DOA)
 	wire       lookActiveB	= Active[pRaddrB];
 	reg 	   pRequLookupA;
 	reg 	   pRequLookupB;
-	wire [7:0] lookTagA	= D0A[71:64];
-	wire [7:0] lookTagB	= D0B[71:64];
+	wire [8:0] lookTagA	= D0A[72:64];
+	wire [8:0] lookTagB	= D0B[72:64];
+	
+	wire [63:0] APixels	= D0A[63:0];
+	wire [63:0] BPixels	= D0B[63:0];
 
 	// Return HIT when NOT looking up for data...
-	wire hitA       = ((lookTagA == pRaddrA) & pLookActiveA);
-	wire hitB		= ((lookTagB == pRaddrB) & pLookActiveB);
-	assign isHitA	=   hitA  & pRequLookupA;
-	assign isHitB	=   hitB  & pRequLookupB;
+	wire hitA       = ((lookTagA == pRTagA) & lookActiveA);
+	wire hitB		= ((lookTagB == pRTagB) & lookActiveB);
+	assign isHitA	=   hitA   & pRequLookupA;
+	assign isHitB	=   hitB   & pRequLookupB;
 	wire spikeMissA = ((!hitA) & pRequLookupA);
 	wire spikeMissB = ((!hitB) & pRequLookupB);
 	assign isMissA	= spikeMissA | (stickyMissA & !hitA);	// Note : Sticky BIT does not RETURN 1 when isHit is generated.
 	assign isMissB	= spikeMissB | (stickyMissB & !hitB);
 
-	reg pLookActiveA;
-	reg pLookActiveB;
 	reg stickyMissA, stickyMissB;
 	always @ (posedge clk)
 	begin
 		pRequLookupA = requLookupA;
 		pRequLookupB = requLookupB;
-		pLookActiveA = lookActiveA;
-		pLookActiveB = lookActiveB;
 		
 		if (isHitA) begin
 			stickyMissA = 0;
@@ -135,10 +127,10 @@ module directCacheDoublePort(
 	reg [15:0] dOutA;
 	always @(*) begin
 	case (pIndexA)
-	2'd0 : dOutA = D0A[15: 0];
-	2'd1 : dOutA = D0A[31:16];
-	2'd2 : dOutA = D0A[47:32];
-	2'd3 : dOutA = D0A[63:48];
+	2'd0 : dOutA = APixels[15: 0];
+	2'd1 : dOutA = APixels[31:16];
+	2'd2 : dOutA = APixels[47:32];
+	2'd3 : dOutA = APixels[63:48];
 	endcase
 	end
 	assign dataOutA	= dOutA;
@@ -146,10 +138,10 @@ module directCacheDoublePort(
 	reg [15:0] dOutB;
 	always @(*) begin
 	case (pIndexB)
-	2'd0 : dOutB = D0B[15: 0];
-	2'd1 : dOutB = D0B[31:16];
-	2'd2 : dOutB = D0B[47:32];
-	2'd3 : dOutB = D0B[63:48];
+	2'd0 : dOutB = BPixels[15: 0];
+	2'd1 : dOutB = BPixels[31:16];
+	2'd2 : dOutB = BPixels[47:32];
+	2'd3 : dOutB = BPixels[63:48];
 	endcase
 	end
 	assign dataOutB	= dOutB;

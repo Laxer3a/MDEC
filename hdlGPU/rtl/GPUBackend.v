@@ -11,13 +11,13 @@ module GPUBackend(
 	// Management on BG Block
 	output			o_writePixelOnNewBlock,	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
 	input			i_resetPixelOnNewBlock,	// 1/ Clear 'o_writePixelOnNewBlock' flag. 2/ Clear MASK for new block.
+	input			i_resetPixelMask,
 	
 	// -------------------------------
 	// GPU Setup
 	// -------------------------------
 	input	 [1:0]	GPU_REG_Transparency,
 	input	[14:0]	GPU_REG_CLUT,
-	input			GPU_TEX_DISABLE,
 	input	 [1:0]	GPU_REG_TexFormat,
 	input			noTexture,
 	input			noblend,
@@ -462,7 +462,7 @@ module GPUBackend(
 			if (importBGBlockSingleClock) begin
 				cacheBG		= importedBGBlock;
 			end
-			if (i_resetPixelOnNewBlock) begin
+			if (i_resetPixelMask) begin
 				cacheBGMsk	= 16'd0;
 			end
 		end
