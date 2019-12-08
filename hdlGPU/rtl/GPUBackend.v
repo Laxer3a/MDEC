@@ -183,11 +183,11 @@ module GPUBackend(
 		.coordU_R							(U_R),
 		.coordV_R							(V_R),
 		
-		.texelAdress_L						(adrTexReqL_1),	// HalfWord adress.
-		.texelAdress_R						(adrTexReqR_1)	// HalfWord adress.
+		.texelAdress_L						(adrTexReqL),	// HalfWord adress.
+		.texelAdress_R						(adrTexReqR)	// HalfWord adress.
 	);
 
-	wire [18:0]	adrTexReqL_1,adrTexReqR_1;
+	wire [18:0]	adrTexReqL,adrTexReqR;
 	wire [9:0] leftX 	=  iScrX_Mul2;
 	wire [9:0] rightX	= {iScrX_Mul2[9:1],1'b1};
 	wire missT_c1L,missC_c1L,missT_c1R,missC_c1R;
@@ -223,7 +223,7 @@ module GPUBackend(
 		
 		.validPixel_c0		(validPixel_L),
 		.UCoordLSB			(U_L[1:0]),
-		.texelAdress_c0		(adrTexReqL_1),
+		.texelAdress_c0		(adrTexReqL),
 
 		// --- Stage 1 Output Control ---
 		.missT_c1			(missT_c1L),			// TRUE garantee it is about VALID pixel/request.
@@ -293,7 +293,7 @@ module GPUBackend(
 		
 		.validPixel_c0		(validPixel_R),
 		.UCoordLSB			(U_R[1:0]),
-		.texelAdress_c0		(adrTexReqR_1),
+		.texelAdress_c0		(adrTexReqR),
 
 		// --- Stage 1 Output Control ---
 		.missT_c1			(missT_c1R),			// TRUE garantee it is about VALID pixel/request.
