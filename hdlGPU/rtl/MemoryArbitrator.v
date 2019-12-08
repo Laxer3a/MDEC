@@ -513,6 +513,7 @@ begin
 			endcase
 		end else begin
 			s_busREQ	= 1'b0;
+			s_resetLoadOnGoing = 1;
 			nextState = DEFAULT_STATE;
 		end
 	end
