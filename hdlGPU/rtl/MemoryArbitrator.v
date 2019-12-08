@@ -498,12 +498,12 @@ begin
 			begin
 				s_busAdr =  requTexCacheUpdateL ? { adrTexCacheUpdateL, currX[0],2'd0 } : { adrTexCacheUpdateR, currX[0],2'd0 };
 				if (currX[2:0] == 3'b000) begin
+					// Do nothing.
 					s_store = 1;
 				end else begin
 					// Last value write (only 2)
 					s_updateTexCacheCompleteL = !regReadMode[0];
 					s_updateTexCacheCompleteR =  regReadMode[0];
-					s_writeGPU = 1'b1;
 				end
 			end
 			default:
@@ -512,6 +512,7 @@ begin
 			end
 			endcase
 		end else begin
+			s_writeGPU = 1'b1;
 			s_busREQ	= 1'b0;
 			s_resetLoadOnGoing = 1;
 			nextState = DEFAULT_STATE;
