@@ -178,6 +178,18 @@ module GPUPipeCtrl2(
 	reg [15:0]	PPdataTex_c2;
 	always @ (posedge clk)
 	begin
+		// FUCK VERILOG FOR ORDERING !!!!
+		// I DID TWO SEPERATE BLOCK AND ENDED UP WITH UNPIPELINED FUCKING WORK...
+		//
+		// HOW CAN A->B->C not be pipelined where you have TWO FUCKING SEPERATE PROCESS WITH A->B and B->C CLOCKED !!!!
+		//
+		// ENDED UP WITH PUTTING EVERYTHING IN ONE BLOCK IN CORRECT ORDER.
+		// BUT THIS IF STAYED AT THE END. FUCK YOU VERILOG. FUCK YOU FUCK YOU FUCK YOU !!!!
+		//
+		if (!pause | resetLineFlag | (i_nrst == 0)) begin
+			PPnewBGCacheLine_c2	<= ((i_nrst==0) | resetLineFlag) ? 2'b00 : PnewBGCacheLine_c1;	// Reset to ZERO if resetLineFlag
+		end
+		
 		if (!pause || (i_nrst==0)) begin
 			PPisTexturedPixel_c2 = PisTexturedPixel_c1;
 			PPisTrueColor_c2	= PisTrueColor_c1;
@@ -202,10 +214,6 @@ module GPUPipeCtrl2(
 			PUCoordLSB_c1		= UCoordLSB;
 			PisTexturedPixel_c1	= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
 			PtexelAdress_c1		= texelAdress_c0;
-		end
-		
-		if (!pause | resetLineFlag || (i_nrst == 0)) begin
-			PPnewBGCacheLine_c2	<= ((i_nrst==0) | resetLineFlag) ? 2'b00 : PnewBGCacheLine_c1;	// Reset to ZERO if resetLineFlag
 		end
 	end
 	

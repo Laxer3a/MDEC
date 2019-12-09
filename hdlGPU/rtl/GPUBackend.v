@@ -137,8 +137,6 @@ module GPUBackend(
 	input			importBGBlockSingleClock,
 	input  [255:0]	importedBGBlock
 );
-	assign loadAdr					= { oScryL, oScrxL[9:4] };
-	assign saveAdr					= lastWriteAdrReg;
 	assign exportedBGBlock			= cacheBG;
 	assign exportedMSKBGBlock		= cacheBGMsk;
 
@@ -152,16 +150,6 @@ module GPUBackend(
 //		AssertionFalse1: assert (oNewBGCacheLineL == oNewBGCacheLineR) else $error( "Can not be different");
 //	end
 	
-	// 00 : [Nothing]
-	// 01 : First pair,
-	// 10 : Next Pair,
-	// 11 : Last Pair / Flush.
-	wire [1:0] pairCode				= ((oNewBGCacheLineL == 2'b01) & noblend) ? 2'b00 : (oNewBGCacheLineL | {flushLastBlock,flushLastBlock}); 	
-	wire doBlockOp					= pairCode[0] | pairCode[1]; /* | oNewBGCacheLineR*/ // Should be the SAME, only one item needed
-	// Operating step is given to the memory module. (None,First,Second & Others)
-	assign saveBGBlock				= pairCode;
-	assign o_writePixelOnNewBlock	= doBlockOp;
-
 	// -----------------------------------------------
 	// Convert UV to Adress Space
 	// -----------------------------------------------
@@ -420,16 +408,24 @@ module GPUBackend(
 	reg PTexHit_c1R,PTexHit_c1L;
 	always @(posedge clk)
 	begin
-		PTexHit_c1R = TexHit_c1R;
-		PTexHit_c1L = TexHit_c1L;
+		if (!i_pausePipeline) begin
+			PTexHit_c1R = TexHit_c1R;
+			PTexHit_c1L = TexHit_c1L;
+		end
 	end
-	wire writeSigL			= oValidPixelL & ((PTexHit_c1R & !noTexture) | noTexture);
-	wire writeSigR			= oValidPixelR & ((PTexHit_c1R & !noTexture) | noTexture);
+	wire validTextureL		= PTexHit_c1L;
+	wire validTextureR		= PTexHit_c1R;
+	wire writeSigL			= oValidPixelL & ((validTextureL & !noTexture) | noTexture);
+	wire writeSigR			= oValidPixelR & ((validTextureR & !noTexture) | noTexture);
 	
-	// MEMO BEFORE_TEXTURE : writeSig = !i_pausePipeline & (oValidPixelR | oValidPixelL);
-	wire        writeSig	= writeSigL | writeSigR;
-	wire [14:0] writeAdr 	= { oScryL, oScrxL[9:4] };
-	reg  [14:0] lastWriteAdrReg;
+	// MEMO BEFORE_TEXTURE : writeSig = (oValidPixelR | oValidPixelL);
+	reg PPausePipeline;
+	always @(posedge clk)
+	begin
+		PPausePipeline = i_pausePipeline;
+	end
+	wire        writeSig	= !i_pausePipeline & (writeSigL | writeSigR);
+	wire [14:0] writeAdr 	= { oScryL, oScrxL[9:4] }; // TODO : Same as loadAdr
 	wire  [1:0] selPair		= {oValidPixelR,oValidPixelL};
 	wire  [2:0] pairID		= oScrxL[3:1];
 	
@@ -440,6 +436,10 @@ module GPUBackend(
 	assign stencilWriteSelect	= selPair;				// 1:0	<- Which pixel need update.
 	assign stencilWritePair		= pairID;				// 2:0	<- Pair ID
 
+	assign loadAdr					= { oScryL, oScrxL[9:4] };
+	assign saveAdr					= lastWriteAdrReg;
+	reg  [14:0] lastWriteAdrReg;
+	
 	always @(posedge clk)
 	begin
 		if (writeSig) begin
@@ -477,5 +477,24 @@ module GPUBackend(
 				cacheBGMsk	= 16'd0;
 			end
 		end
+	end
+	
+	// 00 : [Nothing]
+	// 01 : First pair,
+	// 10 : Next Pair,
+	// 11 : Last Pair / Flush.
+	wire [1:0] pairCode				= ((oNewBGCacheLineL == 2'b01) & noblend) ? 2'b00 : (oNewBGCacheLineL | {flushLastBlock,flushLastBlock}); 	
+	reg  [1:0] PpairCode;
+	wire doBlockOp					= pairCode[0] | pairCode[1]; /* | oNewBGCacheLineR*/ // Should be the SAME, only one item needed
+	reg  PdoBlockOp;
+	
+	// Operating step is given to the memory module. (None,First,Second & Others)
+	assign saveBGBlock				= pairCode;
+	assign o_writePixelOnNewBlock	= doBlockOp;
+
+	always @(posedge clk)
+	begin
+		PpairCode = pairCode;
+		PdoBlockOp= doBlockOp;
 	end
 endmodule
