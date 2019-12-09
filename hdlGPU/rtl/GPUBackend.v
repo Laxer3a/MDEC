@@ -416,7 +416,18 @@ module GPUBackend(
 	// WRITE PACK TO BACKGROUND
 	// ---------------------------------------------
 	wire [31:0] writeBack32;
-	wire        writeSig	= !i_pausePipeline & (oValidPixelR | oValidPixelL);
+	
+	reg PTexHit_c1R,PTexHit_c1L;
+	always @(posedge clk)
+	begin
+		PTexHit_c1R = TexHit_c1R;
+		PTexHit_c1L = TexHit_c1L;
+	end
+	wire writeSigL			= oValidPixelL & ((PTexHit_c1R & !noTexture) | noTexture);
+	wire writeSigR			= oValidPixelR & ((PTexHit_c1R & !noTexture) | noTexture);
+	
+	// MEMO BEFORE_TEXTURE : writeSig = !i_pausePipeline & (oValidPixelR | oValidPixelL);
+	wire        writeSig	= writeSigL | writeSigR;
 	wire [14:0] writeAdr 	= { oScryL, oScrxL[9:4] };
 	reg  [14:0] lastWriteAdrReg;
 	wire  [1:0] selPair		= {oValidPixelR,oValidPixelL};
