@@ -117,24 +117,6 @@ module GPUPipeCtrl2(
 	reg [1:0]	PUCoordLSB_c1;
 	reg [18:0] 	PtexelAdress_c1;
 	
-	always @ (posedge clk)
-	begin
-		if (!pause || (i_nrst==0)) begin
-			PisTrueColor_c1		= isTrueColor;
-			PnewBGCacheLine_c1	= (i_nrst==0) ? 2'b00 : newBGCacheLine; // Beginning of a new primitive.
-			PiScrX_c1			= iScrX;
-			PiScrY_c1			= iScrY;
-			PiR_c1				= iR;
-			PiG_c1				= iG;
-			PiB_c1				= iB;
-			PiBGMSK				= iBGMSK;
-			PValidPixel_c1		= (i_nrst==0) ? 1'b0 : validPixel_c0;
-			PUCoordLSB_c1		= UCoordLSB;
-			PisTexturedPixel_c1	= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
-			PtexelAdress_c1		= texelAdress_c0;
-		end
-	end
-	
 	// [Convert Texture Data Into palette index (Logic)]
 	wire [7:0] index_c1;
 	TEXToIndex TEXToIndex_inst(
@@ -207,6 +189,19 @@ module GPUPipeCtrl2(
 			PPiBGMSK			= PiBGMSK;
 			PPValidPixel_c2		= (i_nrst==0) ? 1'b0 : PValidPixel_c1;
 			PPdataTex_c2		= dataTex_c1;
+
+			PisTrueColor_c1		= isTrueColor;
+			PnewBGCacheLine_c1	= (i_nrst==0) ? 2'b00 : newBGCacheLine; // Beginning of a new primitive.
+			PiScrX_c1			= iScrX;
+			PiScrY_c1			= iScrY;
+			PiR_c1				= iR;
+			PiG_c1				= iG;
+			PiB_c1				= iB;
+			PiBGMSK				= iBGMSK;
+			PValidPixel_c1		= (i_nrst==0) ? 1'b0 : validPixel_c0;
+			PUCoordLSB_c1		= UCoordLSB;
+			PisTexturedPixel_c1	= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
+			PtexelAdress_c1		= texelAdress_c0;
 		end
 		
 		if (!pause | resetLineFlag || (i_nrst == 0)) begin

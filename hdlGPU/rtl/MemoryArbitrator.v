@@ -431,7 +431,7 @@ begin
 					if (isClutReq) begin
 						// [READ]
 						// ... CLUT$ Update ...
-						ReadMode = { 3'b010, requClutCacheUpdateR };
+						ReadMode = { 3'd2, requClutCacheUpdateR };
 						s_storeAdr	= 1'b1;
 						s_setLoadOnGoing = 1;
 						if (requClutCacheUpdateL) begin
@@ -449,7 +449,7 @@ begin
 						end
 					end else begin
 						if (isTexReq) begin
-							ReadMode = { 3'b011, requClutCacheUpdateR };
+							ReadMode = { 3'd3, requTexCacheUpdateR };
 							s_storeAdr	= 1'b1;
 							s_setLoadOnGoing = 1;
 							// [READ]

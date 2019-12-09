@@ -512,7 +512,7 @@ wire bIsNop         		= (bIsBase0x & (!(bIsBase01 | bIsBase02 | bIsBase1F)))	// 
 wire bIsPolyOrRect  		= (bIsPolyCommand | bIsRectCommand);
 
 // Line are not textured
-wire bIgnoreColor   		= bUseTexture   & !command[0];
+wire bIgnoreColor   		= bUseTexture   & command[0];
 wire bSemiTransp    		= command[1];
 wire bUseTexture    		= bIsPolyOrRect &  command[2] & (!GPU_REG_TextureDisable); 										// Avoid texture fetching if we do LINE, Compute proper color for FILL.
 wire bIs4PointPoly  		= command[3] & bIsPolyCommand;
@@ -2776,7 +2776,9 @@ always @(posedge clk)
 begin
 	lastSaveLoadOnGoing = saveLoadOnGoing;
 end
-wire resetPixelOnNewBlock = (saveLoadOnGoing == 0) && (lastSaveLoadOnGoing==1);
+wire resetPixelOnNewBlock	= (saveLoadOnGoing == 0) && (lastSaveLoadOnGoing==1);
+wire resetMask				= resetPixelOnNewBlock;
+
 wire notMemoryBusyCurrCycle;
 wire notMemoryBusyNextCycle;
 	
@@ -2988,13 +2990,12 @@ GPUBackend GPUBackendInstance(
 	// Management on BG Block
 	.o_writePixelOnNewBlock				(writePixelOnNewBlock),	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
 	.i_resetPixelOnNewBlock				(resetPixelOnNewBlock),	// 1/ Clear 'o_writePixelOnNewBlock' flag. 2/ Clear MASK for new block.
-	
+	.i_resetPixelMask					(resetMask),
 	// -------------------------------
 	// GPU Setup
 	// -------------------------------
 	.GPU_REG_Transparency				(GPU_REG_Transparency			),
 	.GPU_REG_CLUT						(RegC							),
-	.GPU_TEX_DISABLE					(GPU_REG_TextureDisable			),
 	.GPU_REG_TexFormat					(GPU_REG_TexFormat				),
 	.noTexture							(!bUseTexture					),
 	.noblend							(bOpaque						),
