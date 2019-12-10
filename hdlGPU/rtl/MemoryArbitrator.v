@@ -496,8 +496,9 @@ begin
 			*/
 			3'd2: // Clut 32 byte
 			begin
+				s_busAdr = { requClutCacheUpdateL ? adrClutCacheUpdateL : adrClutCacheUpdateR, currX[2:0],2'd0 };
 				s_writeGPU = 1'b1;
-				if (currX[3:0] == 4'b111) begin
+				if (currX[2:0] == 3'b111) begin
 					// Last value write (only 2)
 					s_updateClutCacheCompleteL = !regReadMode[0];
 					s_updateClutCacheCompleteR =  regReadMode[0];
@@ -505,7 +506,7 @@ begin
 			end
 			3'd3: // Texture 8 byte
 			begin
-				s_busAdr =  requTexCacheUpdateL ? { adrTexCacheUpdateL, currX[0],2'd0 } : { adrTexCacheUpdateR, currX[0],2'd0 };
+				s_busAdr = { requTexCacheUpdateL ? adrTexCacheUpdateL : adrTexCacheUpdateR, currX[0],2'd0 };
 				if (currX[2:0] == 3'b000) begin
 					// Do nothing.
 					s_store = 1;
@@ -521,10 +522,10 @@ begin
 			end
 			endcase
 		end else begin
-			s_writeGPU = 1'b1;
-			s_busREQ	= 1'b0;
-			s_resetLoadOnGoing = 1;
-			nextState = DEFAULT_STATE;
+			s_writeGPU			= (regReadMode[3:1] == 3'd3); // Spike 1 when doing texture, but not CLUT.
+			s_busREQ			= 1'b0;
+			s_resetLoadOnGoing	= 1;
+			nextState			= DEFAULT_STATE;
 		end
 	end
 	WRITE_BG:

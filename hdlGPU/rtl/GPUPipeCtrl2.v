@@ -93,7 +93,7 @@ module GPUPipeCtrl2(
 	// ---        Stage C0 
 	// -------------------------------------------------------------
 	
-	wire isTrueColor			= (GPU_REG_TexFormat == 2'd2);
+	wire isTrueColor			= GPU_REG_TexFormat[1];// Not == 2'd2.  2 and 3 considered both as TRUE COLOR.
 	// VALID PIXEL AND TEXTURED.
 	wire isTexturedPixel_c0 	= validPixel_c0 & !GPU_TEX_DISABLE;
 

@@ -2028,7 +2028,7 @@ begin
 		loadRGB					= 0;
 		loadVertices			= 0;
 		loadAllRGB				= 0;
-		loadClutPage			= isV0; // first entry is Clut info.
+		loadClutPage			= isV0 & (!isPolyFinalVertex); // First entry is Clut info, avoid reset when quad.
 		loadTexPage				= isV1; // second entry is TexPage.
 		loadRectEdge			= bIsRectCommand;
 
@@ -2795,7 +2795,7 @@ wire notMemoryBusyCurrCycle;
 wire notMemoryBusyNextCycle;
 	
 // [Cache Texture swizzling vary with Texture Format]
-wire textureFormatTrueColor = (GPU_REG_TexFormat == PIX_16BIT);
+wire textureFormatTrueColor = (GPU_REG_TexFormat[1]); // (10)2 or (11)3
 directCacheDoublePort directCacheDoublePortInst(
 	.clk								(clk),
 	.i_nrst								(i_nrst),
