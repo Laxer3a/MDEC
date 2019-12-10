@@ -6,7 +6,7 @@ module CLUT_Cache(
 	
 	// Forced to do 8x32 bit cache line fill when CLUT lookup empty. (16 colors)
 	// --> Simplify for 4 bit texture. 1 Load
-	input				write,
+	input			write,
 	input [2:0]		writeIdxInBlk,
 	input [31:0]	ColorIn,
 
