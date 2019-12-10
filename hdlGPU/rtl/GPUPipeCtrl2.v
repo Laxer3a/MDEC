@@ -29,7 +29,7 @@ module GPUPipeCtrl2(
 	
 	// --- Stage 0 Input ---
 	// Left Side (All values stay the same from previous cycle if OkNext is FALSE)
-	input [1:0]		newBGCacheLine, // Beginning of a new primitive.
+	input [1:0]		iPixelStateSpike, // Beginning of a new primitive.
 	input [9:0] 	iScrX,
 	input [8:0] 	iScrY,
 	input [8:0]		iR,
@@ -47,7 +47,7 @@ module GPUPipeCtrl2(
 	output			pixelInFlight,
 	
 	// --- Stage 2 Write back Control ---
-	output	[1:0]	oNewBGCacheLine,
+	output	[1:0]	oPixelStateSpike,
 	output			oValidPixel,
 	output [ 9:0]	oScrx,
 	output [ 8:0]	oScry,
@@ -106,7 +106,7 @@ module GPUPipeCtrl2(
 	// -------------------------------------------------------------
 	reg			PisTexturedPixel_c1;
 	reg 		PisTrueColor_c1;
-	reg	[1:0]	PnewBGCacheLine_c1;
+	reg	[1:0]	PpixelStateSpike_c1;
 	reg [9:0] 	PiScrX_c1;
 	reg [8:0] 	PiScrY_c1;
 	reg [8:0]	PiR_c1;
@@ -167,7 +167,7 @@ module GPUPipeCtrl2(
 	// -------------------------------------------------------------
 	reg			PPisTexturedPixel_c2;
 	reg 		PPisTrueColor_c2;
-	reg	[1:0]	PPnewBGCacheLine_c2;
+	reg	[1:0]	PPpixelStateSpike_c2;
 	reg [9:0] 	PPiScrX_c2;
 	reg [8:0] 	PPiScrY_c2;
 	reg [8:0]	PPiR_c2;
@@ -187,7 +187,7 @@ module GPUPipeCtrl2(
 		// BUT THIS IF STAYED AT THE END. FUCK YOU VERILOG. FUCK YOU FUCK YOU FUCK YOU !!!!
 		//
 		if (!pause | resetLineFlag | (i_nrst == 0)) begin
-			PPnewBGCacheLine_c2	<= ((i_nrst==0) | resetLineFlag) ? 2'b00 : PnewBGCacheLine_c1;	// Reset to ZERO if resetLineFlag
+			PPpixelStateSpike_c2	<= ((i_nrst==0) | resetLineFlag) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
 		end
 		
 		if (!pause || (i_nrst==0)) begin
@@ -203,7 +203,7 @@ module GPUPipeCtrl2(
 			PPdataTex_c2		= dataTex_c1;
 
 			PisTrueColor_c1		= isTrueColor;
-			PnewBGCacheLine_c1	= (i_nrst==0) ? 2'b00 : newBGCacheLine; // Beginning of a new primitive.
+			PpixelStateSpike_c1	= (i_nrst==0) ? 2'b00 : iPixelStateSpike; // Beginning of a new primitive.
 			PiScrX_c1			= iScrX;
 			PiScrY_c1			= iScrY;
 			PiR_c1				= iR;
@@ -234,7 +234,7 @@ module GPUPipeCtrl2(
 	end
 
 	assign pixelInFlight	= PPValidPixel_c2 | PValidPixel_c1;
-	assign oNewBGCacheLine	= PPnewBGCacheLine_c2;
+	assign oPixelStateSpike	= PPpixelStateSpike_c2;
 	assign oTransparent		= (!(|pixelOut[14:0])) & (!GPU_TEX_DISABLE); // If all ZERO, then 1., SET TO 0 if TEXTURE DISABLED.
 	assign oTexel			= pixelOut;
 	assign oValidPixel		= PPValidPixel_c2;

@@ -34,7 +34,7 @@ module GPUBackend(
 	// -------------------------------
 	// Input Pixels from FrontEnd
 	// -------------------------------
-	input [1:0]		i_isNewBlock,		// 00:Ignored, 01:First time, 10:Second and others...
+	input [1:0]		iPixelStateSpike,		// 00:Ignored, 01:First time, 10:Second and others...
 	input [9:0] 	iScrX_Mul2,
 	input [8:0] 	iScrY,
 	
@@ -201,7 +201,7 @@ module GPUBackend(
 		
 		// --- Stage 0 Input ---
 		// Left Side (All values stay the same from previous cycle if OkNext is FALSE)
-		.newBGCacheLine		(i_isNewBlock), // Beginning of a new primitive.
+		.iPixelStateSpike	(iPixelStateSpike),
 		.iScrX				(leftX),
 		.iScrY				(iScrY),
 		.iR					(iR_L),
@@ -219,7 +219,7 @@ module GPUBackend(
 		.validPixel_c1		(validPixelC1L),
 		
 		// --- Stage 2 Write back Control ---
-		.oNewBGCacheLine	(oNewBGCacheLineL),
+		.oPixelStateSpike	(oPixelStateSpikeL),
 		.oValidPixel		(oValidPixelL),
 		.oScrx				(oScrxL),
 		.oScry				(oScryL),
@@ -271,7 +271,7 @@ module GPUBackend(
 		
 		// --- Stage 0 Input ---
 		// Left Side (All values stay the same from previous cycle if OkNext is FALSE)
-		.newBGCacheLine		(i_isNewBlock), // Beginning of a new primitive.
+		.iPixelStateSpike	(iPixelStateSpike),
 		.iScrX				(rightX),
 		.iScrY				(iScrY),
 		.iR					(iR_R),
@@ -289,7 +289,7 @@ module GPUBackend(
 		.validPixel_c1		(validPixelC1R),
 		
 		// --- Stage 2 Write back Control ---
-		.oNewBGCacheLine	(oNewBGCacheLineR),
+		.oPixelStateSpike	(oPixelStateSpikeR),
 		.oValidPixel		(oValidPixelR),
 		.oScrx				(oScrxR),
 		.oScry				(oScryR),
@@ -326,7 +326,7 @@ module GPUBackend(
 	);
 	
 	// ...Inter plumbing...
-	wire [1:0] oNewBGCacheLineL,oNewBGCacheLineR;
+	wire [1:0] oPixelStateSpikeL,oPixelStateSpikeR;
 	wire oValidPixelL,oValidPixelR;
 	wire [ 9:0]	oScrxL,oScrxR;
 	wire [ 8:0]	oScryL,oScryR;
@@ -483,7 +483,7 @@ module GPUBackend(
 	// 01 : First pair,
 	// 10 : Next Pair,
 	// 11 : Last Pair / Flush.
-	wire [1:0] pairCode				= ((oNewBGCacheLineL == 2'b01) & noblend) ? 2'b00 : (oNewBGCacheLineL | {flushLastBlock,flushLastBlock}); 	
+	wire [1:0] pairCode				= ((oPixelStateSpikeL == 2'b01) & noblend) ? 2'b00 : (oPixelStateSpikeL | {flushLastBlock,flushLastBlock});
 	reg  [1:0] PpairCode;
 	wire doBlockOp					= pairCode[0] | pairCode[1]; /* | oNewBGCacheLineR*/ // Should be the SAME, only one item needed
 	reg  PdoBlockOp;
