@@ -37,57 +37,57 @@ module CLUT_Cache(
 	reg [14:0] CLUT_Internal;
 	always @ (posedge clk)
 	begin
-		CLUT_Internal <= CLUT_ID;
+		CLUT_Internal = CLUT_ID;
 	end
 	
 	always @ (posedge clk)
 	begin
 		if (write /*|| (pUpdate & !pAdressIn[3])*/) // Low 32 bit.
 		begin
-			CLUTStorage[writeIdx] <= ColorIn;
+			CLUTStorage[writeIdx] = ColorIn;
 		end
-		pRaddrA	<= readIdx1;
-		pRaddrB	<= readIdx2;
+		pRaddrA	= readIdx1;
+		pRaddrB	= readIdx2;
 		
 		if ((i_nrst == 0) | clearCache) begin
-			Loaded[ 0] <= 1'b0;
-			Loaded[ 1] <= 1'b0;
-			Loaded[ 2] <= 1'b0;
-			Loaded[ 3] <= 1'b0;
-			Loaded[ 4] <= 1'b0;
-			Loaded[ 5] <= 1'b0;
-			Loaded[ 6] <= 1'b0;
-			Loaded[ 7] <= 1'b0;
-			Loaded[ 8] <= 1'b0;
-			Loaded[ 9] <= 1'b0;
-			Loaded[10] <= 1'b0;
-			Loaded[11] <= 1'b0;
-			Loaded[12] <= 1'b0;
-			Loaded[13] <= 1'b0;
-			Loaded[14] <= 1'b0;
-			Loaded[15] <= 1'b0;
+			Loaded[ 0] = 1'b0;
+			Loaded[ 1] = 1'b0;
+			Loaded[ 2] = 1'b0;
+			Loaded[ 3] = 1'b0;
+			Loaded[ 4] = 1'b0;
+			Loaded[ 5] = 1'b0;
+			Loaded[ 6] = 1'b0;
+			Loaded[ 7] = 1'b0;
+			Loaded[ 8] = 1'b0;
+			Loaded[ 9] = 1'b0;
+			Loaded[10] = 1'b0;
+			Loaded[11] = 1'b0;
+			Loaded[12] = 1'b0;
+			Loaded[13] = 1'b0;
+			Loaded[14] = 1'b0;
+			Loaded[15] = 1'b0;
 		end else begin
 			if (write) begin
 				// When we load in cache, we will write 8 32bit word. (16 colors)
 				// It will be guaranteed by the state machine.
 				// So we just rewrite the LOADED flag 8 times.
 				case (blocIdx)
-				4'd0  : Loaded[ 0] <= 1'b1;
-				4'd1  : Loaded[ 1] <= 1'b1;
-				4'd2  : Loaded[ 2] <= 1'b1;
-				4'd3  : Loaded[ 3] <= 1'b1;
-				4'd4  : Loaded[ 4] <= 1'b1;
-				4'd5  : Loaded[ 5] <= 1'b1;
-				4'd6  : Loaded[ 6] <= 1'b1;
-				4'd7  : Loaded[ 7] <= 1'b1;
-				4'd8  : Loaded[ 8] <= 1'b1;
-				4'd9  : Loaded[ 9] <= 1'b1;
-				4'd10 : Loaded[10] <= 1'b1;
-				4'd11 : Loaded[11] <= 1'b1;
-				4'd12 : Loaded[12] <= 1'b1;
-				4'd13 : Loaded[13] <= 1'b1;
-				4'd14 : Loaded[14] <= 1'b1;
-				4'd15 : Loaded[15] <= 1'b1;
+				4'd0  : Loaded[ 0] = 1'b1;
+				4'd1  : Loaded[ 1] = 1'b1;
+				4'd2  : Loaded[ 2] = 1'b1;
+				4'd3  : Loaded[ 3] = 1'b1;
+				4'd4  : Loaded[ 4] = 1'b1;
+				4'd5  : Loaded[ 5] = 1'b1;
+				4'd6  : Loaded[ 6] = 1'b1;
+				4'd7  : Loaded[ 7] = 1'b1;
+				4'd8  : Loaded[ 8] = 1'b1;
+				4'd9  : Loaded[ 9] = 1'b1;
+				4'd10 : Loaded[10] = 1'b1;
+				4'd11 : Loaded[11] = 1'b1;
+				4'd12 : Loaded[12] = 1'b1;
+				4'd13 : Loaded[13] = 1'b1;
+				4'd14 : Loaded[14] = 1'b1;
+				4'd15 : Loaded[15] = 1'b1;
 				endcase
 			end
 		end
