@@ -2736,8 +2736,8 @@ wire signed [PREC+8:0] roundComp = { 9'd0, 1'b1, 10'd0}; // PRECM1'd0
 wire signed [PREC+8:0] offR = (distXV0*RSX) + (distYV0*RSY) + roundComp;
 wire signed [PREC+8:0] offG = (distXV0*GSX) + (distYV0*GSY) + roundComp;
 wire signed [PREC+8:0] offB = (distXV0*BSX) + (distYV0*BSY) + roundComp;
-wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) + roundComp[PREC+7:0];
-wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) + roundComp[PREC+7:0];
+wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) + roundComp;
+wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) + roundComp;
 
 wire signed [8:0] pixRL = RegR0 + offR[PREC+8:PREC];
 wire signed [8:0] pixGL = RegG0 + offG[PREC+8:PREC];
