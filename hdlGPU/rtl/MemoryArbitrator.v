@@ -119,6 +119,9 @@ module MemoryArbitrator(
 	
 	output			saveLoadOnGoing,
 	
+	output			resetPipelinePixelStateSpike,
+	output			resetMask,				// Reset the list of used pixel inside the block for next block processing.
+	
 	output			notMemoryBusyCurrCycle,
 	output			notMemoryBusyNextCycle,
 	// -----------------------------------
@@ -180,6 +183,8 @@ assign updateTexCacheCompleteR	= s_updateTexCacheCompleteR;
 assign updateClutCacheCompleteL	= s_updateClutCacheCompleteL;
 assign updateClutCacheCompleteR	= s_updateClutCacheCompleteR;
 
+reg    s_resetPipelinePixelStateSpike;
+assign resetPipelinePixelStateSpike	= s_resetPipelinePixelStateSpike;
 //
 // GPU Side State machine...
 //
@@ -284,6 +289,8 @@ reg  [1:0]	regValidPair;
 reg  [2:0]	regPairID;
 
 // Output
+reg			s_resetMask; assign resetMask = s_resetMask;
+
 reg [19:0]	s_busAdr;	assign adr_o = s_busAdr;
 reg  [2:0]  s_cnt;		assign cnt_o = s_cnt;
 reg         s_busREQ;	assign req_o = s_busREQ;
@@ -343,6 +350,8 @@ begin
 	s_setLoadOnGoing	= 0;
 	s_resetLoadOnGoing	= 0;
 	s_importBGBlockSingleClock	= 0;
+	s_resetPipelinePixelStateSpike	= 0;
+	s_resetMask			= 0;
 	
 //	resetMSK			= 1'b0;
 //	s_storeCacheAdr		= 1'b0;
@@ -527,12 +536,14 @@ begin
 			readStuff = 1'b0; // WRITE SIGNAL.
 		end else begin
 			// END
+			s_resetMask	= 1;
 			s_busREQ  = 1'b0;
 			if (isBlending && saveBGBlock != 2'd3) begin // If it is the FLUSH mode, we do NOT perform the READ at the end.
 				nextState = READ_BG_START;	
 			end else begin
 				s_resetLoadOnGoing = 1;
 				nextState = DEFAULT_STATE;
+				s_resetPipelinePixelStateSpike	= 1;
 			end
 		end
 	end
@@ -581,6 +592,7 @@ begin
 
 			loadBGInternal = 1'b1;
 		end else begin
+			s_resetPipelinePixelStateSpike	= 1;
 			s_resetLoadOnGoing = 1;
 			s_importBGBlockSingleClock = 1;
 			nextState = DEFAULT_STATE;

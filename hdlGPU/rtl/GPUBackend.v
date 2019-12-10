@@ -10,8 +10,8 @@ module GPUBackend(
 	output			o_pixelInFlight,
 	// Management on BG Block
 	output			o_writePixelOnNewBlock,	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
-	input			i_resetPixelOnNewBlock,	// 1/ Clear 'o_writePixelOnNewBlock' flag. 2/ Clear MASK for new block.
-	input			i_resetPixelMask,
+	input			i_resetPipelinePixelStateSpike,	// 1/ Clear 'o_writePixelOnNewBlock' flag. 
+	input			i_resetPixelMask,		// 2/ Clear MASK for new block.
 	
 	// -------------------------------
 	// GPU Setup
@@ -195,7 +195,7 @@ module GPUBackend(
 		
 		// --- ALL STAGES : Just STOP ---
 		.pause				(i_pausePipeline),
-		.resetLineFlag		(i_resetPixelOnNewBlock),
+		.resetPipelinePixelStateSpike(i_resetPipelinePixelStateSpike),
 		.pixelInFlight		(pixelInFlightL),
 
 		
@@ -266,7 +266,7 @@ module GPUBackend(
 		
 		// --- ALL STAGES : Just STOP ---
 		.pause				(i_pausePipeline),
-		.resetLineFlag		(i_resetPixelOnNewBlock),
+		.resetPipelinePixelStateSpike(i_resetPipelinePixelStateSpike),
 		.pixelInFlight		(pixelInFlightR),
 		
 		// --- Stage 0 Input ---
@@ -408,7 +408,7 @@ module GPUBackend(
 	reg PTexHit_c1R,PTexHit_c1L;
 	always @(posedge clk)
 	begin
-		if (!i_pausePipeline) begin
+		if (!i_pausePipeline && TexHit_c1R && TexHit_c1L) begin
 			PTexHit_c1R = TexHit_c1R;
 			PTexHit_c1L = TexHit_c1L;
 		end

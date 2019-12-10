@@ -25,7 +25,7 @@ module GPUPipeCtrl2(
 	
 	// --- ALL STAGES : Just STOP ---
 	input			pause,
-	input			resetLineFlag,
+	input			resetPipelinePixelStateSpike,
 	
 	// --- Stage 0 Input ---
 	// Left Side (All values stay the same from previous cycle if OkNext is FALSE)
@@ -86,7 +86,7 @@ module GPUPipeCtrl2(
 	output [14:0]   adrClutCacheUpdate,
 	input           updateClutCacheComplete
 );
-	wire selPauseTex 	= pause & missT_c1;
+	wire selPauseTex 	= pause;
 	wire selPauseClut	= pause & missC_c1;
 	
 	// -------------------------------------------------------------
@@ -186,8 +186,8 @@ module GPUPipeCtrl2(
 		// ENDED UP WITH PUTTING EVERYTHING IN ONE BLOCK IN CORRECT ORDER.
 		// BUT THIS IF STAYED AT THE END. FUCK YOU VERILOG. FUCK YOU FUCK YOU FUCK YOU !!!!
 		//
-		if (!pause | resetLineFlag | (i_nrst == 0)) begin
-			PPpixelStateSpike_c2	<= ((i_nrst==0) | resetLineFlag) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
+		if (!pause | resetPipelinePixelStateSpike | (i_nrst == 0)) begin
+			PPpixelStateSpike_c2	<= ((i_nrst==0) | resetPipelinePixelStateSpike) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
 		end
 		
 		if (!pause || (i_nrst==0)) begin

@@ -2790,9 +2790,6 @@ begin
 	lastSaveLoadOnGoing = saveLoadOnGoing;
 	lastMissTC			= missTC;
 end
-wire resetPixelOnNewBlock	= (saveLoadOnGoing == 0) && (lastSaveLoadOnGoing==1);
-// MEMO BEFORE_TEXTURE : resetPixelOnNewBlock only, no !lastMissTC
-wire resetMask				= resetPixelOnNewBlock & (!lastMissTC);
 
 wire notMemoryBusyCurrCycle;
 wire notMemoryBusyNextCycle;
@@ -2953,6 +2950,9 @@ MemoryArbitrator MemoryArbitratorInstance(
 	.importBGBlockSingleClock			(importBGBlockSingleClock),
 	.importedBGBlock					(importedBGBlock),
 	
+	.resetPipelinePixelStateSpike		(resetPipelinePixelStateSpike),
+	.resetMask							(resetMask),
+	
 	// -----------------------------------
 	// [Fake Memory SIDE]
 	// -----------------------------------
@@ -2990,6 +2990,9 @@ wire           updateClutCacheCompleteL,updateClutCacheCompleteR;
 wire pausePipeline = writePixelOnNewBlock | missTC;	// Busy to write the BG/read BG/TEX$/CLUT$ memory access.
 wire missTC;
 wire writePixelOnNewBlock;
+wire resetPipelinePixelStateSpike;
+// MEMO BEFORE_TEXTURE : resetPixelOnNewBlock only, no !lastMissTC
+wire resetMask;
 
 GPUBackend GPUBackendInstance(
 	.clk								(clk),
@@ -3002,8 +3005,8 @@ GPUBackend GPUBackendInstance(
 	.o_missTC							(missTC),					// Any Cache miss, stop going next pixels.
 	// Management on BG Block
 	.o_writePixelOnNewBlock				(writePixelOnNewBlock),	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
-	.i_resetPixelOnNewBlock				(resetPixelOnNewBlock),	// 1/ Clear 'o_writePixelOnNewBlock' flag. 2/ Clear MASK for new block.
-	.i_resetPixelMask					(resetMask),
+	.i_resetPipelinePixelStateSpike		(resetPipelinePixelStateSpike),	// 1/ Clear 'o_writePixelOnNewBlock' flag.
+	.i_resetPixelMask					(resetMask),					// 2/ Clear MASK for new block.
 	// -------------------------------
 	// GPU Setup
 	// -------------------------------
