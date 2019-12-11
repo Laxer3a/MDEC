@@ -3,6 +3,7 @@ module CLUT_Cache(
 	input			i_nrst,
 	
 	input [14:0]	CLUT_ID,
+	input 			resetCache,
 	
 	// Forced to do 8x32 bit cache line fill when CLUT lookup empty. (16 colors)
 	// --> Simplify for 4 bit texture. 1 Load
@@ -33,7 +34,7 @@ module CLUT_Cache(
 	wire [3:0] blocIdx = isHit1 ? /*1 Is working = use 2*/ readIdx2[7:4] : readIdx1[7:4];
 	wire [6:0] writeIdx = {blocIdx,writeIdxInBlk};
 	// Detect change of clut.
-	wire clearCache = (CLUT_ID != CLUT_Internal);
+	wire clearCacheInternal = (CLUT_ID != CLUT_Internal);
 	reg [14:0] CLUT_Internal;
 	always @ (posedge clk)
 	begin
@@ -49,7 +50,7 @@ module CLUT_Cache(
 		pRaddrA	= readIdx1;
 		pRaddrB	= readIdx2;
 		
-		if ((i_nrst == 0) | clearCache) begin
+		if ((i_nrst == 0) | clearCacheInternal | resetCache) begin
 			Loaded[ 0] = 1'b0;
 			Loaded[ 1] = 1'b0;
 			Loaded[ 2] = 1'b0;

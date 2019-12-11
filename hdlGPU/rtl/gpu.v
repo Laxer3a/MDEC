@@ -518,8 +518,11 @@ wire bUseTexture    		= bIsPolyOrRect &  command[2] & (!GPU_REG_TextureDisable);
 wire bIs4PointPoly  		= command[3] & bIsPolyCommand;
 wire bIsMultiLine   		= command[3] & bIsLineCommand;
 wire bIsPerVtxCol   		= (bIsPolyCommand | bIsLineCommand) & command[4];
-// Rectangle no dither.
-wire bDither				= GPU_REG_DitherOn & (!bIsRectCommand);
+
+// - Rectangle never dither. ( => bIsPerVtxCol is FALSE)
+// - Line      dither if set (even for unique color)
+// - Triangle  dither if gouraud is set (textured or not) = bIsPerVtxCol
+wire bDither				= GPU_REG_DitherOn & (bIsPerVtxCol | bIsLineCommand);
 wire bOpaque        		= !bSemiTransp;
 
 // TODO : Rejection occurs with DX / DY. Not range. wire rejectVertex			= (fifoDataOutX[11] != fifoDataOutX[10]) | (fifoDataOutY[11] != fifoDataOutY[10]); // Primitive with offset out of range -1024..+1023
@@ -2840,6 +2843,7 @@ CLUT_Cache CLUT_CacheInst(
 	.i_nrst								(i_nrst),
 	
 	.CLUT_ID							(RegC),
+	.resetCache							(rstTextureCache), // Precautiously clean the cache when asked by user command for texture.
 	
 	.write								(ClutCacheWrite),
 	.writeIdxInBlk						(ClutWriteIndex),
