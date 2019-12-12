@@ -101,7 +101,7 @@ module MemoryArbitrator(
 	output          updateClutCacheCompleteR,
 	// CLUT$ feed updated $ data to cache.
 	output          ClutCacheWrite,
-	output  [2:0]   ClutWriteIndex,
+	output  [6:0]   ClutWriteIndex,
 	output [31:0]   ClutCacheData,
 	
 	input			isBlending,
@@ -170,7 +170,7 @@ assign TexCacheData[63:32]	= dat_i;
 assign TexCacheData[31: 0]  = regDatI;
 assign adrTexCacheWrite		= baseAdr[17:1];
 
-assign ClutWriteIndex		= currX[2:0];
+assign ClutWriteIndex		= currX;
 
 assign ClutCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd2);
 assign TexCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd3);
@@ -195,7 +195,7 @@ begin
 		currState	= DEFAULT_STATE;
 //		cacheBGAdr	= 15'h7FFF;
 //		cacheBGMsk	= 16'd0;
-		currX		= 4'd0;
+		currX		= 7'd0;
 		regSaveLoadOnGoing	= 1'b0;
 	end else begin
 		currState	= nextState;
@@ -267,10 +267,10 @@ begin
 		end
 		
 		if (incrX) begin
-			currX = currX + 4'b0001;
+			currX = currX + 7'd1;
 		end else begin
 			if (resetX) begin
-				currX = 0;
+				currX = 7'd0;
 			end
 		end
 		
@@ -305,7 +305,7 @@ wire busACK		= ack_i;
 reg readStuff;
 reg [2:0] nextState;
 //reg writePixelInternal;
-reg [3:0] currX;
+reg [6:0] currX;
 reg       incrX, resetX;
 reg s_store;
 reg s_storeColor;

@@ -2836,6 +2836,7 @@ wire  [18:0]	adrTexReq_c0L,adrTexReq_c0R;
 wire			TexHit_c1L,TexHit_c1R;
 wire			TexMiss_c1L,TexMiss_c1R;
 wire [15:0]		dataTex_c1L,dataTex_c1R;
+wire			clutNeedLoading,clutCheck;
 // ------------------------------------------------
 
 CLUT_Cache CLUT_CacheInst(
@@ -2843,22 +2844,19 @@ CLUT_Cache CLUT_CacheInst(
 	.i_nrst								(i_nrst),
 	
 	.CLUT_ID							(RegC),
-	.resetCache							(rstTextureCache), // Precautiously clean the cache when asked by user command for texture.
+	.checkCLUT							(clutCheck),
+	.needLoading						(clutNeedLoading),
 	
 	.write								(ClutCacheWrite),
-	.writeIdxInBlk						(ClutWriteIndex),
+	.writeIdx128						(ClutWriteIndex),
 	.ColorIn							(ClutCacheData),
 
 	.requ1								(requDataClut_c1L),
 	.readIdx1							(indexPalL),
-	.isHit1								(ClutHit_c1L),
-	.isMiss1							(ClutMiss_c1L),
 	.colorEntry1						(dataClut_c2L),
 	
 	.requ2								(requDataClut_c1R),
 	.readIdx2							(indexPalR),
-	.isHit2								(ClutHit_c1R),
-	.isMiss2							(ClutMiss_c1R),
 	.colorEntry2						(dataClut_c2R)
 );
 
@@ -2867,13 +2865,11 @@ CLUT_Cache CLUT_CacheInst(
 // ------------------------------------------------
 // CLUT$ feed updated $ data to cache.
 wire        	ClutCacheWrite;
-wire  [2:0]		ClutWriteIndex;
+wire  [6:0]		ClutWriteIndex;
 wire [31:0]		ClutCacheData;
 
 wire			requDataClut_c1L,requDataClut_c1R;
 wire [7:0]		indexPalL,indexPalR;
-wire			ClutHit_c1L,ClutHit_c1R;
-wire			ClutMiss_c1L,ClutMiss_c1R;
 wire [15:0]		dataClut_c2L,dataClut_c2R;
 wire			saveLoadOnGoing;
 // ------------------------------------------------
