@@ -42,7 +42,6 @@ module GPUPipeCtrl2(
 
 	// --- Stage 1 Output Control ---
 	output			missT_c1,			// TRUE garantee it is about VALID pixel/request.
-	output			missC_c1,			// TRUE garantee it is about VALID pixel/request.
 	output			validPixel_c1,
 	output			pixelInFlight,
 	
@@ -77,17 +76,9 @@ module GPUPipeCtrl2(
 	// Clut$ Side
 	output			requDataClut_c1,
 	output [7:0]	indexPal,	// Temp
-	input			ClutHit_c1,			// 0 Latency between requ and Hit.
-	input			ClutMiss_c1,
-	input  [15:0]	dataClut_c2,
-	
-	// Request Cache Fill
-	output          requClutCacheUpdate,
-	output [14:0]   adrClutCacheUpdate,
-	input           updateClutCacheComplete
+	input  [15:0]	dataClut_c2
 );
 	wire selPauseTex 	= pause;
-	wire selPauseClut	= pause & missC_c1;
 	
 	// -------------------------------------------------------------
 	// ---        Stage C0 
@@ -150,13 +141,10 @@ module GPUPipeCtrl2(
 		____.____._XXX.XXX_.____
 		____.____.___I.III_.____  <-- Cache line is 32 bytes. */
 	wire [5:0] colIndex_c1		= { 2'b0, indexPal[7:4] } + GPU_REG_CLUT[5:0];
-	assign requClutCacheUpdate	= ClutMiss_c1;
-	assign adrClutCacheUpdate	= { GPU_REG_CLUT[14:6] , colIndex_c1 }; // Cache line is 32 byte. ==> 16 Colors.
 	// ----------------------------------------------------------------
 	
 	// Assign to user control outside
 	assign	missT_c1		= TexMiss_c1;
-	assign	missC_c1		= ClutMiss_c1;
 	assign	validPixel_c1	= PValidPixel_c1;
 	
 	assign requTexCacheUpdate_c1	= TexMiss_c1;

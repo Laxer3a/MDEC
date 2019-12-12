@@ -76,14 +76,7 @@ module GPUBackend(
 	// Clut$ Side
 	output			requDataClut_c1L,
 	output [7:0]	indexPalL,	// Temp
-	input			ClutHit_c1L,			// 0 Latency between requ and Hit.
-	input			ClutMiss_c1L,
 	input  [15:0]	dataClut_c2L,
-	
-	// Request Cache Fill
-	output          requClutCacheUpdateL,
-	output [14:0]   adrClutCacheUpdateL,
-	input           updateClutCacheCompleteL,
 
 	// --- Tex$ Side ---
 	output			requDataTex_c0R,
@@ -100,14 +93,7 @@ module GPUBackend(
 	// Clut$ Side
 	output			requDataClut_c1R,
 	output [7:0]	indexPalR,	// Temp
-	input			ClutHit_c1R,			// 0 Latency between requ and Hit.
-	input			ClutMiss_c1R,
 	input  [15:0]	dataClut_c2R,
-	
-	// Request Cache Fill
-	output          requClutCacheUpdateR,
-	output [14:0]   adrClutCacheUpdateR,
-	input           updateClutCacheCompleteR,
 	
 	// -------------------------------
 	//   Stencil Cache Write Back
@@ -215,7 +201,6 @@ module GPUBackend(
 
 		// --- Stage 1 Output Control ---
 		.missT_c1			(missT_c1L),			// TRUE garantee it is about VALID pixel/request.
-		.missC_c1			(missC_c1L),			// TRUE garantee it is about VALID pixel/request.
 		.validPixel_c1		(validPixelC1L),
 		
 		// --- Stage 2 Write back Control ---
@@ -246,13 +231,7 @@ module GPUBackend(
                                      
 		.requDataClut_c1			(requDataClut_c1L		),
 		.indexPal					(indexPalL				),	// Temp
-		.ClutHit_c1					(ClutHit_c1L			),			// 0 Latency between requ and Hit.
-		.ClutMiss_c1				(ClutMiss_c1L			),
-		.dataClut_c2				(dataClut_c2L			),
-                                     
-		.requClutCacheUpdate		(requClutCacheUpdateL	),
-		.adrClutCacheUpdate			(adrClutCacheUpdateL	),
-		.updateClutCacheComplete	(updateClutCacheCompleteL)
+		.dataClut_c2				(dataClut_c2L			)
 	);
 
 	GPUPipeCtrl2 GPUPipeCtrl2R(
@@ -285,7 +264,6 @@ module GPUBackend(
 
 		// --- Stage 1 Output Control ---
 		.missT_c1			(missT_c1R),			// TRUE garantee it is about VALID pixel/request.
-		.missC_c1			(missC_c1R),			// TRUE garantee it is about VALID pixel/request.
 		.validPixel_c1		(validPixelC1R),
 		
 		// --- Stage 2 Write back Control ---
@@ -316,13 +294,7 @@ module GPUBackend(
                                      
 		.requDataClut_c1			(requDataClut_c1R		),
 		.indexPal					(indexPalR				),	// Temp
-		.ClutHit_c1					(ClutHit_c1R			),			// 0 Latency between requ and Hit.
-		.ClutMiss_c1				(ClutMiss_c1R			),
-		.dataClut_c2				(dataClut_c2R			),
-                                     
-		.requClutCacheUpdate		(requClutCacheUpdateR	),
-		.adrClutCacheUpdate			(adrClutCacheUpdateR	),
-		.updateClutCacheComplete	(updateClutCacheCompleteR)
+		.dataClut_c2				(dataClut_c2R			)
 	);
 	
 	// ...Inter plumbing...

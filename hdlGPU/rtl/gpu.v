@@ -3069,14 +3069,7 @@ GPUBackend GPUBackendInstance(
 	// Clut$ Side
 	.requDataClut_c1L					(requDataClut_c1L	),
 	.indexPalL							(indexPalL			),	// Temp
-	.ClutHit_c1L						(ClutHit_c1L		),			// 0 Latency between requ and Hit.
-	.ClutMiss_c1L						(ClutMiss_c1L		),
 	.dataClut_c2L						(dataClut_c2L		),
-	
-	// Request Cache Fill
-	.requClutCacheUpdateL				(requClutCacheUpdateL),
-	.adrClutCacheUpdateL				(adrClutCacheUpdateL),
-	.updateClutCacheCompleteL			(updateClutCacheCompleteL),
 	
 	// --- Tex$ Side ---
 	.requDataTex_c0R					(requDataTex_c0R),
@@ -3093,14 +3086,7 @@ GPUBackend GPUBackendInstance(
 	// Clut$ Side
 	.requDataClut_c1R					(requDataClut_c1R	),
 	.indexPalR							(indexPalR			),	// Temp
-	.ClutHit_c1R						(ClutHit_c1R		),			// 0 Latency between requ and Hit.
-	.ClutMiss_c1R						(ClutMiss_c1R		),
 	.dataClut_c2R						(dataClut_c2R		),
-	
-	// Request Cache Fill
-	.requClutCacheUpdateR				(requClutCacheUpdateR),
-	.adrClutCacheUpdateR				(adrClutCacheUpdateR),
-	.updateClutCacheCompleteR			(updateClutCacheCompleteR),
 	
 	// -------------------------------
 	//   Stencil Cache Write Back
