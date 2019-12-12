@@ -91,14 +91,10 @@ module MemoryArbitrator(
 	output [63:0]   TexCacheData,
 	
 	// -- CLUT$ Stuff --
-	// CLUT$ Cache miss from L Side
-	input           requClutCacheUpdateL,
-	input  [14:0]   adrClutCacheUpdateL,
-	output          updateClutCacheCompleteL,
-	// CLUT$ Cache miss from R Side
-	input           requClutCacheUpdateR,
-	input  [14:0]   adrClutCacheUpdateR,
-	output          updateClutCacheCompleteR,
+	input			requestCLUTLoad,
+	input			CLUTIs8BPP,
+	input  [14:0]	CLUTAdr,
+	
 	// CLUT$ feed updated $ data to cache.
 	output          ClutCacheWrite,
 	output  [6:0]   ClutWriteIndex,
@@ -121,6 +117,7 @@ module MemoryArbitrator(
 	
 	output			resetPipelinePixelStateSpike,
 	output			resetMask,				// Reset the list of used pixel inside the block for next block processing.
+	output			busyCLUT,
 	
 	output			notMemoryBusyCurrCycle,
 	output			notMemoryBusyNextCycle,
@@ -134,7 +131,7 @@ module MemoryArbitrator(
     output [19:0]   adr_o,   // ADR_O() address
     input  [31:0]   dat_i,   // DAT_I() data in
     output [31:0]   dat_o,   // DAT_O() data out
-	output  [2:0]	cnt_o,
+	output  [6:0]	cnt_o,
     output  [3:0]   sel_o,   // SEL_O() select output
 	output   wrt_o,
 	output 	 req_o,
@@ -170,18 +167,27 @@ assign TexCacheData[63:32]	= dat_i;
 assign TexCacheData[31: 0]  = regDatI;
 assign adrTexCacheWrite		= baseAdr[17:1];
 
-assign ClutWriteIndex		= currX;
 
-assign ClutCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd2);
+reg PWriteGPU,PPWriteGPU;
+reg [6:0] PCurrX;
+always @(posedge gpuClk) begin
+	PPWriteGPU  = PWriteGPU;
+	PWriteGPU	= prevClutCacheWrite;
+	PCurrX		= currX[6:0];
+end
+assign ClutWriteIndex		= PCurrX;
+assign ClutCacheWrite		= PWriteGPU;
+assign busyCLUT 			= PWriteGPU | prevClutCacheWrite;
+wire   prevClutCacheWrite   = s_writeGPU & (regReadMode[3:1] == 3'd2);
 assign TexCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd3);
+
+
 // wire   bgIsInCache			= (cacheBGAdr == bgRequestAdr[17:3]);
 // wire   s_validbgPixel		= bgIsInCache & bgRequest & (currState == DEFAULT_STATE); // Test State because we want to avoid TRUE while LOADING...
 // assign validbgPixel			= s_validbgPixel;
 // assign writePixelDone		= s_writePixelDone;
 assign updateTexCacheCompleteL	= s_updateTexCacheCompleteL;
 assign updateTexCacheCompleteR	= s_updateTexCacheCompleteR;
-assign updateClutCacheCompleteL	= s_updateClutCacheCompleteL;
-assign updateClutCacheCompleteR	= s_updateClutCacheCompleteR;
 
 reg    s_resetPipelinePixelStateSpike;
 assign resetPipelinePixelStateSpike	= s_resetPipelinePixelStateSpike;
@@ -292,7 +298,7 @@ reg  [2:0]	regPairID;
 reg			s_resetMask; assign resetMask = s_resetMask;
 
 reg [19:0]	s_busAdr;	assign adr_o = s_busAdr;
-reg  [2:0]  s_cnt;		assign cnt_o = s_cnt;
+reg  [6:0]  s_cnt;		assign cnt_o = s_cnt;
 reg         s_busREQ;	assign req_o = s_busREQ;
 reg  [1:0]  busWMSK;	assign sel_o = {busWMSK[1],busWMSK[1],busWMSK[0],busWMSK[0]};
 reg [31:0]	busDataW;	assign dat_o = busDataW; // TODO NEVER ASSIGNED
@@ -300,7 +306,7 @@ reg			busWRT;		assign wrt_o = !readStuff;
 // Input
 wire busACK		= ack_i;
 
-
+wire [8:0]  colorIDX   = baseAdr[8:0] + { 2'b00, currX };
 
 reg readStuff;
 reg [2:0] nextState;
@@ -313,14 +319,11 @@ reg s_writeGPU;
 reg s_storeAdr;
 reg	s_updateTexCacheCompleteL;
 reg	s_updateTexCacheCompleteR;
-reg	s_updateClutCacheCompleteL;
-reg	s_updateClutCacheCompleteR;
 // reg s_storeCacheAdr;
 // reg resetMSK;
 reg loadBGInternal;
 reg s_setLoadOnGoing,s_resetLoadOnGoing;
 
-wire isClutReq 		= requClutCacheUpdateL | requClutCacheUpdateR;
 wire isTexReq  		= requTexCacheUpdateL  | requTexCacheUpdateR;
 wire isFirstBlockBlending = ((saveBGBlock == 2'b01) & isBlending);
 // wire hasValidPixels = pixelValid[0] | pixelValid[1];
@@ -335,7 +338,7 @@ begin
 //	writePixelInternal	= 1'b0;
 	resetX				= 1'b0;
 	incrX				= 1'b0;
-	s_cnt				= 3'd0;
+	s_cnt				= 7'd0;
 	s_busAdr			= 20'd0;
 	s_busREQ			= 1'b0;
 	ReadMode			= 4'd0;
@@ -345,8 +348,6 @@ begin
 	s_storeColor		= 1'b0;
 	s_updateTexCacheCompleteL	= 1'b0;
 	s_updateTexCacheCompleteR	= 1'b0;
-	s_updateClutCacheCompleteL	= 1'b0;
-	s_updateClutCacheCompleteR	= 1'b0;
 	s_setLoadOnGoing	= 0;
 	s_resetLoadOnGoing	= 0;
 	s_importBGBlockSingleClock	= 0;
@@ -417,12 +418,12 @@ begin
 				MEM_CMD_PIXEL2VRAM:
 				begin
 					nextState	= WRITE_PIXPAIR;
-					s_cnt		= 3'd0; // 1 Pair
+					s_cnt		= 7'd0; // 1 Pair
 				end
 				MEM_CMD_FILL:
 				begin
 					nextState	= FILL_BG;
-					s_cnt		= 3'd7; // 8 Pair
+					s_cnt		= 7'd7; // 8 Pair
 				end
 				default:
 				begin
@@ -433,29 +434,18 @@ begin
 			end else begin
 				if (spikeBGBlock & (saveBGBlock[1] | isFirstBlockBlending)) begin
 					s_busREQ	= 1'b1;
-					s_cnt		= 3'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
+					s_cnt		= 7'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
 					nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
 					s_setLoadOnGoing = 1; // Trick : if we have a spike but NOT with type 11 or 10, we still signal for GPU state machine.
 				end else begin
-					if (isClutReq) begin
-						// [READ]
-						// ... CLUT$ Update ...
-						ReadMode = { 3'd2, requClutCacheUpdateR };
-						s_storeAdr	= 1'b1;
-						s_setLoadOnGoing = 1;
-						if (requClutCacheUpdateL) begin
-							// Left First...
-							s_busAdr	= { adrClutCacheUpdateL, 5'd0 }; // Adr by 32 byte block.
-							s_busREQ	= 1'b1;
-							s_cnt       = 3'd7; // 8 block of 32 bit.
-							nextState	= READ_STATE;
-						end else begin
-							// Right Second...
-							s_busAdr	= { adrClutCacheUpdateR, 5'd0 }; // Adr by 32 byte block.
-							s_busREQ	= 1'b1;
-							s_cnt       = 3'd7; // 8 block of 32 bit.
-							nextState	= READ_STATE;
-						end
+					if (requestCLUTLoad) begin
+						s_cnt				= CLUTIs8BPP ? 7'd127 : 7'd7;
+						ReadMode			= { 3'd2, 1'b0 };
+						s_storeAdr			= 1'b1;
+						s_setLoadOnGoing	= 1;
+						s_busAdr			= { CLUTAdr, 5'd0 }; // Adr by 32 byte block.
+						s_busREQ			= 1'b1;
+						nextState			= READ_STATE;
 					end else begin
 						if (isTexReq) begin
 							ReadMode = { 3'd3, requTexCacheUpdateR };
@@ -467,13 +457,13 @@ begin
 								// Left First...
 								s_busAdr	= { adrTexCacheUpdateL, 3'd0 }; // Adr by 8 byte block.
 								s_busREQ	= 1'b1;
-								s_cnt       = 3'd1; // 2 block of 32 bit.
+								s_cnt       = 7'd1; // 2 block of 32 bit.
 								nextState	= READ_STATE;
 							end else begin
 								// Right Second...
 								s_busAdr	= { adrTexCacheUpdateR, 3'd0 }; // Adr by 8 byte block.
 								s_busREQ	= 1'b1;
-								s_cnt       = 3'd1; // 2 block of 32 bit.
+								s_cnt       = 7'd1; // 2 block of 32 bit.
 								nextState	= READ_STATE;
 							end
 						end
@@ -494,15 +484,25 @@ begin
 				loadBGInternal = 1'b1;
 			end
 			*/
-			3'd2: // Clut 32 byte
+			3'd2: // Clut 32 / 512 byte
 			begin
-				s_busAdr = { requClutCacheUpdateL ? adrClutCacheUpdateL : adrClutCacheUpdateR, currX[2:0],2'd0 };
+				s_busAdr = { baseAdr[17:9],colorIDX,2'b0 };
 				s_writeGPU = 1'b1;
-				if (currX[2:0] == 3'b111) begin
+				if ((CLUTIs8BPP & (currX[6:0] == 7'd127)) | (!CLUTIs8BPP & (currX[6:0] == 7'd7))) begin
+					
+				end
+				/***
+
+					TODO : CLUTIs8BPP flag
+				
+				s_writeGPU = 1'b1;
+				if () begin
 					// Last value write (only 2)
 					s_updateClutCacheCompleteL = !regReadMode[0];
 					s_updateClutCacheCompleteR =  regReadMode[0];
 				end
+				
+				****/
 			end
 			3'd3: // Texture 8 byte
 			begin
@@ -581,7 +581,7 @@ begin
 	READ_BG_START:
 	begin
 		s_busREQ	= 1'b1;
-		s_cnt		= 3'd7;
+		s_cnt		= 7'd7;
 		nextState	= READ_BG;
 	end
 	READ_BG:

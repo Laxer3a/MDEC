@@ -31,7 +31,7 @@ module gpu(
 	output [19:0]   adr_o,   // ADR_O() address
 	input  [31:0]   dat_i,   // DAT_I() data in
 	output [31:0]   dat_o,   // DAT_O() data out
-	output  [2:0]	cnt_o,
+	output  [6:0]	cnt_o,
 	output  [3:0]   sel_o,
 	output			wrt_o,
 	output			req_o,
@@ -1703,6 +1703,7 @@ reg loadTexPage;
 reg loadSize;
 reg loadCoord1,loadCoord2;
 reg loadRectEdge;
+reg preCheckCLUT;
 reg [1:0] loadSizeParam;
 reg [4:0] issuePrimitive;	parameter	NO_ISSUE = 5'd0, ISSUE_TRIANGLE = 5'b000001,ISSUE_RECT = 5'b00010,ISSUE_LINE = 5'b00100,ISSUE_FILL = 5'b01000,ISSUE_COPY = 5'b10000;
 wire [4:0] issuePrimitiveReal;
@@ -1728,6 +1729,7 @@ begin
 	// TODO : Assume that FIFO always output the same value as the last read, even if read signal is FALSE ! Simplify state machine a LOT.
 	loadRectEdge = 0;
 	rstTextureCache = 0;
+	preCheckCLUT	 = 0;
 	
 	case (currState)
 	DEFAULT_STATE:
@@ -2033,6 +2035,7 @@ begin
 		loadAllRGB				= 0;
 		loadClutPage			= isV0 & (!isPolyFinalVertex); // First entry is Clut info, avoid reset when quad.
 		loadTexPage				= isV1; // second entry is TexPage.
+		preCheckCLUT			= (isV1 & bIsPolyCommand) | (loadClutPage & bIsRectCommand);	// 1 Cycle BEFORE.
 		loadRectEdge			= bIsRectCommand;
 
 		// do not issue primitive if Rectangle or 1st/2nd vertex UV.
@@ -2836,9 +2839,13 @@ wire  [18:0]	adrTexReq_c0L,adrTexReq_c0R;
 wire			TexHit_c1L,TexHit_c1R;
 wire			TexMiss_c1L,TexMiss_c1R;
 wire [15:0]		dataTex_c1L,dataTex_c1R;
-wire			clutNeedLoading,clutCheck;
-// ------------------------------------------------
 
+reg clutCheck;
+always @(posedge clk) begin
+	clutCheck = preCheckCLUT;
+end
+
+// ------------------------------------------------
 CLUT_Cache CLUT_CacheInst(
 	.clk								(clk),
 	.i_nrst								(i_nrst),
@@ -2867,11 +2874,14 @@ CLUT_Cache CLUT_CacheInst(
 wire        	ClutCacheWrite;
 wire  [6:0]		ClutWriteIndex;
 wire [31:0]		ClutCacheData;
+wire			clutNeedLoading;
 
 wire			requDataClut_c1L,requDataClut_c1R;
 wire [7:0]		indexPalL,indexPalR;
 wire [15:0]		dataClut_c2L,dataClut_c2R;
 wire			saveLoadOnGoing;
+wire 			CLUTIs8BPP	= (GPU_REG_TexFormat == 2'b01);
+wire			busyCLUT;
 // ------------------------------------------------
 
 MemoryArbitrator MemoryArbitratorInstance(
@@ -2904,14 +2914,10 @@ MemoryArbitrator MemoryArbitratorInstance(
 	.TexCacheData			(TexCacheData),
 	
 	// -- CLUT$ Stuff --
-	// CLUT$ Cache miss from L Side
-	.requClutCacheUpdateL	(requClutCacheUpdateL),
-	.adrClutCacheUpdateL	(adrClutCacheUpdateL),
-	.updateClutCacheCompleteL(updateClutCacheCompleteL),
-	// CLUT$ Cache miss from R Side
-	.requClutCacheUpdateR	(requClutCacheUpdateR),
-	.adrClutCacheUpdateR	(adrClutCacheUpdateR),
-	.updateClutCacheCompleteR(updateClutCacheCompleteR),
+	.requestCLUTLoad		(clutNeedLoading),
+	.CLUTIs8BPP				(CLUTIs8BPP),
+	.CLUTAdr				(RegC),
+	
 	// CLUT$ feed updated $ data to cache.
 	.ClutCacheWrite			(ClutCacheWrite),
 	.ClutWriteIndex			(ClutWriteIndex),
@@ -2952,6 +2958,7 @@ MemoryArbitrator MemoryArbitratorInstance(
 	
 	.resetPipelinePixelStateSpike		(resetPipelinePixelStateSpike),
 	.resetMask							(resetMask),
+	.busyCLUT							(busyCLUT),
 	
 	// -----------------------------------
 	// [Fake Memory SIDE]
@@ -2977,13 +2984,6 @@ MemoryArbitrator MemoryArbitratorInstance(
 wire           requTexCacheUpdateL_i,requTexCacheUpdateR_i;
 wire  [16:0]   adrTexCacheUpdateL_i,adrTexCacheUpdateR_i;
 wire           updateTexCacheCompleteL_o,updateTexCacheCompleteR_o;
-
-// -- CLUT$ Stuff --
-// CLUT$ Cache miss from L Side
-// CLUT$ Cache miss from R Side
-wire           requClutCacheUpdateL,requClutCacheUpdateR;
-wire  [14:0]   adrClutCacheUpdateL,adrClutCacheUpdateR;
-wire           updateClutCacheCompleteL,updateClutCacheCompleteR;
 // ------------------------------------------------
 
 // [Main State machine signals from pipeline]
