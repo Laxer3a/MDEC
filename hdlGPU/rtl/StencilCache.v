@@ -44,6 +44,7 @@ module StencilCache(
 		Adress is recomposed like this [14:7][5:0]
 		Bit 6 is used to select BANK (A/B)
 	 */
+	wire [15:0] outValueA,outValueB;
 	wire [13:0] swizzleWriteAdr = {stencilWriteAdr[14:7],stencilWriteAdr[5:0]};
 	wire [13:0] swizzleReadAdr  = { stencilReadAdr[14:7], stencilReadAdr[5:0]};
 	wire swizzleWBankA	 =   stencilWriteAdr[6]  & stencilWriteSig;
@@ -140,7 +141,6 @@ module StencilCache(
 	//
 	// Read Enabled Stuff...
 	//
-	wire [15:0] outValueA,outValueB;
 	reg   [2:0] PReadPair;
 	reg         PBankA;
 	reg	[19:0]	debugOutAdr;

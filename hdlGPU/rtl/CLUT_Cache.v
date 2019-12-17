@@ -20,16 +20,17 @@ module CLUT_Cache(
 	input [7:0]		readIdx2,
 	output [15:0]	colorEntry2
 );
-	assign needLoading = clearCacheInternal;
-
+	reg [14:0] CLUT_Internal;
+	wire       clearCacheInternal;
 	// 128x2 Colors.
 	reg [31:0] CLUTStorage[127:0];
 	reg [ 7:0] pRaddrA;
 	reg [ 7:0] pRaddrB;
 	
+	assign needLoading = clearCacheInternal;
+
 	// Detect change of clut.
-	wire clearCacheInternal = (CLUT_ID != CLUT_Internal) && checkCLUT;
-	reg [14:0] CLUT_Internal;
+	assign clearCacheInternal = (CLUT_ID != CLUT_Internal) && checkCLUT;
 	always @ (posedge clk)
 	begin
 		if (checkCLUT) begin

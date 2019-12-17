@@ -137,6 +137,40 @@ module MemoryArbitrator(
 	output 	 req_o,
     input    ack_i
 );
+reg [255:0] cacheBGRead;
+reg			regSaveLoadOnGoing;
+reg 		s_importBGBlockSingleClock;
+wire		prevClutCacheWrite;
+
+reg readStuff;
+reg [2:0] nextState;
+//reg writePixelInternal;
+reg       incrX, resetX;
+reg s_store;
+reg s_storeColor;
+reg [6:0] currX;
+reg s_writeGPU;
+reg s_storeAdr;
+reg	s_updateTexCacheCompleteL;
+reg	s_updateTexCacheCompleteR;
+// reg s_storeCacheAdr;
+// reg resetMSK;
+reg loadBGInternal;
+reg s_setLoadOnGoing,s_resetLoadOnGoing;
+reg [2:0] currState;
+reg [3:0] ReadMode, regReadMode;
+
+reg [15:0]  regFillColor;
+reg [15:0]	regPixColorR;
+reg  [1:0]	regValidPair;
+reg  [2:0]	regPairID;
+reg			s_resetMask;
+reg [19:0]	s_busAdr;	
+reg  [6:0]  s_cnt;		
+reg         s_busREQ;	
+reg  [1:0]  busWMSK;	
+reg [31:0]	busDataW;	
+reg			busWRT;		
 
 // TODO : Put those constant into single constant file...
 parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
@@ -144,12 +178,18 @@ parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
 			// Other command to come later...
 			MEM_CMD_NONE		= 3'b000;
 
+parameter	DEFAULT_STATE		= 3'b000, 
+			READ_STATE			= 3'd1, 
+			WRITE_BG			= 3'd2, 
+			READ_BG				= 3'd3, 
+			READ_BG_START		= 3'd4, 
+			FILL_BG				= 3'd5, 
+			WRITE_PIXPAIR		= 3'd7;
 
 assign importedBGBlock = cacheBGRead;
 assign saveLoadOnGoing = regSaveLoadOnGoing;
-assign importBGBlockSingleClock = s_importBGBlockSingleClock; reg s_importBGBlockSingleClock;
+assign importBGBlockSingleClock = s_importBGBlockSingleClock; 
 
-reg [255:0] cacheBGRead;
 // reg  [15:0] cacheBGMsk;
 // reg  [14:0] cacheBGAdr;
 reg  [17:0] baseAdr;
@@ -178,7 +218,7 @@ end
 assign ClutWriteIndex		= PCurrX;
 assign ClutCacheWrite		= PWriteGPU;
 assign busyCLUT 			= PWriteGPU | prevClutCacheWrite;
-wire   prevClutCacheWrite   = s_writeGPU & (regReadMode[3:1] == 3'd2);
+assign prevClutCacheWrite   = s_writeGPU & (regReadMode[3:1] == 3'd2);
 assign TexCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd3);
 
 
@@ -194,7 +234,6 @@ assign resetPipelinePixelStateSpike	= s_resetPipelinePixelStateSpike;
 //
 // GPU Side State machine...
 //
-reg regSaveLoadOnGoing;
 always @(posedge gpuClk)
 begin
 	if (i_nRst == 1'b0) begin
@@ -289,47 +328,24 @@ begin
 		end
 	end
 end
-reg [15:0]  regFillColor;
-reg [15:0]	regPixColorR;
-reg  [1:0]	regValidPair;
-reg  [2:0]	regPairID;
 
 // Output
-reg			s_resetMask; assign resetMask = s_resetMask;
+assign resetMask = s_resetMask;
 
-reg [19:0]	s_busAdr;	assign adr_o = s_busAdr;
-reg  [6:0]  s_cnt;		assign cnt_o = s_cnt;
-reg         s_busREQ;	assign req_o = s_busREQ;
-reg  [1:0]  busWMSK;	assign sel_o = {busWMSK[1],busWMSK[1],busWMSK[0],busWMSK[0]};
-reg [31:0]	busDataW;	assign dat_o = busDataW; // TODO NEVER ASSIGNED
-reg			busWRT;		assign wrt_o = !readStuff;
+assign adr_o = s_busAdr;
+assign cnt_o = s_cnt;
+assign req_o = s_busREQ;
+assign sel_o = {busWMSK[1],busWMSK[1],busWMSK[0],busWMSK[0]};
+assign dat_o = busDataW; // TODO NEVER ASSIGNED
+assign wrt_o = !readStuff;
 // Input
 wire busACK		= ack_i;
 
 wire [8:0]  colorIDX   = baseAdr[8:0] + { 2'b00, currX };
 
-reg readStuff;
-reg [2:0] nextState;
-//reg writePixelInternal;
-reg [6:0] currX;
-reg       incrX, resetX;
-reg s_store;
-reg s_storeColor;
-reg s_writeGPU;
-reg s_storeAdr;
-reg	s_updateTexCacheCompleteL;
-reg	s_updateTexCacheCompleteR;
-// reg s_storeCacheAdr;
-// reg resetMSK;
-reg loadBGInternal;
-reg s_setLoadOnGoing,s_resetLoadOnGoing;
-
 wire isTexReq  		= requTexCacheUpdateL  | requTexCacheUpdateR;
 wire isFirstBlockBlending = ((saveBGBlock == 2'b01) & isBlending);
 // wire hasValidPixels = pixelValid[0] | pixelValid[1];
-reg [2:0] currState;
-parameter	DEFAULT_STATE = 3'b000, READ_STATE = 3'd1, WRITE_BG = 3'd2, READ_BG = 3'd3, READ_BG_START = 3'd4, FILL_BG = 3'd5, WRITE_PIXPAIR = 3'd7;
-reg [3:0] ReadMode, regReadMode;
 always @(*)
 begin
 	// Default

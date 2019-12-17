@@ -123,6 +123,26 @@ module GPUBackend(
 	input			importBGBlockSingleClock,
 	input  [255:0]	importedBGBlock
 );
+	reg [255:0] cacheBG;
+	reg  [15:0] cacheBGMsk;
+	wire missT_c1L,missC_c1L,missT_c1R,missC_c1R;
+	wire [18:0]	adrTexReqL,adrTexReqR;
+	wire pixelInFlightL,pixelInFlightR;
+
+	// ...Inter plumbing...
+	wire [1:0] oPixelStateSpikeL,oPixelStateSpikeR;
+	wire oValidPixelL,oValidPixelR;
+	wire [ 9:0]	oScrxL,oScrxR;
+	wire [ 8:0]	oScryL,oScryR;
+	wire [15:0]	oTexelL,oTexelR;
+	wire oTransparentL,oTransparentR;
+	wire [8:0]	oRL,oRR,oGL,oGR,oBL,oBR;
+	wire oBGMSK_L,oBGMSK_R;
+
+	wire [31:0] writeBack32;
+	
+	reg  [14:0] lastWriteAdrReg;
+	
 	assign exportedBGBlock			= cacheBG;
 	assign exportedMSKBGBlock		= cacheBGMsk;
 
@@ -161,14 +181,11 @@ module GPUBackend(
 		.texelAdress_R						(adrTexReqR)	// HalfWord adress.
 	);
 
-	wire [18:0]	adrTexReqL,adrTexReqR;
 	wire [9:0] leftX 	=  iScrX_Mul2;
 	wire [9:0] rightX	= {iScrX_Mul2[9:1],1'b1};
-	wire missT_c1L,missC_c1L,missT_c1R,missC_c1R;
 	wire validPixelC1L,validPixelC1R;
 	
 	assign o_pixelInFlight = pixelInFlightL | pixelInFlightR;
-	wire pixelInFlightL,pixelInFlightR;
 	
 	GPUPipeCtrl2 GPUPipeCtrl2L(
 		.clk				(clk),
@@ -296,20 +313,6 @@ module GPUBackend(
 		.indexPal					(indexPalR				),	// Temp
 		.dataClut_c2				(dataClut_c2R			)
 	);
-	
-	// ...Inter plumbing...
-	wire [1:0] oPixelStateSpikeL,oPixelStateSpikeR;
-	wire oValidPixelL,oValidPixelR;
-	wire [ 9:0]	oScrxL,oScrxR;
-	wire [ 8:0]	oScryL,oScryR;
-	wire [15:0]	oTexelL,oTexelR;
-	wire oTransparentL,oTransparentR;
-	wire [8:0]	oRL,oRR,oGL,oGR,oBL,oBR;
-	wire oBGMSK_L,oBGMSK_R;
-
-
-	reg [255:0] cacheBG;
-	reg  [15:0] cacheBGMsk;
 
 	// ---------------------------------------------
 	// READ BACKGROUND PIXEL FOR BLENDING (Value ignored if not used)
@@ -374,9 +377,7 @@ module GPUBackend(
 	
 	// ---------------------------------------------
 	// WRITE PACK TO BACKGROUND
-	// ---------------------------------------------
-	wire [31:0] writeBack32;
-	
+	// ---------------------------------------------	
 	reg PTexHit_c1R,PTexHit_c1L;
 	always @(posedge clk)
 	begin
@@ -410,7 +411,6 @@ module GPUBackend(
 
 	assign loadAdr					= { oScryL, oScrxL[9:4] };
 	assign saveAdr					= lastWriteAdrReg;
-	reg  [14:0] lastWriteAdrReg;
 	
 	always @(posedge clk)
 	begin

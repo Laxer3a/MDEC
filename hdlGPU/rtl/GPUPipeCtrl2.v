@@ -79,6 +79,7 @@ module GPUPipeCtrl2(
 	input  [15:0]	dataClut_c2
 );
 	wire selPauseTex 	= pause;
+	reg [18:0] 	PtexelAdress_c1;
 	
 	// -------------------------------------------------------------
 	// ---        Stage C0 
@@ -106,7 +107,6 @@ module GPUPipeCtrl2(
 	reg			PiBGMSK;
 	reg			PValidPixel_c1;
 	reg [1:0]	PUCoordLSB_c1;
-	reg [18:0] 	PtexelAdress_c1;
 	
 	// [Convert Texture Data Into palette index (Logic)]
 	wire [7:0] index_c1;
@@ -121,7 +121,7 @@ module GPUPipeCtrl2(
 	
 	// REQUEST TO CLU$ : VALID PIXEL TEXTURED AND TEX$ HIT AND PALETTE BASED.
 	wire    isClutPixel_c1		= PisTexturedPixel_c1 & (!PisTrueColor_c1);
-	assign	requDataClut_c1		= ((TexHit_c1     & isClutPixel_c1) /* & (!loadingClut)*/)  /* | endRequestMissClut */;
+	assign	requDataClut_c1		= 1; // ((TexHit_c1     & isClutPixel_c1) /* & (!loadingClut)*/)  /* | endRequestMissClut */;
 
 	// ----------------------------------------------------------------
 	// [Lookup palette using selector.]
@@ -175,7 +175,7 @@ module GPUPipeCtrl2(
 		// BUT THIS IF STAYED AT THE END. FUCK YOU VERILOG. FUCK YOU FUCK YOU FUCK YOU !!!!
 		//
 		if (!pause | resetPipelinePixelStateSpike | (i_nrst == 0)) begin
-			PPpixelStateSpike_c2	<= ((i_nrst==0) | resetPipelinePixelStateSpike) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
+			PPpixelStateSpike_c2	= ((i_nrst==0) | resetPipelinePixelStateSpike) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
 		end
 		
 		if (!pause || (i_nrst==0)) begin

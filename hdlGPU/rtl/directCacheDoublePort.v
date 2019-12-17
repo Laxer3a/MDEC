@@ -33,6 +33,8 @@ module directCacheDoublePort(
 	output			isHitB,
 	output			isMissB
 );
+	reg stickyMissA, stickyMissB;
+	
 	// LINEAR MAPPING :
 	// ccccPPPPPbbbbbLLL aaa <-- One line width for block in  16 bpp. (32 pixel   , 64 byte per line)
 	// cccPPPPPPbbbbbbLL aaa <-- One line width for block in 8/4 bpp. (32/64 pixel, 32 byte per line)
@@ -102,7 +104,6 @@ module directCacheDoublePort(
 	assign isMissA	= spikeMissA | (stickyMissA & !hitA);	// Note : Sticky BIT does not RETURN 1 when isHit is generated.
 	assign isMissB	= spikeMissB | (stickyMissB & !hitB);
 
-	reg stickyMissA, stickyMissB;
 	always @ (posedge clk)
 	begin
 		pRequLookupA = requLookupA;

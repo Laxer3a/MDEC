@@ -25,6 +25,7 @@ module dividerWrapper(
 	wire signed [31:0] resultDiv = num5 / divisor;
 	assign output20 = resultDiv[19:0];
 `else
+	wire signed [21:0] remain_sig;
 	wire signed [31:0] quot;
 	div6	div6_inst (
 		.clock ( clock ),
@@ -33,7 +34,6 @@ module dividerWrapper(
 		.quotient ( quot ),
 		.remain ( remain_sig )
 	);
-	wire signed [21:0] remain_sig;
 	assign output20 = quot[19:0];
 `endif
 

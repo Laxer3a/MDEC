@@ -38,8 +38,16 @@ module GPUComputeOnly(
 	// Final PIXEL to write back.
 	output [31:0]	write32
 );
+	wire [7:0]	rShaded_L,gShaded_L,bShaded_L,
+				rShaded_R,gShaded_R,bShaded_R;
+
+	wire [7:0]	Rbld_L,Gbld_L,Bbld_L,
+				Rbld_R,Gbld_R,Bbld_R;
+				
 	wire [8:0]	oR_L,oG_L,oB_L,
 				oR_R,oG_R,oB_R;
+
+	wire [4:0]	finalR_L,finalG_L,finalB_L,finalR_R,finalG_R,finalB_R;
 	
 	wire finalBit15_L = iBGMskL | (!noTexture & texelL[15]);
 	wire finalBit15_R = iBGMskR | (!noTexture & texelR[15]);
@@ -74,9 +82,6 @@ module GPUComputeOnly(
 		.bOut								(bShaded_R)
 	);
 		
-	wire [7:0]	rShaded_L,gShaded_L,bShaded_L,
-				rShaded_R,gShaded_R,bShaded_R;
-				
 	// === 0 Cycle Delay Stage ===
 	blendUnit blendUnitL(
 		.bg_r								(rBG_L),
@@ -118,9 +123,6 @@ module GPUComputeOnly(
 		.bOut								(Bbld_R)
 	);				
 
-	wire [7:0]	Rbld_L,Gbld_L,Bbld_L,
-				Rbld_R,Gbld_R,Bbld_R;
-				
 	wire [1:0] iXLsbL = { iScrX_Mul2[1] , 1'b0 };
 	wire [1:0] iXLsbR = { iScrX_Mul2[1] , 1'b1 };
 
@@ -149,6 +151,5 @@ module GPUComputeOnly(
 		.b									(finalB_R)
 	);
 	
-	wire [4:0]	finalR_L,finalG_L,finalB_L,finalR_R,finalG_R,finalB_R;
 	assign write32		= {	finalBit15_R,finalB_R,finalG_R,finalR_R, finalBit15_L,finalB_L,finalG_L,finalR_L };
 endmodule

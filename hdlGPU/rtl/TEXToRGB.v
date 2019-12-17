@@ -35,5 +35,4 @@ module TEXToRGB(
 	wire [15:0] tmpPixel	= (GPU_REG_TexFormat[1]) ? dataIn : ClutValue;	// Mode 2 and 3 as true color.
 	assign outPixel			= tmpPixel;
 	assign transparentBlack	= !(|tmpPixel[14:0]); // If all ZERO, then 1.
-	assign pixelValid		= internalPixelValid;
 endmodule
