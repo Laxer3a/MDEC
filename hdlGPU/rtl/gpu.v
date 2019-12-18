@@ -2982,24 +2982,24 @@ end
 
 // ------------------------------------------------
 CLUT_Cache CLUT_CacheInst(
-	.clk								(clk),
+	.i_clk								(clk),
 	.i_nrst								(i_nrst),
 	
-	.CLUT_ID							(RegC),
-	.checkCLUT							(clutCheck),
-	.needLoading						(clutNeedLoading),
+	.i_CLUT_ID							(RegC),
+	.i_checkCLUT						(clutCheck),
+	.o_needLoading						(clutNeedLoading),
 	
-	.write								(ClutCacheWrite),
-	.writeIdx128						(ClutWriteIndex),
-	.ColorIn							(ClutCacheData),
+	.i_write							(ClutCacheWrite),
+	.i_writeIdx128						(ClutWriteIndex),
+	.i_Colors							(ClutCacheData),
 
-	.requ1								(requDataClut_c1L),
-	.readIdx1							(indexPalL),
-	.colorEntry1						(dataClut_c2L),
+	.i_requL							(requDataClut_c1L),
+	.i_readIdxL							(indexPalL),
+	.o_colorEntryL						(dataClut_c2L),
 	
-	.requ2								(requDataClut_c1R),
-	.readIdx2							(indexPalR),
-	.colorEntry2						(dataClut_c2R)
+	.i_requR							(requDataClut_c1R),
+	.i_readIdxR							(indexPalR),
+	.o_colorEntryR						(dataClut_c2R)
 );
 
 MemoryArbitrator MemoryArbitratorInstance(

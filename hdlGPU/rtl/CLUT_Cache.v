@@ -1,55 +1,52 @@
 module CLUT_Cache(
-	input			clk,
+	input			i_clk,
 	input			i_nrst,
 	
-	input [14:0]	CLUT_ID,
-	input			checkCLUT,
-	output			needLoading,
+	input [14:0]	i_CLUT_ID,
+	input			i_checkCLUT,
+	output			o_needLoading,
 	
 	// Forced to do 8x32 bit cache line fill when CLUT lookup empty. (16 colors)
 	// --> Simplify for 4 bit texture. 1 Load
-	input			write,
-	input [6:0]		writeIdx128,
-	input [31:0]	ColorIn,
+	input			i_write,
+	input [6:0]		i_writeIdx128,
+	input [31:0]	i_Colors,
 
-	input			requ1,
-	input [7:0]		readIdx1,
-	output [15:0]	colorEntry1,
+	input			i_requL,
+	input [7:0]		i_readIdxL,
+	output [15:0]	o_colorEntryL,
 	
-	input			requ2,
-	input [7:0]		readIdx2,
-	output [15:0]	colorEntry2
+	input			i_requR,
+	input [7:0]		i_readIdxR,
+	output [15:0]	o_colorEntryR
 );
-	reg [14:0] CLUT_Internal;
-	wire       clearCacheInternal;
-	// 128x2 Colors.
-	reg [31:0] CLUTStorage[127:0];
-	reg [ 7:0] pRaddrA;
-	reg [ 7:0] pRaddrB;
+	reg [14:0] CLUT_Internal;		// Cache Address of loaded CLUT
+	reg [31:0] CLUTStorage[127:0];	// 128x2 Colors.
+	reg [ 7:0] pRaddrL;
+	reg [ 7:0] pRaddrR;
 	
-	assign needLoading = clearCacheInternal;
-
 	// Detect change of clut.
-	assign clearCacheInternal = (CLUT_ID != CLUT_Internal) && checkCLUT;
-	always @ (posedge clk)
+	always @ (posedge i_clk)
 	begin
-		if (checkCLUT) begin
-			CLUT_Internal = CLUT_ID;
+		if (i_checkCLUT) begin
+			CLUT_Internal = i_CLUT_ID;
 		end
 	end
 	
-	always @ (posedge clk)
+	always @ (posedge i_clk)
 	begin
-		if (write) // Low 32 bit.
+		if (i_write) // Low 32 bit.
 		begin
-			CLUTStorage[writeIdx128] = ColorIn;
+			CLUTStorage[i_writeIdx128] = i_Colors;
 		end
-		pRaddrA	= readIdx1;
-		pRaddrB	= readIdx2;
+		pRaddrL	= i_readIdxL;
+		pRaddrR	= i_readIdxR;
 	end
 	
-	wire [31:0] vA		= CLUTStorage[pRaddrA[7:1]];
-	wire [31:0] vB		= CLUTStorage[pRaddrB[7:1]];
-	assign colorEntry1	= pRaddrA[0] ? vA[31:16] : vA[15:0];
-	assign colorEntry2	= pRaddrB[0] ? vB[31:16] : vB[15:0];
+	wire [31:0] vL			= CLUTStorage[pRaddrL[7:1]];
+	wire [31:0] vR			= CLUTStorage[pRaddrR[7:1]];
+
+	assign o_colorEntryL	= pRaddrL[0] ? vL[31:16] : vL[15:0];
+	assign o_colorEntryR	= pRaddrR[0] ? vR[31:16] : vR[15:0];
+	assign o_needLoading	= (i_CLUT_ID != CLUT_Internal) && i_checkCLUT;
 endmodule
