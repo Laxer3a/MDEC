@@ -2951,27 +2951,27 @@ wire notMemoryBusyNextCycle;
 // [Cache Texture swizzling vary with Texture Format]
 wire textureFormatTrueColor = (GPU_REG_TexFormat[1]); // (10)2 or (11)3
 directCacheDoublePort directCacheDoublePortInst(
-	.clk								(clk),
+	.i_clk								(clk),
 	.i_nrst								(i_nrst),
-	.clearCache							(rstTextureCache),
+	.i_clearCache						(rstTextureCache),
 	
 	// [Can spy all write on the bus and maintain cache integrity]
-	.textureFormatTrueColor				(textureFormatTrueColor),
-	.write								(TexCacheWrite),
-	.adressIn							(adrTexCacheWrite),
-	.dataIn								(TexCacheData),
+	.i_textureFormatTrueColor			(textureFormatTrueColor),
+	.i_write							(TexCacheWrite),
+	.i_adressIn							(adrTexCacheWrite),
+	.i_dataIn							(TexCacheData),
 	
-	.requLookupA						(requDataTex_c0L),
-	.adressLookA						(adrTexReq_c0L),
-	.dataOutA							(dataTex_c1L),
-	.isHitA								(TexHit_c1L),
-	.isMissA							(TexMiss_c1L),
+	.i_requLookupA						(requDataTex_c0L),
+	.i_adressLookA						(adrTexReq_c0L),
+	.o_dataOutA							(dataTex_c1L),
+	.o_isHitA							(TexHit_c1L),
+	.o_isMissA							(TexMiss_c1L),
 
-	.requLookupB						(requDataTex_c0R),
-	.adressLookB						(adrTexReq_c0R),
-	.dataOutB							(dataTex_c1R),
-	.isHitB								(TexHit_c1R),
-	.isMissB							(TexMiss_c1R)
+	.i_requLookupB						(requDataTex_c0R),
+	.i_adressLookB						(adrTexReq_c0R),
+	.o_dataOutB							(dataTex_c1R),
+	.o_isHitB							(TexHit_c1R),
+	.o_isMissB							(TexMiss_c1R)
 );
 
 
