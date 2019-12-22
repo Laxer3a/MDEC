@@ -293,14 +293,19 @@ Write MAC0,
 				L = 1'b0,
 				H = 1'b1;
 				
-	parameter	CT_R22R23 = 6'd0,	// TODO redo values.
-				CT____R33 = 6'd1,
-				NO_DATA_R = 6'd2,
-				CT_R11R12 = 6'd3,
-				DATA__IR3 = 6'd4,
-				DATA__IR2 = 6'd5,
-				DATA__IR1 = 6'd6,
-				NO_DATA_C = 6'd7;
+	parameter	CT_R22R23 = 5'd0,	// TODO redo values.
+				CT____RBK = 5'd13,
+				CT____GBK = 5'd13,
+				CT____BBK = 5'd13,
+				
+				CT____R33 = 5'd1,
+				_NO_DATA_ = 5'd2,
+				CT_R11R12 = 5'd3,
+				DATA__IR3 = 5'd4,
+				DATA__IR2 = 5'd5,
+				DATA__IR1 = 5'd6,
+				DATA__RGB = 5'd6,
+				NO_DATA_C = 5'd7;
 	
 /*
 1. Microcode for write to Register R/G/B/IR0/IR1/IR2/IR3
@@ -377,7 +382,7 @@ Flag Setup Pattern :
 reg [58:0] v;
 always @(PC) begin
 	case (PC)
-	9'd0  : v = { RSTFLG } ; // 15;  INSTR_RTPS	00
+	9'd0  : v = { ,,RSTFLG } ; // 15;  INSTR_RTPS	00
 	9'd1  : v = { ___FLG } ; // 15;  INSTR_RTPS	01
 	9'd2  : v = { ___FLG } ; // 15;  INSTR_RTPS	02
 	9'd3  : v = { ___FLG } ; // 15;  INSTR_RTPS	03
@@ -402,31 +407,43 @@ always @(PC) begin
 	9'd21 : v = { ___FLG } ; //  8;  INSTR_NCLIP 06
 	9'd22 : v = { LAST__ } ; //  8;  INSTR_NCLIP 07
 	//--------------------------------
+	9'd23 : v = { NO_OP___,_NO_DATA_,N,CT_R22R23   ,NO_OP___,_NO_DATA_,N,CT____R33,   NO________,2'd0, RSTFLG } ; //   INSTR_OP	00 
+	9'd24 : v = { D16C16__,DATA__IR3,H,CT____R33   ,D16C16_N,DATA__IR2,L,CT_R11R12,   AB__WMS_LM,2'd1, ___FLG } ; //   INSTR_OP	01 
+	9'd25 : v = { D16C16__,DATA__IR1,L,CT_R11R12   ,D16C16_N,DATA__IR3,H,CT_R22R23,   AB__WMS_LM,2'd2, ___FLG } ; //   INSTR_OP	02 
+	9'd26 : v = { D16C16__,DATA__IR2,H,NO_DATA_C   ,D16C16_N,DATA__IR1,H,NO_DATA_C,   AB__WMF_LM,2'd3, ___FLG } ; //   INSTR_OP	03 
+	9'd27 : v = { NO_OP___,_NO_DATA_,N,NO_DATA_C   ,NO_OP___,_NO_DATA_,N,NO_DATA_C,   NO________,2'd0, ___FLG } ; //   INSTR_OP	04 
+	9'd28 : v = { NO_OP___,_NO_DATA_,N,NO_DATA_C   ,NO_OP___,_NO_DATA_,N,NO_DATA_C,   NO________,2'd0, LAST__ } ; //   INSTR_OP	05 
+	//--------------------                         ---------
+	9'd29 : v = { NO_OP___,_NO_DATA_,N,CT____RFC   ,NO_OP___,_NO_DATA_,N,DATA__RGB,   NO________,2'd0, RSTFLG } ; //  8;  INSTR_DPCS	1 00 // ? : Should select R,G,B from U8
+	9'd30 : v = { C32SHF12,_NO_DATA_,N,DATA__RGB   ,NU8SHF16,_NO_DATA_,1,_NO_DATA_,   AB______L0,2'd1, ___FLG } ; //  8;  INSTR_DPCS	2 01
+	9'd31 : v = { _U8SHF16,_NO_DATA_,1,CT____GFC   ,A16R16__,DATA__IR0,N,DATA__RGB,   ABC_WIC_LM,2'd1, ___FLG } ; //  8;  INSTR_DPCS	3 02 // ? : A16 -> Accumulator from RIGHT SIDE ?
+	9'd32 : v = { C32SHF12,_NO_DATA_,N,DATA__RGB   ,NU8SHF16,_NO_DATA_,2,_NO_DATA_,   AB______L0,2'd2, ___FLG } ; //  8;  INSTR_DPCS	2 03
+	9'd33 : v = { _U8SHF16,_NO_DATA_,2,CT____BFC   ,A16R16__,DATA__IR0,N,DATA__RGB,   ABC_WIC_LM,2'd2, ___FLG } ; //  8;  INSTR_DPCS	3 04
+	9'd34 : v = { C32SHF12,_NO_DATA_,N,DATA__RGB   ,NU8SHF16,_NO_DATA_,3,_NO_DATA_,   AB______L0,2'd3, ___FLG } ; //  8;  INSTR_DPCS	2 05
+	9'd35 : v = { _U8SHF16,_NO_DATA_,3,_NO_DATA_   ,A16R16__,DATA__IR0,N,_NO_DATA_,   ABC_WIC_LM,2'd3, ___FLG } ; //  8;  INSTR_DPCS	3 06
+	9'd36 : v = { NO_OP___,_NO_DATA_,N,_NO_DATA_   ,NO_OP___,_NO_DATA_,N,_NO_DATA_,   NO________,2'd0, LAST__ } ; //  8;  INSTR_DPCS	  07
+	//--------------------                         ---------
+	9'd37 : v = { NO_OP___,_NO_DATA_,N,CT____RFC   ,NO_OP___,_NO_DATA_,N,_NO_DATA_,   NO________,2'd0, RSTFLG } ; //  8;  INSTR_INTPL 1 00
+	9'd38 : v = { C32SHF12,_NO_DATA_,N,_NO_DATA_   ,R16SHF12,_NO_DATA_,1,DATA__IR1,   AB______L0,2'd1, ___FLG } ; //  8;  INSTR_INTPL 2 01
+	9'd39 : v = { _U8SHF16,_NO_DATA_,1,CT____RFC   ,A16R16__,DATA__IR0,N,_NO_DATA_,   ABC_WIC_LM,2'd1, ___FLG } ; //  8;  INSTR_INTPL 3 02
+	9'd40 : v = { C32SHF12,_NO_DATA_,N,_NO_DATA_   ,R16SHF12,_NO_DATA_,2,DATA__IR2,   AB______L0,2'd2, ___FLG } ; //  8;  INSTR_INTPL 2 03
+	9'd41 : v = { _U8SHF16,_NO_DATA_,2,CT____RFC   ,A16R16__,DATA__IR0,N,_NO_DATA_,   ABC_WIC_LM,2'd2, ___FLG } ; //  8;  INSTR_INTPL 3 04
+	9'd42 : v = { C32SHF12,_NO_DATA_,N,_NO_DATA_   ,R16SHF12,_NO_DATA_,3,DATA__IR3,   AB______L0,2'd3, ___FLG } ; //  8;  INSTR_INTPL 2 05
+	9'd43 : v = { _U8SHF16,_NO_DATA_,3,_NO_DATA_   ,A16R16__,DATA__IR0,N,_NO_DATA_,   ABC_WIC_LM,2'd3, ___FLG } ; //  8;  INSTR_INTPL 3 06
+	9'd44 : v = { NO_OP___,_NO_DATA_,N,_NO_DATA_   ,NO_OP___,_NO_DATA_,N,_NO_DATA_,   NO________,2'd0, LAST__ } ; //  8;  INSTR_INTPL   07
+	C32SHF12	// Right Side
+	R16SHF12	// Right Side
+	NU8SHF16	// Right Side
+	_U8SHF16
+	NU8SHF4_	// Right Side
+	A16R16__	// A:Left, R :Right
+	R16C16__	// R:Left, C :Right
+	R16U8SH4	// R:Left, U8:Right
+	D16C16_N
+	D16C16__	// R:Left, C :Right (Same as R16C16 but higher selector from register vs data)
+	R16R16__    // R:Left, R :Right (Same as R16C16 but higher selector from register vs register) IRx*IRx
+	NO_OP___
 	
-	9'd23 : v = { NO_OP___,NO_OP___ ,N,N,CT_R22R23,CT____R33, NO_DATA_R,NO_DATA_R, NO________,2'd0, RSTFLG } ; //   INSTR_OP	00 
-	9'd24 : v = { D16C16__,D16C16_N ,H,L,CT____R33,CT_R11R12, DATA__IR3,DATA__IR2, AB__WMS_LM,2'd1, ___FLG } ; //   INSTR_OP	01 
-	9'd25 : v = { D16C16__,D16C16_N ,L,H,CT_R11R12,CT_R22R23, DATA__IR1,DATA__IR3, AB__WMS_LM,2'd2, ___FLG } ; //   INSTR_OP	02 
-	9'd26 : v = { D16C16__,D16C16_N ,H,H,NO_DATA_C,NO_DATA_C, DATA__IR2,DATA__IR1, AB__WMF_LM,2'd3, ___FLG } ; //   INSTR_OP	03 
-	9'd27 : v = { NO_OP___,NO_OP___ ,N,N,NO_DATA_C,NO_DATA_C, NO_DATA_R,NO_DATA_R, NO________,2'd0, ___FLG } ; //   INSTR_OP	04 
-	9'd28 : v = { NO_OP___,NO_OP___ ,N,N,NO_DATA_C,NO_DATA_C, NO_DATA_R,NO_DATA_R, NO________,2'd0, LAST__ } ; //   INSTR_OP	05 
-	//--------------------------------
-	9'd29 : v = { NO________,2'd0, RSTFLG } ; //  8;  INSTR_DPCS	00
-	9'd30 : v = { AB______L0,2'd1, ___FLG } ; //  8;  INSTR_DPCS	01
-	9'd31 : v = { ABC_WIC_LM,2'd1, ___FLG } ; //  8;  INSTR_DPCS	02
-	9'd32 : v = { AB______L0,2'd2, ___FLG } ; //  8;  INSTR_DPCS	03
-	9'd33 : v = { ABC_WIC_LM,2'd2, ___FLG } ; //  8;  INSTR_DPCS	04
-	9'd34 : v = { AB______L0,2'd3, ___FLG } ; //  8;  INSTR_DPCS	05
-	9'd35 : v = { ABC_WIC_LM,2'd3, ___FLG } ; //  8;  INSTR_DPCS	06
-	9'd36 : v = { NO________,2'd0, LAST__ } ; //  8;  INSTR_DPCS	07
-	//------------------------------
-	9'd37 : v = { NO________,2'd0, RSTFLG } ; //  8;  INSTR_INTPL 00
-	9'd38 : v = { AB______L0,2'd1, ___FLG } ; //  8;  INSTR_INTPL 01
-	9'd39 : v = { ABC_WIC_LM,2'd1, ___FLG } ; //  8;  INSTR_INTPL 02
-	9'd40 : v = { AB______L0,2'd2, ___FLG } ; //  8;  INSTR_INTPL 03
-	9'd41 : v = { ABC_WIC_LM,2'd2, ___FLG } ; //  8;  INSTR_INTPL 04
-	9'd42 : v = { AB______L0,2'd3, ___FLG } ; //  8;  INSTR_INTPL 05
-	9'd43 : v = { ABC_WIC_LM,2'd3, ___FLG } ; //  8;  INSTR_INTPL 06
-	9'd44 : v = { NO________,2'd0, LAST__ } ; //  8;  INSTR_INTPL 07
 	//--------------------------------
 		// TODO, depend on version with CV
 		9'd45 : v = { RSTFLG } ; //  8;  INSTR_MVMVA 00

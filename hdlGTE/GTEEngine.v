@@ -31,6 +31,7 @@ reg       executing;
 reg  [ 8:0] PC;
 
 parameter	
+	// 22 Instructions
 	INSTR_RTPS	=6'h01,	INSTR_NCLIP	=6'h06,	INSTR_OP	=6'h0C,	INSTR_DPCS	=6'h10,	INSTR_INTPL	=6'h11,	INSTR_MVMVA	=6'h12,
 	INSTR_NCDS	=6'h13,	INSTR_CDP	=6'h14,	INSTR_NCDT	=6'h16,	INSTR_NCCS	=6'h1B,	INSTR_CC 	=6'h1C,	INSTR_NCS 	=6'h1E,
 	INSTR_NCT 	=6'h20,	INSTR_SQR 	=6'h28,	INSTR_DCPL 	=6'h29,	INSTR_DPCT 	=6'h2A,	INSTR_AVSZ3	=6'h2D,	INSTR_AVSZ4 =6'h2E,
@@ -39,6 +40,7 @@ parameter
 reg [ 8:0] startMicroCodeAdr;
 always @(Instruction)
 begin
+	// 22 Instructions
 	case (Instruction[5:0])
 	INSTR_RTPS	:	startMicroCodeAdr =   9'd0; // 15;
 	INSTR_NCLIP	:	startMicroCodeAdr =  9'd15; //  8;
@@ -289,39 +291,33 @@ begin
 	endcase
 end
 
-GTEComputePath PathA (
-    .select16		(select16A	),   // 0:-1,1:0,2:+1,3:data16
-    .selA			(selAA		),   // 0:D16 or 1:A16
-    .select32		(select32A	),   // i32C,u8Shl16, u8Shl4, i16B
-	.negB			(negB_A		),
-    .shft12			(shft12A	),   // IMPORTANT : Authorized only for select16 -1/0/+1, else buggy output 
+wire inputR_A	= { (ctrlShift4A ? RegR0 : RegR) , 4'd0 };
+wire inputG_B	= { (ctrlShift4B ? RegG0 : RegG) , 4'd0 };
+wire inputB_C	= { (ctrlShift4C ? RegB0 : RegB) , 4'd0 };
+
+wire nilValue   = 0;
+GTEComputePathA Path (
+	.sel1			(sel1A),	// 3 bit
+	.sel2			(sel2A),	// 3 bit
 	
-    .iD16			(iD16A		),
-    .A16			(pClampB	),
-    
-    .i32C			(outCTRLA	),
-    .i16B			(i16B_A),
-    .i8U			(u8A),
-    
-    .out			(outA		)
+	.sel1In0		(),
+	.sel1In1		(),
+	.sel1In2		(),
+	.sel1In3		(),
+	.sel1In4		(),
+	
+	.sel2In0		(),
+	.sel2In1		(),
+	.sel2In2		(),
+	.sel2In3		(),
+	.sel2In4		(),
+	.sel2In5		(),
+	.sel2In6		(),
+	.sel2In7		(),
+	
+	.outV			()
 );
 
-GTEComputePath PathB (
-    .select16		(select16B	),   // 0:-1,1:0,2:+1,3:data16
-    .selA			(selAB		),   // 0:D16 or 1:A16
-    .select32		(select32B	),   // i32C,u8Shl16, u8Shl4, i16B
-	.negB			(negB_B		),
-    .shft12			(shft12B	),   // IMPORTANT : Authorized only for select16 -1/0/+1, else buggy output 
-	
-    .iD16			(iD16B		),
-    .A16			(pClampB	),
-	
-    .i32C			(outCTRLB	),
-    .i16B			(i16B_B),
-    .i8U			(u8B),
-    
-    .out			(outB		)
-);
 
 wire signed [47:0] outA;
 wire signed [47:0] outB;
@@ -408,32 +404,34 @@ end
 // ----------------------------------------------------------------------------------------------
 //   FILE REGISTERS
 //
-//   2x 32 Bit DATA FILE REGISTERS. (DataA, DataB) all DUAL PORT
-//   2x 32 Bit CTRL FILE REGISTERS. (CTRLA, CTRLB) all DUAL PORT
+//   3x 32 Bit DATA FILE REGISTERS. (DataA, DataB, DataC) all DUAL PORT
+//   2x 32 Bit CTRL FILE REGISTERS. (CTRLA, CTRLB, CTRLC, CTRLD) all DUAL PORT
 //
 //   CPU can read (from A) / write (same value on both A&B) from it.
 //   When CPU does not access, parallel reading is possible from
 //   microcode setup.
 // ----------------------------------------------------------------------------------------------
-wire [31:0] outDataA,outDataB;
-wire [31:0] outCTRLA,outCTRLB;
+wire [31:0] outDataA,outDataB,outDataC;
+wire [31:0] outCTRLA,outCTRLB,outCTRLC,outCTRLD;
 
-wire		cpuWData	 = i_WritReg & (!i_regID[5]);
-wire		cpuWCTRL	 = i_WritReg & ( i_regID[5]);
+wire		cpuWData	 = i_WritReg & (!i_regID[5]);	// CPU Write and Register is 31.. 0 
+wire		cpuWCTRL	 = i_WritReg & ( i_regID[5]);	// CPU Write and Register is 63..32
 
 wire [31:0] inData		 = i_WritReg ? i_dataIn : vDATA;
 wire [31:0] inCTRL		 = i_dataIn; // Only CPU can write to the registers.
-wire		readCTRLA	 = i_ReadReg ?   i_regID[5] : !i_WritReg;
+// ----------------------------------------------------------------------------------------------------------------------------------
 wire		readDataA	 = i_ReadReg ? (!i_regID[5]): !i_WritReg;
 wire  [4:0] readAdrDataA = i_ReadReg ? i_regID[4:0] : gteReadAdrDataA;					// MICROCODE:[DATA File A READ]
 wire  [4:0] readAdrDataB =                            gteReadAdrDataB;					// MICROCODE:[DATA File B READ]
+wire		readCTRLA	 = i_ReadReg ?   i_regID[5] : !i_WritReg;
 wire  [4:0] readAdrCTRLA = i_ReadReg ? i_regID[4:0] : gteReadAdrCtrlA;					// MICROCODE:[CTRL File A READ]
 wire  [4:0] readAdrCTRLB =                            gteReadAdrCtrlB;					// MICROCODE:[CTRL File B READ]
-wire		readCTRLB	 = !i_WritReg; // Avoid reading when CPU write.
+
 wire		readDataB	 = !i_WritReg; // Avoid reading when CPU write.
 wire		writeData	 = cpuWData  | gteWriteToDataFile;								// MICROCODE:[DATA WRITE]
-wire		writeCTRL	 = cpuWCTRL  | gteWriteToCtrlFile;								// MICROCODE:[CTRL WRITE]
 wire  [4:0]	writeAdrData = cpuWData  ? i_regID[4:0] : gteWriteAdrData;					// MICROCODE:[DATA ADR WRITE]
+wire		readCTRLB	 = !i_WritReg; // Avoid reading when CPU write.
+wire		writeCTRL	 = cpuWCTRL  | gteWriteToCtrlFile;								// MICROCODE:[CTRL WRITE]
 wire  [4:0]	writeAdrCTRL = cpuWCTRL  ? i_regID[4:0] : gteWriteAdrCtrl;					// MICROCODE:[CTRL ADR WRITE]
 
 FileReg instDATA_A(
@@ -448,6 +446,12 @@ FileReg instDATA_B(
 	.write	(writeData		), .writeAdr(writeAdrData	), .inData (inData		)	// Write Side
 );
 
+FileReg instDATA_C(
+	.clk	(i_clk			),
+	.read	(readDataC		), .readAdr (readAdrDataC	), .outData(outDataC	),	// Read Side
+	.write	(writeData		), .writeAdr(writeAdrData	), .inData (inData		)	// Write Side
+);
+
 FileReg instCTRL_A(
 	.clk	(i_clk			),
 	.read	(readCTRLA		), .readAdr (readAdrCTRLA	), .outData(outCTRLA	),	// Read Side
@@ -457,6 +461,18 @@ FileReg instCTRL_A(
 FileReg instCTRL_B(
 	.clk	(i_clk			),
 	.read	(readCTRLB		), .readAdr (readAdrCTRLB	), .outData(outCTRLB	),	// Read Side
+	.write	(writeCTRL		), .writeAdr(writeAdrCTRL	), .inData (inCTRL		)	// Write Side
+);
+
+FileReg instCTRL_C(
+	.clk	(i_clk			),
+	.read	(readCTRLC		), .readAdr (readAdrCTRLC	), .outData(outCTRLC	),	// Read Side
+	.write	(writeCTRL		), .writeAdr(writeAdrCTRL	), .inData (inCTRL		)	// Write Side
+);
+
+FileReg instCTRL_D(
+	.clk	(i_clk			),
+	.read	(readCTRLD		), .readAdr (readAdrCTRLD	), .outData(outCTRLD	),	// Read Side
 	.write	(writeCTRL		), .writeAdr(writeAdrCTRL	), .inData (inCTRL		)	// Write Side
 );
 // ----------------------------------------------------------------------------------------------
