@@ -123,13 +123,13 @@ module computeCoef (
 		// Write
 		if (i_quantWrt)
 		begin
-			QuantTbl[writeAdr] <= i_quantValue;
+			QuantTbl[writeAdr] = i_quantValue;
 		end
 
 		// Read
-		quantAdr_reg <= {selectTable,quantReadIdx[5:2]};
+		quantAdr_reg 		= {selectTable,quantReadIdx[5:2]};
 		// Read
-		pipeQuantReadIdx <= quantReadIdx[1:0];
+		pipeQuantReadIdx	= quantReadIdx[1:0];
 	end
 	wire [27:0] fullValueQuant = QuantTbl[quantAdr_reg]; 
 
