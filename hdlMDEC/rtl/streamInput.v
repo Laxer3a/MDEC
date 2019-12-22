@@ -140,23 +140,26 @@ module streamInput(
 	reg[2:0]	rBlockCounter;
 	reg         prevYOnly;
 	always @(posedge clk) begin
-		prevYOnly <= i_YOnly;
+		prevYOnly = i_YOnly;
 	end
 	
+	reg[2:0]	nextBlockCounter;
 	always @(posedge clk) begin
-		// Switch to MonoChrome <-> color, one cycle no job garanteed.
-		// ------------------------------------------------------------
-		// Force always to '100' when YOnly. (avoid increment on valid Complete)
-		// Reset when transition from YOnly to color (or opposite)
-		if ((i_nrst == 0) | (i_YOnly) | (i_YOnly ^ prevYOnly)) begin		
-			rBlockCounter <= { i_YOnly, 2'b00 };	// Reset set Counter to 0 or 4 (Color or Y0)
+		rBlockCounter	= nextBlockCounter;
+	end
+	
+	always @(*) begin
+		if ((i_nrst == 0) | (i_YOnly) | (i_YOnly ^ prevYOnly)) begin
+			nextBlockCounter	= { 1'b1, i_YOnly, i_YOnly };	// Reset set Counter to 4 for Color or 7 for always Y.
 		end else begin
 			if (isValidBlockComplete)	// Increment block counter only with VALID stream (no empty FE00)
 			begin
 				if (rBlockCounter == 3'd5)
-					rBlockCounter <= 0;
+					nextBlockCounter = 0;
 				else
-					rBlockCounter <= rBlockCounter + 3'b001;
+					nextBlockCounter = rBlockCounter + 3'b001;
+			end else begin
+				nextBlockCounter = rBlockCounter;
 			end
 		end
 	end
@@ -304,7 +307,7 @@ module streamInput(
 														: scalereg;
 	assign	o_isDC			= isDC;
 	assign	o_fullBlockType	= wFullBlockType;
-	assign  o_blockNum		= rBlockCounter;
+	assign  o_blockNum		= nextBlockCounter; // Can not use register, because we need value for DC, current first item.
 	assign	o_index			= rIsFullBlock ? currIdx6Bit : z; // Index order depends on block type 
 	assign	o_linearIndex	= currIdx6Bit;
 endmodule

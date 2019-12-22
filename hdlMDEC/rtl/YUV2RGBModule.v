@@ -44,10 +44,10 @@ module YUV2RGBModule (
 		  [CYCLE n : Setup Cr/Cb Matrix reading]
 		--------------------------------------------------------------------------
 		- 1 Cycle Latency when reading Cr/Cb */
-	wire [1:0] adrXSub	= i_writeIdx[5:4];
-	wire [1:0] adrYSub	= i_writeIdx[2:1];
-	wire [2:0] adrX		= i_writeIdx[5:3];
-	wire [2:0] adrY		= i_writeIdx[2:0];
+	wire [2:0] adrX		= i_writeIdx[2:0];
+	wire [1:0] adrXSub	= i_writeIdx[2:1];
+	wire [2:0] adrY		= i_writeIdx[5:3];
+	wire [1:0] adrYSub	= i_writeIdx[5:4];
 	wire       tileX	= i_YBlockNum[0];
 	wire       tileY	= i_YBlockNum[1];
 	
@@ -68,12 +68,12 @@ module YUV2RGBModule (
 		-------------------------------------------------------------------------- */
 	always @(posedge i_clk)
 	begin
-		p_valueY	<= i_valueY;
-		p_WrtIdx	<= pix;
-		p_Wrt		<= i_wrt;
+		p_valueY	= i_valueY;
+		p_WrtIdx	= pix;
+		p_Wrt		= i_wrt;
 		//
-		p_YOnly		<= i_YOnly;		// Could may be afford to do not use registers... But safer to embbed context.
-		p_signed	<= i_signed;	// Same here
+		p_YOnly		= i_YOnly;		// Could may be afford to do not use registers... But safer to embbed context.
+		p_signed	= i_signed;	// Same here
 	end
 
 	// ---------------------------------

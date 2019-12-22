@@ -27,6 +27,7 @@ module computeCoef (
 	// Loading Side
 	input					i_dataWrt,
 	input	signed[9:0]		i_dataIn,
+	input	[15:0]			i_debug,
 	input	[5:0]			i_scale,
 	input					i_isDC,
 	input	[5:0]			i_index,			// Linear or Zagzig order.
@@ -35,8 +36,8 @@ module computeCoef (
 	input	[2:0]			i_blockNum,
 	input					i_matrixComplete,
 
-// IDCT Busy side
-//	input					i_freezePipe,
+	// IDCT Busy side
+	input					i_freezePipe,
 
 	// Quant Table Loading
 	input					i_quantWrt,
@@ -46,7 +47,7 @@ module computeCoef (
 	
 //	output	[23:0]			debug,
 	
-	// Write output (2 cycle latency from loading)
+	// Write output (1 cycle latency from loading)
 	output					o_write,
 	output	[5:0]			o_writeIdx,
 	output	[2:0]			o_blockNum,
@@ -156,17 +157,18 @@ module computeCoef (
 	wire 		selectTable			= i_blockNum[1] | i_blockNum[2];	// 1=Luma, 0=Chroma
 	wire [5:0]	quantReadIdx		= i_linearIndex;
 
-	reg			pWrite;
+	reg		pWrite;
 	reg  [5:0]	pIndex;
 	reg  [2:0]	pBlk;
-	reg			pMatrixComplete;
-	reg			pFullBlkType;
+	reg		pMatrixComplete;
+	reg		pFullBlkType;
 
 	//
 	// Save values needed for stage 1 (pipeline to match SRAM latency)
 	//
 	wire signed [16:0] multF;
 	reg  signed [15:0] pMultF;
+	reg  [15:0] pDebug;
 	
 	wire signed [6:0]  signedScale = {1'b0,i_scale}; // Verilog authorize wire signed a = ua; and generate one more bit, but Verilator is not. And I prefer explicit anyway.
 	
@@ -174,12 +176,15 @@ module computeCoef (
 
 	always @(posedge i_clk)
 	begin
-		pWrite			<= i_dataWrt;			// Already done in streamInput ( & i_nrst )
-		pIndex			<= i_index;
-		pBlk			<= i_blockNum;
-		pMatrixComplete	<= i_matrixComplete;	// Already done in streamInput ( & i_nrst );
-		pFullBlkType	<= i_fullBlockType;
-		pMultF          <= multF[15:0];
+		if (!i_freezePipe) begin
+			pWrite			= i_dataWrt;			// Already done in streamInput ( & i_nrst )
+			pIndex			= i_index;
+			pBlk			= i_blockNum;
+			pMatrixComplete	= i_matrixComplete;	// Already done in streamInput ( & i_nrst );
+			pFullBlkType	= i_fullBlockType;
+			pMultF          = multF[15:0];
+			pDebug			= i_debug;
+		end
 	end
 	
 	// -------------------------------------------------------------------
@@ -206,7 +211,6 @@ module computeCoef (
 	);
 	
 	wire [11:0] roundedOddTowardZeroExceptMinus1;
-	
 	wire [11:0] outSelCalc 	= roundedOddTowardZeroExceptMinus1;
 
 //  NOT HANDLED ANYMORE... for now.
