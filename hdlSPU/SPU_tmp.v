@@ -66,47 +66,52 @@ wire internalWrite = write & spuSelect;
 wire internalRead  = read  & spuSelect;
 
 // --------------------------------------------------------------------------------------
-//		[FRONT END : Register setup]
+//		[FRONT END : Registers]
 // --------------------------------------------------------------------------------------
-reg [15:0]	reg_volumeL			[23:0];
-reg [15:0]	reg_volumeR			[23:0];
-reg [15:0]	reg_sampleRate		[23:0];
-reg [15:0]	reg_startAddr		[23:0];
-reg [15:0]	reg_repeatAddr		[23:0];
+reg [15:0]	reg_volumeL			[23:0];	// Cn0 Voice Volume Left
+reg [15:0]	reg_volumeR			[23:0];	// Cn2 Voice Volume Right
+reg [15:0]	reg_sampleRate		[23:0];	// Cn4 VxPitch
+reg [15:0]	reg_startAddr		[23:0];	// Cn6 ADPCM Start  Address
+reg [15:0]	reg_currentAdsr		[23:0];	// CnC Voice Current ADSR Volume
+reg [15:0]	reg_repeatAddr		[23:0];	// CnE ADPCM Repeat Address
 reg [23:0]	reg_repeatUserSet;
 reg [15:0]	reg_adsrLo			[23:0];
 reg [15:0]	reg_adsrHi			[23:0];
-reg [15:0]	reg_currentAdsr		[23:0];
-reg [15:0]	reg_mainVolLeft;
-reg [15:0]	reg_mainVolRight;
+reg [15:0]	reg_mainVolLeft;			// D80 Mainvolume Left
+reg [15:0]	reg_mainVolRight;			// D82 Mainvolume Left
 reg [15:0]	reg_reverbVolLeft;
 reg [15:0]	reg_reverbVolRight;
-reg [23:0]	reg_kon;
-reg [23:0]	reg_koff;
-reg [23:0]	reg_pmon;
-reg [23:0]	reg_non;
+reg [23:0]	reg_kon;					// D88 Voice Key On  (32 bit W)
+reg [23:0]	reg_koff;					// D8C Voice Key Off (32 bit W)
+reg [23:0]	reg_pmon;					// D90 Voice Pitch Modulation Enabled Flags (PMON)
+reg [23:0]	reg_non;					// D94 Voice Noise Enable (32 bit W)
 reg [23:0]	reg_eon;
-reg [23:0]	reg_endx;
+reg [23:0]	reg_endx;					// D9C Voice Status (ENDX)
 reg [15:0]	reg_reverb			[31:0];
 reg [15:0]	reg_mBase;					// 32 bit ?
-reg [15:0]	reg_ramIRQAddr;
-reg [15:0]	reg_dataTransferAddr;
-reg [15:0]	reg_CDVolume;
-reg [15:0]	reg_ExtVolumeL;
-reg [15:0]	reg_ExtVolumeR;
-
-reg 		reg_SPUEnable;
-reg			reg_SPUMute;
-reg	[3:0]	reg_NoiseFrequShift;
-reg	[3:0]	reg_NoiseFrequStep;
-reg			reg_ReverbEnable;
-reg			reg_SPUIRQEnable;
-reg	[1:0]	reg_SPUTransferMode;
-reg			reg_ExtReverbEnabled;
-reg			reg_CDAudioReverbEnabled;
-reg			reg_ExtEnabled;
-reg			reg_CDAudioEnabled;
-
+reg [15:0]	reg_ramIRQAddr;				// DA4 Sound RAM IRQ Address
+reg [15:0]	reg_dataTransferAddr;		// DA6 Sound RAM Data Transfer Address
+reg [15:0]	reg_CDVolumeL;				// DB0 CD Audio Input Volume Left  (CD-DA / XA-ADPCM)
+reg [15:0]	reg_CDVolumeR;				// DB2 CD Audio Input Volume Right (CD-DA / XA-ADPCM)
+reg [15:0]	reg_ExtVolumeL;				// DB4 External Input Volume Left
+reg [15:0]	reg_ExtVolumeR;				// DB6 External Input Volume Right
+										// DB8 Current Main Volume Left / DBA Right
+										// Exx Voice Current Volume Left / Right (32 bit)
+										
+										// DAA SPU Control Register (SPUCNT)
+reg 		reg_SPUEnable;				//  DAA.15
+reg			reg_SPUMute;				//  DAA.14
+reg	[3:0]	reg_NoiseFrequShift;		//  DAA.13-10
+reg	[1:0]	reg_NoiseFrequStep;			//  DAA.9-8
+reg			reg_ReverbEnable;			//  DAA.7
+reg			reg_SPUIRQEnable;			//  DAA.6
+reg	[1:0]	reg_SPUTransferMode;		//  DAA.5-4
+reg			reg_ExtReverbEnabled;		//  DAA.3
+reg			reg_CDAudioReverbEnabled;	//  DAA.2
+reg			reg_ExtEnabled;				//  DAA.1
+reg			reg_CDAudioEnabled;			//  DAA.0
+reg			regSoundRAMDataXFerCtrl;	// DAC Sound RAM Data Transfer Control
+										// DAE SPU Status Register (SPUSTAT) (Read only)
 //-----
 // TODO Data transfer FIFO here...
 //-----
@@ -222,6 +227,7 @@ begin
 		reg_CDAudioReverbEnabled<= 1'b0;
 		reg_ExtEnabled			<= 1'b0;
 		reg_CDAudioEnabled		<= 1'b0;
+		regSoundRAMDataXFerCtrl	<= 16'h4;
 	end 
 	else 
 	begin
@@ -267,7 +273,7 @@ begin
 							reg_ExtEnabled		<= dataIn[1];
 							reg_CDAudioEnabled	<= dataIn[0];
 							end
-					5'h17:	;// Read only register.
+					5'h17:	regSoundRAMDataXFerCtrl <= dataIn;
 					5'h18:	reg_CDVolume		<= dataIn;
 					5'h19:	reg_ExtVolumeL		<= dataIn;
 					5'h1A:	reg_ExtVolumeR		<= dataIn;
@@ -746,7 +752,7 @@ When writing to RepeatAddress[n]
 //--------------------------------------------------
 wire PMON; SelectCh PMONSelect(.v(reg_pmon), .ch(currVoice), .o(PMON));	// Select Bit PMON
 
-wire signed [15:0]  VxPitch				= currV_sampleRate;
+wire signed [15:0]  VxPitch		= currV_sampleRate;
 reg  signed [15:0]	prevChannelVxOut; // TODO
 //--------------------------------------------------
 
