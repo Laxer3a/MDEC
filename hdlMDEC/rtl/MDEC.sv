@@ -94,13 +94,13 @@ module MDEC (
 	reg			regAllowDMA0,regAllowDMA1;
 	
 	// --- State Machine ---
-	typedef enum [2:0] {
-		WAIT_COMMAND	= 0,
-		LOAD_STREAML	= 1,
-		LOAD_STREAMH	= 2,
-		LOAD_COS		= 3,
-		LOAD_LUMA		= 4,
-		LOAD_CHROMA		= 5
+	typedef enum bit[2:0] {
+		WAIT_COMMAND	= 3'd0,
+		LOAD_STREAML	= 3'd1,
+		LOAD_STREAMH	= 3'd2,
+		LOAD_COS		= 3'd3,
+		LOAD_LUMA		= 3'd4,
+		LOAD_CHROMA		= 3'd5
 	} CMD_STATE;
 	CMD_STATE	state;
 	CMD_STATE	nextState;
@@ -113,10 +113,10 @@ module MDEC (
 	// ---------------------------------------------------------------------------------------------------
 
 	// --- Command Related ---
-	typedef enum [2:0] {
-		STREAM_CMD	= 1,
-		QUANTI_CMD	= 2,
-		COSTBL_CMD	= 3
+	typedef enum bit[2:0] {
+		STREAM_CMD	= 3'd1,
+		QUANTI_CMD	= 3'd2,
+		COSTBL_CMD	= 3'd3
 	} MDEC_CMD;
 	
 	wire MDEC_CMD commandType	= fifoIN_outputM[15:13];

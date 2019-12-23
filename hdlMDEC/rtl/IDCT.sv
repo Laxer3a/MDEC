@@ -209,7 +209,7 @@ module IDCT (
 				// By reading blockID at this clock, we know we always take
 				// the OLD value of the current matrix, even if a NEW matrix
 				// is written right now at this same cycle.
-				idctBlockNum	<= blockID;
+				idctBlockNum	= blockID;
 			end
 			
 			if (idctBusy)
@@ -270,14 +270,20 @@ module IDCT (
 	reg signed  [19:0] acc1;
 
 	// 1 piped signal.
-	reg          [2:0] pYCnt,pKCnt, ppYCnt;
-	reg			 [1:0] pXCnt,ppXCnt;
+	reg          [2:0] pYCnt,pKCnt,ppYCnt,pppYCnt;
+	reg			 [1:0] pXCnt,ppXCnt,pppXCnt;
 	always @ (posedge clk)
 	begin
+		pppXCnt	<= ppXCnt;
+		pppYCnt	<= ppYCnt;
+		
+		ppXCnt	<= pXCnt;
+		ppYCnt	<= pYCnt;
+		
 		// Pipeline also the X,Y address to match accumulator write timing.
-		pXCnt <= XCnt;
-		pYCnt <= YCnt;
-		pKCnt <= KCnt;
+		pXCnt	<= XCnt;
+		pYCnt	<= YCnt;
+		pKCnt	<= KCnt;
 	end
 	
 	//-------------------------------------------------------
@@ -301,9 +307,7 @@ module IDCT (
 			acc1 <= acc1;
 		*/
 		end
-		ppXCnt   <= pXCnt;
-		ppYCnt   <= pYCnt;
-		ppFreeze <= pFreeze;
+		ppFreeze = pFreeze;
 	end
 
 	// Remove 4 bit at output of pass1 (and pass2)
@@ -329,14 +333,10 @@ module IDCT (
 	//
 	reg signed [9:0] pv1;
 	reg pWriteOut;
-	reg [1:0] pppXCnt;
-	reg [2:0] pppYCnt;
 	always @ (posedge clk)
 	begin
-		pv1       <= v1[11:2];										// Remove the 2 bits for V1
-		pWriteOut <= writeOut;
-		pppXCnt   <= ppXCnt;
-		pppYCnt   <= ppYCnt;
+		pv1       = v1[11:2];										// Remove the 2 bits for V1
+		pWriteOut = writeOut;
 	end
 	
 	wire  [9:0] vBeforeSDiv2   = pWriteOut ? pv1     : v0[11:2];	// Remove the 2 bits for V0.
