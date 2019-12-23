@@ -94,16 +94,15 @@ module MDEC (
 	reg			regAllowDMA0,regAllowDMA1;
 	
 	// --- State Machine ---
-	typedef enum bit[2:0] {
+	parameter
 		WAIT_COMMAND	= 3'd0,
 		LOAD_STREAML	= 3'd1,
 		LOAD_STREAMH	= 3'd2,
 		LOAD_COS		= 3'd3,
 		LOAD_LUMA		= 3'd4,
-		LOAD_CHROMA		= 3'd5
-	} CMD_STATE;
-	CMD_STATE	state;
-	CMD_STATE	nextState;
+		LOAD_CHROMA		= 3'd5;
+		
+	reg [2:0] state,nextState;
 	
 	// ---------------------
 	reg			pRegSelect;
@@ -113,13 +112,12 @@ module MDEC (
 	// ---------------------------------------------------------------------------------------------------
 
 	// --- Command Related ---
-	typedef enum bit[2:0] {
+	parameter
 		STREAM_CMD	= 3'd1,
 		QUANTI_CMD	= 3'd2,
-		COSTBL_CMD	= 3'd3
-	} MDEC_CMD;
+		COSTBL_CMD	= 3'd3;
 	
-	wire MDEC_CMD commandType	= fifoIN_outputM[15:13];
+	wire [2:0] commandType	= fifoIN_outputM[15:13];
 	wire isCommandStream		= (commandType == STREAM_CMD);
 	wire isCommandQuant			= (commandType == QUANTI_CMD);
 	wire isCommandCosTbl		= (commandType == COSTBL_CMD);
@@ -361,11 +359,12 @@ module MDEC (
 	wire [2:0] currentBlock; // Output for status register.
 	wire wrtPix;
 	wire [7:0] pixIdx,r,g,b;
-	wire stopFill = 0;
+	wire stopFill = 1'b0;
+	wire ignoreStopFill;
 
 	// For now pixel format is not pipelined but use directly register setup.
 	// 
-	wire MDEC_TPIX outPixelFormat = regPixelFormat;
+	wire [1:0] outPixelFormat = regPixelFormat;
 
 	wire fifoOUT_hasData;
 	RGB2Fifo RGBFifo_inst(
@@ -379,7 +378,7 @@ module MDEC (
 		.i_r			(r),
 		.i_g			(g),
 		.i_b			(b),
-		.stopFill		(stopFill),
+		.stopFill		(ignoreStopFill),
 
 		.i_readFifo		(i_read),
 		.o_fifoHasData	(fifoOUT_hasData),

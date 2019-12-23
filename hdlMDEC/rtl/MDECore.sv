@@ -86,7 +86,7 @@ module MDECore (
 	wire [5:0]		index_b;			
 	wire [5:0]		linearIndex_b;		
 	wire			fullBlockType_b;
-	wire MDEC_BLCK	blockNum_b;		
+	wire [2:0]	blockNum_b;		
 	wire			blockComplete_b;
 
 	// Instance Coef Multiplier
@@ -124,7 +124,7 @@ module MDECore (
 
 	wire			write_c;
 	wire [5:0]		writeIdx_c;
-	wire MDEC_BLCK	blockNum_c, writeValueBlock;
+	wire [2:0]	blockNum_c, writeValueBlock;
 	wire [11:0]		coefValue_c;
 	wire			matrixComplete_c;
 
@@ -150,7 +150,7 @@ module MDECore (
 
 	wire			write_c2			= /* selectREGtoIDCT ? REGwrite_c			: */ write_c;
 	wire [5:0]		writeIdx_c2			= /* selectREGtoIDCT ? REGwriteIdx_c		: */ writeIdx_c;
-	wire MDEC_BLCK	blockNum_c2			= /* selectREGtoIDCT ? REGblockNum_c		: */ blockNum_c;
+	wire [2:0]	blockNum_c2			= /* selectREGtoIDCT ? REGblockNum_c		: */ blockNum_c;
 	wire [11:0]		coefValue_c2		= /* selectREGtoIDCT ? REGcoefValue_c		: */ coefValue_c;
 	wire			matrixComplete_c2	= /* selectREGtoIDCT ? REGmatrixComplete_c	: */ matrixComplete_c;
 	
