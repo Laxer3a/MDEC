@@ -63,11 +63,11 @@ module IDCT (
 		// Write
 		if (i_cosWrite)
 		begin
-			COSTBLA[i_cosIndex] <= i_cosVal[12: 0];
-			COSTBLB[i_cosIndex] <= i_cosVal[25:13];
+			COSTBLA[i_cosIndex] = i_cosVal[12: 0];
+			COSTBLB[i_cosIndex] = i_cosVal[25:13];
 		end
 		// Read
-		cosAdr_reg <= addrCos;
+		cosAdr_reg = addrCos;
 	end
 	// Continuous assignment implies read returns NEW data.
 	// This is the natural behavior of the TriMatrix memory
@@ -91,16 +91,12 @@ module IDCT (
 	// Thus doing adressing, read/write myself.
 	reg 		[63:0] 	isLoadedBits;
 	reg					isLoaded;
-	reg					isLoadedTmp;
+	// [Direct READ 0 Cycle for Bit 0..63 with demultiplexer]
+	wire				isLoadedTmp = isLoadedBits[pass0ReadAdr];
 	
 	reg signed	[11:0]	coefTable[63:0];
 	reg			 [5:0]	coefTableAdr_reg;
 	
-	// [Direct READ 0 Cycle for Bit 0..63 with demultiplexer]
-	always @ (*)
-	begin
-		isLoadedTmp = isLoadedBits[pass0ReadAdr];
-	end
 	
 	MDEC_BLCK			blockID;
 	wire passTransition = (pass==1 && pPass==0);
@@ -200,12 +196,12 @@ module IDCT (
 	begin
 		if (i_nrst==0)
 		begin
-			idctCounter 	<= 9'd0;
-			idctBusy    	<= 0;
-			pFreeze			<= 0;
-			rMatrixComplete	<= 0;
+			idctCounter 	= 9'd0;
+			idctBusy    	= 0;
+			pFreeze			= 0;
+			rMatrixComplete	= 0;
 		end else begin
-			pFreeze			<= freezeIDCT;
+			pFreeze			= freezeIDCT;
 			
 			if (!pPass & pass) begin 
 				// Copy Block ID when entering pass1
@@ -219,25 +215,25 @@ module IDCT (
 			if (idctBusy)
 			begin
 				if (i_matrixComplete) begin
-					rMatrixComplete <= 1'b1;
+					rMatrixComplete = 1'b1;
 				end
 				
 				if (idctCounter == 511)
 				begin
-					idctCounter <= 9'd0;
-					idctBusy	<= 0; 	// Stop IDCT until new block loading complete.
+					idctCounter = 9'd0;
+					idctBusy	= 0; 	// Stop IDCT until new block loading complete.
 				end
 				else
 				begin
-					idctCounter <= idctCounter + { 8'd0 , !freezeIDCT }; // Add 1 only when NOT freezed.
+					idctCounter = idctCounter + { 8'd0 , !freezeIDCT }; // Add 1 only when NOT freezed.
 				end
 			end else begin
 				// We skip the matrix complete flag if we are busy computing a IDCT.
 				// Normally should never happen : Our busy flag will maintain that data is not pushed while computing.
 				if (rMatrixComplete | i_matrixComplete)
 				begin
-					idctBusy		<= 1;
-					rMatrixComplete	<= 0;
+					idctBusy		= 1;
+					rMatrixComplete	= 0;
 				end
 			end
 		end
@@ -292,11 +288,11 @@ module IDCT (
 		if (!pFreeze) begin
 			if (pKCnt != 0)
 			begin
-				acc0 <= acc0 + ext_mul0;
-				acc1 <= acc1 + ext_mul1;
+				acc0 = acc0 + ext_mul0;
+				acc1 = acc1 + ext_mul1;
 			end else begin
-				acc0 <= ext_mul0;
-				acc1 <= ext_mul1;
+				acc0 = ext_mul0;
+				acc1 = ext_mul1;
 			end
 		/* Same without else
 		else
