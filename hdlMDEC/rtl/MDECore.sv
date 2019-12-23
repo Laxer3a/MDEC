@@ -1,3 +1,5 @@
+`include "MDEC_Cte.sv"
+
 // Note : bitSetupDepth has no need to move along the pipeline
 //        => Command to MDEC can not change in between. Format belong to the command itself, not register setup. Atomic guarantee. Smaller hardware logic.
 
@@ -7,8 +9,8 @@ module MDECore (
 	input			i_nrst,
 
 	// Setup
-	input [1:0]		i_bitSetupDepth, // [Bit 1..0 = (0=4bit, 1=8bit, 2=24bit, 3=15bit)
-	input			i_bitSigned,
+	input MDEC_TPIX	i_bitSetupDepth, // [Bit 1..0 = (0=4bit, 1=8bit, 2=24bit, 3=15bit)
+	input MDEC_SIGN	i_bitSigned,
 	
 	// RLE Stream
 	input			i_dataWrite,
@@ -30,7 +32,7 @@ module MDECore (
 	input			i_quantTblSelect,
 
 	input			i_stopFillY,
-	output	[2:0]	o_idctBlockNum,
+	output MDEC_BLCK o_idctBlockNum,
 	
 	output			o_stillIDCT,
 	
@@ -84,7 +86,7 @@ module MDECore (
 	wire [5:0]		index_b;			
 	wire [5:0]		linearIndex_b;		
 	wire			fullBlockType_b;
-	wire [2:0]		blockNum_b;		
+	wire MDEC_BLCK	blockNum_b;		
 	wire			blockComplete_b;
 
 	// Instance Coef Multiplier
@@ -120,11 +122,11 @@ module MDECore (
 		.o_matrixComplete	(matrixComplete_c)
 	);
 
-	wire		write_c;
-	wire [5:0]	writeIdx_c;
-	wire [2:0]	blockNum_c, writeValueBlock;
-	wire [11:0]	coefValue_c;
-	wire		matrixComplete_c;
+	wire			write_c;
+	wire [5:0]		writeIdx_c;
+	wire MDEC_BLCK	blockNum_c, writeValueBlock;
+	wire [11:0]		coefValue_c;
+	wire			matrixComplete_c;
 
 	/*
 	reg			REGwrite_c;
@@ -146,11 +148,11 @@ module MDECore (
 	end
 	*/
 
-	wire		write_c2			= /* selectREGtoIDCT ? REGwrite_c			: */ write_c;
-	wire [5:0]	writeIdx_c2			= /* selectREGtoIDCT ? REGwriteIdx_c		: */ writeIdx_c;
-	wire [2:0]	blockNum_c2			= /* selectREGtoIDCT ? REGblockNum_c		: */ blockNum_c;
-	wire [11:0]	coefValue_c2		= /* selectREGtoIDCT ? REGcoefValue_c		: */ coefValue_c;
-	wire		matrixComplete_c2	= /* selectREGtoIDCT ? REGmatrixComplete_c	: */ matrixComplete_c;
+	wire			write_c2			= /* selectREGtoIDCT ? REGwrite_c			: */ write_c;
+	wire [5:0]		writeIdx_c2			= /* selectREGtoIDCT ? REGwriteIdx_c		: */ writeIdx_c;
+	wire MDEC_BLCK	blockNum_c2			= /* selectREGtoIDCT ? REGblockNum_c		: */ blockNum_c;
+	wire [11:0]		coefValue_c2		= /* selectREGtoIDCT ? REGcoefValue_c		: */ coefValue_c;
+	wire			matrixComplete_c2	= /* selectREGtoIDCT ? REGmatrixComplete_c	: */ matrixComplete_c;
 	
 	IDCT IDCTinstance (
 		// System
@@ -178,7 +180,7 @@ module MDECore (
 		.o_writeIndex		(writeIndex_d)
 	);
 
-	wire		isYOnlyBlock	= (writeValueBlock == 3'd7 /* is 7*/);
+	wire		isYOnlyBlock	= (writeValueBlock == BLK_Y_ /* is 7*/);
 	wire		isYBlock  		= isYOnlyBlock | (!writeValueBlock[2] /* range 0..3 */);
 	// [FIFO Out force IDCT to stop pushing Y values because it is near full]
 	wire		pauseIDCTYBlock = isYBlock & i_stopFillY;
@@ -201,7 +203,6 @@ module MDECore (
 	// 100 : Cr
 	// 101 : Cb
 	// 111 : Y3 (Y Only mode)
-	wire [1:0] YBlockNum = { writeValueBlock[1],writeValueBlock[0] };
 	assign o_idctBlockNum = writeValueBlock;
 	
 	// --------------------------------------------------
@@ -244,7 +245,7 @@ module MDECore (
 		
 		.i_writeIdx			(writeIndex_d),
 		.i_valueY			(value_d),
-		.i_YBlockNum		(YBlockNum),
+		.i_YBlockNum		(writeValueBlock[1:0]), // 0..3 is Y block range.
 
 		// Read Cr
 		// Read Cb

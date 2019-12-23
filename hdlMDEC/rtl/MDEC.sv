@@ -1,4 +1,6 @@
-module MDECRegisters (
+`include "MDEC_Cte.sv"
+
+module MDEC (
 	// System
 	input					i_clk,
 	input					i_nrst,
@@ -14,10 +16,13 @@ module MDECRegisters (
 	input	[31:0]			i_valueIn,
 	output	[31:0]			o_valueOut
 );
+	parameter BKL_YONLY = 3'd4; // Use same constant as BKL_CR but want to make code more readable...
+	
+	
 	wire writeReg1		=   i_regSelect  && i_write;
 	wire writeReg0		= (!i_regSelect) && i_write;
-	wire  resetChip		= (!i_nrst) || (writeReg1 & i_valueIn[31]); // Reset on 1 part
-	wire nResetChip		= (!resetChip);								// Reset on 0 part
+	wire  resetChip		= (!i_nrst) || (writeReg1 & i_valueIn[31]); // Reset on 1 parts
+	wire nResetChip		= (!resetChip);								// Reset on 0 parts
 
 	/*
 	. If we send a signal to block write from DMA / CPU.
@@ -33,12 +38,12 @@ module MDECRegisters (
 	//   Input FIFO
 	// ---------------------------------------------------------------------------------------------------
 	reg			fifoIN_rdL,fifoIN_rdM;
-	wire 		fifoIN_fullL,fifoIN_emptyL,fifoIN_fullM,fifoIN_emptyM,fifoIN_validL,fifoIN_validM;
-	wire		fifoIN_hasData		= (fifoIN_validL&!fifoIN_emptyL) | (fifoIN_validM&!fifoIN_emptyM);
-	wire		fifoIN_empty		= fifoIN_emptyL & fifoIN_emptyM;
-
+	wire 		fifoIN_fullL  ,fifoIN_emptyL , fifoIN_fullM, fifoIN_emptyM, fifoIN_validL, fifoIN_validM;
 	wire [15:0]	fifoIN_outputM,fifoIN_outputL;
 	wire [5:0]  unusedLevelM,unusedLevelL;
+	wire		fifoIN_hasData		= (fifoIN_validL&!fifoIN_emptyL) | (fifoIN_validM&!fifoIN_emptyM);
+	wire		fifoIN_empty		= fifoIN_emptyL & fifoIN_emptyM;
+	wire		fifoIN_full			= fifoIN_fullL  | fifoIN_fullM;
 
 	Fifo2 #(.DEPTH_WIDTH(5),.DATA_WIDTH(16))
 	InputFIFOM (
@@ -81,28 +86,25 @@ module MDECRegisters (
 	// -------------------------------------------
 	// Internal Registers / Command Setup
 	// -------------------------------------------
-	reg  [1:0]  regPixelFormat;
-	reg  		regPixelSigned;
-	reg  		regPixelSetAlpha;
+	MDEC_TPIX	regPixelFormat;
+	MDEC_SIGN	regPixelSigned;
+	MDEC_MASK	regPixelSetMask;
 	reg  [16:0]	remainingHalfWord;
 	reg			regLoadChromaQuant;
 	reg			regAllowDMA0,regAllowDMA1;
 	
 	// --- State Machine ---
-	reg [3:0]	state;
-	reg [3:0]	nextState;
+	typedef enum [2:0] {
+		WAIT_COMMAND	= 0,
+		LOAD_STREAML	= 1,
+		LOAD_STREAMH	= 2,
+		LOAD_COS		= 3,
+		LOAD_LUMA		= 4,
+		LOAD_CHROMA		= 5
+	} CMD_STATE;
+	CMD_STATE	state;
+	CMD_STATE	nextState;
 	
-	// First value is DC, Other values are AC.
-	parameter	WAIT_COMMAND	=4'd0,	
-				LOAD_STREAMW	=4'd1, 
-				LOAD_STREAML	=4'd2, 
-				LOAD_STREAMH	=4'd3, 
-				LOAD_COS		=4'd4, 
-				LOAD_LUMA		=4'd5, 
-				LOAD_CHROMA		=4'd6;
-//				WAIT_IDCTEND	=4'd7, 
-//				WAIT_IDCTEND_H	=4'd8
-
 	// ---------------------
 	reg			pRegSelect;
 	
@@ -111,15 +113,21 @@ module MDECRegisters (
 	// ---------------------------------------------------------------------------------------------------
 
 	// --- Command Related ---
-	wire [2:0] commandType	= fifoIN_outputM[15:13];
-	wire isCommandStream	= (commandType == 3'b001);
-	wire isCommandQuant		= (commandType == 3'b010);
-	wire isCommandCosTbl	= (commandType == 3'b011);
-	wire isColorQuant		= fifoIN_outputL[0];
-	wire isNewCommand		= fifoIN_hasData && (state == WAIT_COMMAND);
+	typedef enum [2:0] {
+		STREAM_CMD	= 1,
+		QUANTI_CMD	= 2,
+		COSTBL_CMD	= 3
+	} MDEC_CMD;
+	
+	wire MDEC_CMD commandType	= fifoIN_outputM[15:13];
+	wire isCommandStream		= (commandType == STREAM_CMD);
+	wire isCommandQuant			= (commandType == QUANTI_CMD);
+	wire isCommandCosTbl		= (commandType == COSTBL_CMD);
+	wire isColorQuant			= fifoIN_outputL[0];
+	wire isNewCommand			= fifoIN_hasData && (state == WAIT_COMMAND);
 
 	// --- Counter related ----
-	wire [16:0] nextRemainingHalfWord = remainingHalfWord + { 16'b1111111111111111, !decrementCounter[1] }; // -1 or -2
+	wire [16:0] nextRemainingHalfWord = remainingHalfWord + { 16'hFFFF, !decrementCounter[1] }; // -1 or -2
 	reg  [1:0]  decrementCounter;
 	wire isLastHalfWord		= (nextRemainingHalfWord == 17'd0);
 	
@@ -128,7 +136,7 @@ module MDECRegisters (
 		if (resetChip) begin
 			regPixelFormat   	= 2'b00;
 			regPixelSigned   	= 0;
-			regPixelSetAlpha 	= 0;
+			regPixelSetMask 	= 0;
 			regLoadChromaQuant	= 0; // Safer but not necessary.
 			remainingHalfWord 	= 17'h0;
 			
@@ -144,7 +152,7 @@ module MDECRegisters (
 				// Register are updated for ANY command.
 				regPixelFormat		= fifoIN_outputM[12:11];
 				regPixelSigned		= fifoIN_outputM[10];
-				regPixelSetAlpha	= fifoIN_outputM[ 9];
+				regPixelSetMask		= fifoIN_outputM[ 9];
 				regLoadChromaQuant	= isColorQuant;
 				
 				if (isCommandQuant) begin
@@ -221,7 +229,7 @@ module MDECRegisters (
 		LOAD_STREAMH: // STATE 3.
 		begin
 			if (validLoad) begin
-				decrementCounter= 2'b01;
+				decrementCounter= 2'd1;
 				// Consume 
 				fifoIN_rdM	= validLoad;
 				if (isLastHalfWord) begin
@@ -233,28 +241,6 @@ module MDECRegisters (
 				nextState = LOAD_STREAMH;
 			end
 		end
-		/*
-		WAIT_IDCTEND:
-		begin
-			if (canPushStream) begin
-				fifoIN_rdL	= validLoad;
-				nextState	= fifoIN_hasData ? LOAD_STREAML : LOAD_STREAMW;
-			end else begin
-				// fifoIN_rdL = 1'b0; fifoIN_rdM = 1'b0;  ALREADY DONE.
-				nextState	= WAIT_IDCTEND;
-			end
-		end
-		WAIT_IDCTEND_H:
-		begin
-			// fifoIN_rdL = 1'b0; fifoIN_rdM = 1'b0;  ALREADY DONE.
-			if (canPushStream) begin	// DO NOT CHECK IF THERE IS STILL DATA... We read the SECOND PART of U32. And may be the LAST word.
-														// It is LOAD_STREAMH to check and do the job.
-				nextState	= LOAD_STREAMH;
-			end else begin
-				nextState	= WAIT_IDCTEND_H;
-			end
-		end
-		*/
 		LOAD_COS:
 		begin
 			fifoIN_rdL			= fifoIN_hasData;
@@ -379,7 +365,7 @@ module MDECRegisters (
 
 	// For now pixel format is not pipelined but use directly register setup.
 	// 
-	wire [1:0]  outPixelFormat = regPixelFormat;
+	wire MDEC_TPIX outPixelFormat = regPixelFormat;
 
 	wire fifoOUT_hasData;
 	RGB2Fifo RGBFifo_inst(
@@ -388,7 +374,7 @@ module MDECRegisters (
 		
 		.i_wrtPix		(wrtPix),
 		.format			(outPixelFormat),
-		.setBit15		(regPixelSetAlpha),
+		.setBit15		(regPixelSetMask),
 		.i_pixAdr		(pixIdx),
 		.i_r			(r),
 		.i_g			(g),
@@ -402,39 +388,29 @@ module MDECRegisters (
 
 	// Reset State : 0x80040000 [31:Fifo Empty] | [17: 4bit -> Y=4]
 	wire [31:0] reg1Out;
-	wire fifoInFull			= fifoIN_fullL | fifoIN_fullM;
-	assign reg1Out[31]		= !fifoOUT_hasData;												// 31    Data-Out Fifo Empty (0=No, 1=Empty)
-	assign reg1Out[30]		= fifoInFull;													// 30    Data-In Fifo Full   (0=No, 1=Full, or Last word received)
-	assign reg1Out[29]		= (state != WAIT_COMMAND) || commandBusy || (!fifoIN_empty);	// 29    Command Busy  (0=Ready, 1=Busy receiving or processing parameters)
-	assign reg1Out[28]		= !fifoInFull & regAllowDMA0;									// 28    Data-In Request  	(set when DMA0 enabled and ready to receive data)
-																							// Note : Should be DMA job to check this bit, but CPU seems to expect this flag to be ZERO.
-																							// And DMA will read this register AS IS.
-	assign reg1Out[27]		= fifoOUT_hasData & regAllowDMA1;								// 27    Data-Out Request	(set when DMA1 enabled and ready to send data)
-	assign reg1Out[26:25]	= regPixelFormat;												// 26-25 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;CMD.28-27
-	assign reg1Out[24]		= regPixelSigned;												// 24    Data Output Signed (0=Unsigned, 1=Signed)                  ;CMD.26
-	assign reg1Out[23]		= regPixelSetAlpha;												// 23    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;CMD.25
-	assign reg1Out[22:19]	= 4'b0000;														// 22-19 Not used (seems to be always zero)
+	assign reg1Out[31]			= !fifoOUT_hasData;												// 31    Data-Out Fifo Empty (0=No, 1=Empty)
+	assign reg1Out[30]			= fifoIN_full;													// 30    Data-In Fifo Full   (0=No, 1=Full, or Last word received)
+	assign reg1Out[29]			= (state != WAIT_COMMAND) || commandBusy || (!fifoIN_empty);	// 29    Command Busy  (0=Ready, 1=Busy receiving or processing parameters)
+	assign reg1Out[28]			= !fifoIN_full & regAllowDMA0;									// 28    Data-In Request  	(set when DMA0 enabled and ready to receive data)
+																								// Note : Should be DMA job to check this bit, but CPU seems to expect this flag to be ZERO.
+																								// And DMA will read this register AS IS.
+	assign reg1Out[27]			= fifoOUT_hasData & regAllowDMA1;								// 27    Data-Out Request	(set when DMA1 enabled and ready to send data)
+	assign reg1Out[26:25]		= regPixelFormat;												// 26-25 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;CMD.28-27
+	assign reg1Out[24]			= regPixelSigned;												// 24    Data Output Signed (0=Unsigned, 1=Signed)                  ;CMD.26
+	assign reg1Out[23]			= regPixelSetMask;												// 23    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;CMD.25
+	assign reg1Out[22:19]		= 4'b0000;														// 22-19 Not used (seems to be always zero)
 
-	wire   isYOnly          = |currentBlock;
-	wire   isCrCb			= (currentBlock < 3'd2);
+	wire   isYOnly          	= &currentBlock; // 7 (BLK_Y_) => 1 else 0.
 
 	// 18-16 Current Block (0..3=Y1..Y4, 4=Cr, 5=Cb) (or for mono: always 4=Y)
-	// IDCT Values :
-	//  000=Cr, 		
-	//  001=Cb, 		
-	//  010=Y0,
-	//  011=Y1, 		
-	//  100=Y2, 		
-	//  101=Y3, 		
-	//  111=Y only mode	 --> Remapped to 0..5
-	assign reg1Out[18:16]	= isYOnly ? 3'd4 : (isCrCb ? { 2'b10, currentBlock[0]} : { 1'b0, !currentBlock[1] , currentBlock[0]}); 
+	assign reg1Out[18:16]		= isYOnly ? BKL_YONLY : currentBlock;
 	
-	assign reg1Out[15: 0]	= nextRemainingHalfWord[16:1]; 							// 15-0  Number of Parameter Words remaining minus 1  (FFFFh=None)  ;CMD.Bit0-15
+	assign reg1Out[15: 0]		= nextRemainingHalfWord[16:1]; 									// 15-0  Number of Parameter Words remaining minus 1  (FFFFh=None)  ;CMD.Bit0-15
 	
 	// ---------------------------------------------------------------------------------------------------
 	assign o_valueOut			= pRegSelect ? reg1Out : reg0Out;
 	assign o_DMA1ReadRequest	= reg1Out[27];
 	assign o_DMA0WriteRequest	= reg1Out[28];
-	assign o_canWriteReg0		= !fifoInFull;
+	assign o_canWriteReg0		= !fifoIN_full;
 	// ---------------------------------------------------------------------------------------------------
 endmodule

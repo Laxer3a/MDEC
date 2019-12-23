@@ -1,30 +1,32 @@
+`include "MDEC_Cte.sv"
+
 module IDCT (
 	// System
-	input			clk,
-	input			i_nrst,
+	input				clk,
+	input				i_nrst,
 
 	// Coefficient input
-	input			i_write,
-	input	[5:0]	i_writeIdx,
-	input	[2:0]	i_blockNum,
-	input	[11:0]	i_coefValue,
-	input			i_matrixComplete,	// Warning this bit CAN BECOME 1, independantly FROM i_write (See streamInput specs) !
-	output			o_canLoadMatrix,	// ALLOW LOADING OF MATRIX ELEMENT WHEN NOT BUSY OR PASS 1 & EXCEPT LAST ELEMENT OF MATRIX
-//	output			o_pass1,
+	input				i_write,
+	input	[5:0]		i_writeIdx,
+	input	MDEC_BLCK	i_blockNum,
+	input	[11:0]		i_coefValue,
+	input				i_matrixComplete,	// Warning this bit CAN BECOME 1, independantly FROM i_write (See streamInput specs) !
+	output				o_canLoadMatrix,	// ALLOW LOADING OF MATRIX ELEMENT WHEN NOT BUSY OR PASS 1 & EXCEPT LAST ELEMENT OF MATRIX
+//	output				o_pass1,
 	
 
 	// Loading of COS Table (Linear, no zigzag)
-	input			i_cosWrite,
-	input	[ 4:0]	i_cosIndex,
-	input	[25:0]	i_cosVal,
+	input				i_cosWrite,
+	input	[ 4:0]		i_cosIndex,
+	input	[25:0]		i_cosVal,
 	
 	// Output in order value out
-	input			i_pauseIDCT_YBlock,
-	output	 [7:0]	o_value,
-	output			o_writeValue,
-	output 	 [2:0]	o_blockNum,
-	output			o_busyIDCT,
-	output	 [5:0]	o_writeIndex
+	input				i_pauseIDCT_YBlock,
+	output	 [7:0]		o_value,
+	output				o_writeValue,
+	output 	 MDEC_BLCK	o_blockNum,
+	output				o_busyIDCT,
+	output	 [5:0]		o_writeIndex
 );
 
 //----- IGNORE FOR NOW -------------
@@ -100,7 +102,7 @@ module IDCT (
 		isLoadedTmp = isLoadedBits[pass0ReadAdr];
 	end
 	
-	reg			[2:0]	blockID;
+	MDEC_BLCK			blockID;
 	wire passTransition = (pass==1 && pPass==0);
 	always @ (posedge clk)
 	begin
@@ -191,8 +193,8 @@ module IDCT (
 	assign addrCos	= {KCnt,XCnt};
 
 	//-------------------------------------------------------
-	reg rMatrixComplete;
-	reg [2:0] idctBlockNum;
+	reg			rMatrixComplete;
+	MDEC_BLCK 	idctBlockNum;
 	
 	always @ (posedge clk)
 	begin

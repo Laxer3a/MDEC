@@ -1,3 +1,5 @@
+`include "MDEC_Cte.sv"
+
 /*
 ---------------------------------------------------------------
   MDEC Stream Specification :
@@ -38,30 +40,29 @@ Outputs:
 - o_scale is maintained through the RLE block, user has no need to keep the scale value from
   first item. It is already taken care of.
 - o_fullBlockType value is also guaranteed for the whole block length.
-- o_blockNum (0=Cr, 1=Cb, 2=Y0, 3=Y1, 4=Y2, 5=Y3, 7=Y only mode)
+- o_blockNum (0=Y1, 1=Y2, 2=Y3, 3=Y4, 4=Cr, 5=Cb | 7=Y only mode)
 - o_blockComplete : the previous element (o_dataWrt = 0) or this current element (o_dataWrt = 1) is the last one.
   (Reason : signal is issue when encounter EOB on standard block, or issued at the same time of last element when FULL LINEAR type).
-  
 */
 
 module streamInput(
-	input			clk,
-	input			i_nrst,
-	input			bDataWrite,
-	input [15:0]	i_dataIn,
-	input 			i_YOnly,
+	input				clk,
+	input				i_nrst,
+	input				bDataWrite,
+	input [15:0]		i_dataIn,
+	input 				i_YOnly,
 	
-//	output			o_outOfRangeblockIndex,
+//	output				o_outOfRangeblockIndex,
 	
-	output			o_dataWrt,
-	output[9:0]		o_dataOut,
-	output[5:0]		o_scale,
-	output			o_isDC,
-	output[5:0]		o_index,			// Linear or Z order for storage
-	output[5:0]		o_linearIndex,		// Linear index for Quant Read.
-	output			o_fullBlockType,
-	output[2:0]		o_blockNum,			// Need to propagate info with data, easier for control logic.
-	output			o_blockComplete
+	output				o_dataWrt,
+	output[9:0]			o_dataOut,
+	output[5:0]			o_scale,
+	output				o_isDC,
+	output[5:0]			o_index,			// Linear or Z order for storage
+	output[5:0]			o_linearIndex,		// Linear index for Quant Read.
+	output				o_fullBlockType,
+	output MDEC_BLCK	o_blockNum,			// Need to propagate info with data, easier for control logic.
+	output				o_blockComplete
 );
 	// --------------------------------------------------------
 	// [alias, basic flag for current data reading]
@@ -137,13 +138,12 @@ module streamInput(
 	//	 - Increment only when reaching next block.
     //   => Protected against i_YOnly changes.
     //
-	reg[2:0]	rBlockCounter;
 	reg         prevYOnly;
 	always @(posedge clk) begin
 		prevYOnly = i_YOnly;
 	end
 	
-	reg[2:0]	nextBlockCounter;
+	MDEC_BLCK	rBlockCounter, nextBlockCounter;
 	always @(posedge clk) begin
 		rBlockCounter	= nextBlockCounter;
 	end
@@ -154,8 +154,8 @@ module streamInput(
 		end else begin
 			if (isValidBlockComplete)	// Increment block counter only with VALID stream (no empty FE00)
 			begin
-				if (rBlockCounter == 3'd5)
-					nextBlockCounter = 0;
+				if (rBlockCounter == BLK_CB)
+					nextBlockCounter = BLK_Y1;
 				else
 					nextBlockCounter = rBlockCounter + 3'b001;
 			end else begin
