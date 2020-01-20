@@ -2,28 +2,21 @@
 	Verilog code done by Laxer3A v1.0
  **************************************************************************************************************************************/
 /*	READ / WRITE Special Behavior :
-	- [TODO] No READ FIFO Support for now.
 	- Overwrite of current voice MAIN VOLUME ignored.
 	- Write of 1F801DBCh is not supported (UNKNOWN REGISTER), Read is FAKE hardcoded value.
 	- Write of 1F801DA0h is not supported (UNKNOWN REGISTER), Read is FAKE hardcoded value.
-	- 1F801E60h R/W Not supported. */
-	
-/*	
-	TODO : Finish READ of status.
-	TODO : Finish the time slicing logic. (decide the whole state machine for the SPU)
-			- Reverb start,control
-			- Per channel control + request memory including ADPCM.
-			- Free timing for uploading CPU data to SPU RAM.
-	TODO : Implement DATA transfer.
+	- 1F801E60h R/W Not supported.
+	----- Unmet in games ----
+	TODO : No CPU READ FIFO Support for now.
+	TODO : Implement Sweep.	(Per channel, Per Main)
+	-------------------------
 	TODO : Implement ADPCM Loader.
 			- Support loop of channel.
+			- Support Packet flags.
 	TODO : Implement ADSR. (Including KON / KOFF)
-	TODO : Implement Volume Sweep.
+	TODO : Finish the time slicing logic. (decide the whole state machine for the SPU)
+			- Reverb.
 	TODO : Implement Reverb.
-	
-	// --> Seperate block is better for testing and more concise code.
-	TODO : Test ADSR and Noise block using Verilator.
-	TODO : Test ADPCM Decoding block using Verilator.
 */
 
 module SPU(
@@ -171,24 +164,24 @@ reg [15:0]	reg_volumeL			[23:0];	// Cn0 Voice Volume Left
 reg [15:0]	reg_volumeR			[23:0];	// Cn2 Voice Volume Right
 reg [15:0]	reg_sampleRate		[23:0];	// Cn4 VxPitch
 reg [15:0]	reg_startAddr		[23:0];	// Cn6 ADPCM Start  Address
-reg [15:0]	reg_currentAdsr		[23:0];	// CnC Voice Current ADSR Volume
+reg [14:0]	reg_currentAdsrVOL	[23:0];	// CnC Voice Current ADSR Volume
 reg [15:0]	reg_repeatAddr		[23:0];	// CnE ADPCM Repeat Address
-reg [15:0]  reg_volAdsr			[23:0]; // [NWRITE]
 reg [23:0]	reg_repeatUserSet;
 reg [15:0]	reg_adsrLo			[23:0];
 reg [15:0]	reg_adsrHi			[23:0];
 
-parameter	ADSR_ATTACK		= 3'd0, // May need bit 2 for ADSR_STOPPED ?
-			ADSR_DECAY		= 3'd1,
-			ADSR_SUSTAIN	= 3'd2,
-			ADSR_RELEASE	= 3'd3;
-			
-reg [ 2:0]	reg_adsrState		[23:0];
+parameter	ADSR_ATTACK		= 2'd0, // May need bit 2 for ADSR_STOPPED ?
+			ADSR_DECAY		= 2'd1,
+			ADSR_SUSTAIN	= 2'd2,
+			ADSR_RELEASE	= 2'd3;
+reg [ 1:0]	reg_adsrState		[23:0];
 
 reg [31:0]  reg_adpcmPrev		[23:0];	// [NWRITE]
 reg [31:0]  reg_tmpAdpcmPrev;
 reg [16:0]	reg_adpcmPos		[23:0];
 reg [15:0]  reg_adpcmCurrAdr	[23:0];
+reg [47:0]	reg_InterpolatorHistory[23:0];
+reg [22:0]  reg_adsrCycleCount[23:0];
 
 reg [23:0]	reg_activeChannels;
 
@@ -508,7 +501,7 @@ begin
 					end
 					if (addr[3:1]==3'b110) begin
 						// 1F801xxCh - Voice 0..23 Current ADSR volume (R/W) (0..+7FFFh) (or -8000h..+7FFFh on manual write)
-						reg_currentAdsr[channelAdr]	= dataIn;
+						reg_currentAdsrVOL[channelAdr]	= dataIn[14:0];
 					end
 					if (addr[3:1]==3'b111) begin
 						reg_repeatAddr[channelAdr] = dataIn;
@@ -536,14 +529,14 @@ begin
 		if (check_Kevent) begin
 			if (reg_kEvent[currVoice]) begin	// KON or KOFF occured to this channel...
 				if (reg_kMode[currVoice]) begin // Voice start [TODO : have bit that said voice is stopped and check it : reg_endx ?]
-					reg_volAdsr		[currVoice] = 16'd0;
+					reg_currentAdsrVOL[currVoice] = 15'd0;
 					reg_adpcmCurrAdr[currVoice] = currV_startAddr;
 					reg_adsrState	[currVoice] = ADSR_ATTACK;
 					reg_adpcmPos	[currVoice] = 17'd0;
 					reg_endx		[currVoice] = 1'b0;
-
-					// reg_adpcmPrev	[currVoice] = 31'd0; [TODO] ??? Do we reset the ADPCM, Avocado is NOT.
-					
+					reg_adpcmPrev	[currVoice] = 32'd0;
+					reg_InterpolatorHistory[currVoice] = 48'd0;
+					reg_adsrCycleCount[currVoice] = 23'd0; // Force ATTACK to reset to new cycle count.
 					/*	[TODO : Part from Avocado not done...]
 						if (!ignoreLoadRepeatAddress) {
 							repeatAddress._reg = startAddress._reg;
@@ -554,7 +547,7 @@ begin
 					 */
 
 					// Optionnal... can't stay for ever... ? What's the point, else everything ends up 1.
-					reg_kon			[currVoice] = 1'b0;
+					// reg_kon			[currVoice] = 1'b0;
 				end else begin
 					reg_adsrState	[currVoice] = ADSR_RELEASE;
 					reg_koff		[currVoice] = 1'b0;
@@ -564,12 +557,16 @@ begin
 			reg_activeChannels	[currVoice] = 1'b1;
 		end
 		
+		if (clearKON) begin
+			reg_kon[currVoice] = 1'b0;
+		end
+		
 		if (setEndX) begin
 			reg_endx		[currVoice] = 1'b1;
 		end
 		
 		if (updateVoiceADPCMAdr) begin
-			reg_adpcmCurrAdr[currVoice] = currV_adpcmCurrAdr + 16'd1;
+			reg_adpcmCurrAdr[currVoice] = currV_adpcmCurrAdr + 16'd2;	// Skip 16 byte for next ADPCM block.
 		end
 		
 		if (updateVoiceADPCMPos) begin
@@ -597,6 +594,22 @@ begin
 		
 		if (ctrlSendOut) begin
 			regRingBufferIndex = regRingBufferIndex + 1;
+		end
+		
+		if (newSampleReady) begin
+			reg_InterpolatorHistory[currVoice] = sampleHistoryWriteBack;
+		end
+		
+		// Updated each time a new sample is issued over the voice.
+		if (validSampleStage2) begin
+			reg_adsrCycleCount[currVoice]	= nextAdsrCycle;
+		end
+		// Updated each time a new sample AND counter reach ZERO.
+		if (validSampleStage2 & reachZero) begin
+			reg_currentAdsrVOL[currVoice]	= nextAdsrVol;
+		end
+		if (changeADSRState) begin
+			reg_adsrState[currVoice]		= nextAdsrState;
 		end
 	end // end reset
 end // end always block
@@ -705,7 +718,7 @@ begin
 		3'b011:dataOutw = reg_startAddr		[channelAdr];
 		3'b100:dataOutw = reg_adsrLo		[channelAdr];
 		3'b101:dataOutw = reg_adsrHi		[channelAdr];
-		3'b110:dataOutw = reg_currentAdsr	[channelAdr];
+		3'b110:dataOutw = {1'b0,reg_currentAdsrVOL[channelAdr]};
 		3'b111:dataOutw = reg_repeatAddr	[channelAdr];
 		endcase
 	end else begin					// E00-FFF
@@ -756,7 +769,6 @@ end
 wire  [15:0] currV_sampleRate	= reg_sampleRate[currVoice];
 wire  [15:0] currV_startAddr	= reg_startAddr	[currVoice]; 
 // [NREAD] wire  [15:0] currV_repeatAddr	= reg_repeatAddr[currVoice];
-// [NREAD] wire  [15:0] currV_volAdsr		= reg_volAdsr	[currVoice];
 // [NREAD] wire         currV_koff			= reg_koff		[currVoice];
 wire		 currV_kon			= reg_kon		[currVoice];
 wire  [16:0] currV_adpcmPos		= reg_adpcmPos	[currVoice];
@@ -882,6 +894,7 @@ begin
 	updateVoiceADPCMAdr	= 0;
 	updateVoiceADPCMPos = 0;
 	updateVoiceADPCMPrev= 0;
+	adpcmSubSample		= 0;
 
 	case (voiceInternalCnt)
 	5'd0:
@@ -1201,7 +1214,7 @@ wire         nextNewBlock	= nextADPCMPos[16:14] > 3'd6;
 // PB : not well defined arch here... TODO : What in case of START. pure 0.
 
 // --------------------------------------------------------------------------------------
-//		Stage 0 : ADPCM Input 			(common : once every 32 cycle)
+//		Stage 0 : ADPCM Input -> Output		(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
 
 wire newSampleReady = (adpcmSubSample == currV_adpcmPos[13:12]) & updatePrev; // Only when state machine output SAMPLE from SPU RAM and valid ADPCM out.
@@ -1218,27 +1231,14 @@ ADPCMDecoder ADPCMDecoderUnit(
 	.o_sample		(sampleOutADPCM)
 );
 
-// TODO : Adress loading unit.
-
-// TODO : ADPCM decode unit.	
-
 // TODO : Loop point / one shot spec.
 
-// TODO : IRQ Load
-
-wire [47:0] sampleHistoryRead;
-wire [47:0] sampleHistoryWriteBack = { sampleHistoryRead[31:0], sampleOutADPCM };
-
-// --------------------------------------------------------------------------------------
-//		Stage 1A : ADPCM Output (once every   32 cycle)
-// --------------------------------------------------------------------------------------
-
-
-
-
+wire [47:0] sampleHistoryRead		= reg_InterpolatorHistory[currVoice];
+// Write back on 'newSampleReady'
+wire [47:0] sampleHistoryWriteBack	= { sampleHistoryRead[31:0], sampleOutADPCM };
 
 // --------------------------------------------------------------------------------------
-//	[COMPLETED] Stage 1B : Gaussian Filter
+//	[COMPLETED] Stage 1 : Gaussian Filter
 // --------------------------------------------------------------------------------------
 
 /*	idx = 0,1,2,3
@@ -1257,7 +1257,6 @@ wire [47:0] sampleHistoryWriteBack = { sampleHistoryRead[31:0], sampleOutADPCM }
 	3 = OLDEST		@0FF - xx
 */
 wire signed [15:0]	voiceSample;
-wire [4:0]			voiceStage2;
 wire				validSampleStage2;
 
 Interpolator Interpolator_inst(
@@ -1265,7 +1264,6 @@ Interpolator Interpolator_inst(
 	
 	// 5 Cycle latency between input and output.
 	.i_go					(newSampleReady),
-	.i_channelID			(currVoice),
 	.i_interpolator			(currV_adpcmPos[11:4]),
 	.i_sampleOldest			(sampleHistoryRead[47:32]),
 	.i_sampleOlder			(sampleHistoryRead[31:16]),
@@ -1273,7 +1271,6 @@ Interpolator Interpolator_inst(
 	.i_sampleNew			(sampleOutADPCM),
 	
 	.o_sample_c5			(voiceSample),
-	.o_channel				(voiceStage2),
 	.o_validSample			(validSampleStage2)
 );
 
@@ -1293,74 +1290,121 @@ NoiseUnit NoiseUnit_inst(
 // --------------------------------------------------------------------------------------
 //	[COMPLETED]	Stage 2 : Select ADPCM / Noise 	(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-wire		NON							= reg_non [voiceStage2];
+wire		NON							= reg_non [currVoice];
 wire signed [15:0] ChannelValue			= NON ? noiseLevel : voiceSample;
-wire  signed [15:0] currV_VolumeL		= reg_volumeL	[currVoice];
-wire  signed [15:0] currV_VolumeR		= reg_volumeR	[currVoice];
-wire  [15:0] currV_currentAdsr			= reg_currentAdsr[currVoice];
-wire  [15:0] currV_adsrLo				= reg_adsrLo	[currVoice];
-wire  [15:0] currV_adsrHi				= reg_adsrHi	[currVoice];
+wire  signed [14:0] currV_VolumeL		= reg_volumeL	[currVoice][14:0];
+wire  signed [14:0] currV_VolumeR		= reg_volumeR	[currVoice][14:0];
 
 // --------------------------------------------------------------------------------------
 //		Stage 3A : Compute ADSR        	(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-wire [15:0] AdsrLo = currV_adsrLo;
-wire [15:0] AdsrHi = currV_adsrHi;
-
-reg [3:0] ADSRState;	// Todo.
+wire  [14:0] AdsrVol			= reg_currentAdsrVOL[currVoice];
+wire  [15:0] AdsrLo				= reg_adsrLo	[currVoice];
+wire  [15:0] AdsrHi				= reg_adsrHi	[currVoice];
+wire   [1:0] AdsrState			= reg_adsrState	[currVoice];
+wire  [22:0] AdsrCycleCount		= reg_adsrCycleCount[currVoice];
 
 reg 				EnvExponential;
-reg signed [1:0] 	EnvDirection;
+reg 				EnvDirection;
 reg signed [4:0]	EnvShift;
 reg signed [3:0]	EnvStep;
-wire signed [4:0]	SustainLevel = AdsrLo[3:0] + 4'b0001; // 11 bit shift for compare.
+reg [15:0]			EnvLevel;
+reg [1:0]           computedNextAdsrState;
+reg                 cmpLevel;
+
+wire [4:0]  	susLvl = { 1'b0, AdsrLo[3:0] } + { 5'd1 };
+wire [15:0]	EnvSusLevel= { susLvl, 11'd0 };
 
 always @(*) begin
-	case (ADSRState)
-	0: // A State
+	case (AdsrState)
+	ADSR_ATTACK: // A State
 	begin
 		EnvExponential	= AdsrLo[15];
-		EnvDirection	= 2'b01;					// +1 Signed
+		EnvDirection	= 0;						// INCR
 		EnvShift		= AdsrLo[14:10];			// 0..+1F
 		EnvStep			= { 2'b01, AdsrLo[9:8] };	// +4..+7
+		cmpLevel		= 1;
 	end
-	1: // D State
+	ADSR_DECAY: // D State
 	begin
 		EnvExponential	= 1'b1;						// Exponential
-		EnvDirection	= 2'b11;					// -1 Signed
+		EnvDirection	= 1;						// DECR
 		EnvShift		= { 1'b0, AdsrLo[7:4] };	// 0..+0F
 		EnvStep			= 4'b1000;					// -8
+		cmpLevel		= 1;
 	end
-	2: // S State
+	ADSR_SUSTAIN: // S State
 	begin
 		EnvExponential	= AdsrHi[15];
-		EnvDirection	= { AdsrHi[14], 1'b1 };		// -1,+1
+		EnvDirection	= AdsrHi[14];				// INCR/DECR
 		EnvShift		= AdsrHi[12:8];				// 0..+1F
 		// +7/+6/+5/+4 if INCREASE
 		// -8/-7/-6/-5 if DECREASE
 		EnvStep			= { AdsrHi[14] , !AdsrHi[14] , ~AdsrHi[7:6] };
+		cmpLevel		= 0;
 	end
-	3: // R State	
+	ADSR_RELEASE: // R State	
 	begin
 		EnvExponential	= AdsrHi[5];
-		EnvDirection	= 2'b11;					// -1
+		EnvDirection	= 1;						// DECR
 		EnvShift		= AdsrHi[4:0];				// 0..+1F
 		EnvStep			= 4'b1000;					// -8
+		cmpLevel		= 0;
 	end
-	default:;
+	endcase
+	
+	case (AdsrState)
+	// ---- Activated only from KON
+	ADSR_ATTACK : computedNextAdsrState = KON ? ADSR_ATTACK : ADSR_DECAY; // A State -> D State if KON cleared, else stay on ATTACK.
+	ADSR_DECAY  : computedNextAdsrState = ADSR_DECAY;
+	ADSR_SUSTAIN: computedNextAdsrState = ADSR_SUSTAIN;
+	// ---- Activated only from KOFF
+	ADSR_RELEASE: computedNextAdsrState = ADSR_RELEASE;
 	endcase
 end
 
-wire [15:0] outADSRVolume;
-wire [31:0] tmpVxOut = ChannelValue * outADSRVolume;
+wire shift2ExpIncr = EnvExponential & !EnvDirection & (AdsrVol > 15'h6000);
+wire step2ExpDecr  = EnvExponential & EnvDirection;
 
+wire [22:0] cycleCountStart;
+wire signed [14:0] adsrStep;
+	
+ADSRCycleCountModule ADSRCycleCountInstance
+(
+	.i_EnvShift				(EnvShift),
+	.i_EnvStep				(EnvStep),
+	.i_adsrLevel			(AdsrVol),		// 0..+7FFF
+	.i_shift2ExpIncr		(shift2ExpIncr),
+	.i_step2ExpDecr			(step2ExpDecr),
+	.o_CycleCount			(cycleCountStart),
+	.o_AdsrStep				(adsrStep)
+);
 
-wire [15:0] vxOut	 = tmpVxOut[30:15];	// 1.15 bit precision.
+wire		reachZero		= (AdsrCycleCount == 23'd0);
+wire		tooBigLvl		= (      AdsrVol ==    15'h7FFF) && (AdsrState == ADSR_ATTACK);
+wire        tooLowLvl		= ({1'b0,AdsrVol} < EnvSusLevel) && (AdsrState == ADSR_DECAY );
+wire		changeADSRState	= validSampleStage2 & reachZero & ((cmpLevel & (tooBigLvl | tooLowLvl)) | (!cmpLevel));
+
+wire [22:0] nextAdsrCycle	= reachZero ? cycleCountStart : AdsrCycleCount + { 23{1'b1} } /* Same as AdsrCycleCount - 1 */;
+
+// TODO : On Sustain, should stop adding adsrStep when reachZero
+wire [14:0] nextAdsrVol;
+wire [16:0] tmpVolStep		= {2'b0, AdsrVol} + {adsrStep[14],adsrStep[14],adsrStep};
+clampSPositive #(.INW(17),.OUTW(15)) ClampADSRVolume(.valueIn(tmpVolStep),.valueOut(nextAdsrVol));
+
+wire  [1:0]	nextAdsrState	= computedNextAdsrState;
+wire		clearKON		= reachZero & KON & validSampleStage2;
+
+/*
+	4. Detect value threshold and change state.
+ */
+
+// TODO : Check volume computation bit range.
+wire signed [15:0] sAdsrVol = {1'b0, AdsrVol};
+wire [30:0] tmpVxOut = ChannelValue * sAdsrVol;
+wire [15:0] vxOut	 = tmpVxOut[29:14];	// 1.15 bit precision.
 /*
 	VxOut[ch] = ChannelValue * ADSRVol
-	
-	TODO : Computation of ADSR 
-	
 	TODO : Use KeyON and KeyOFF
 	
 */
@@ -1380,8 +1424,8 @@ end
 //		Channel volume / Support Sweep (16 cycle)
 // --------------------------------------------------------------------------------------
 
-wire [31:0] applyLVol = currV_VolumeL * PvxOut;
-wire [31:0] applyRVol = currV_VolumeR * PvxOut;
+wire [30:0] applyLVol = currV_VolumeL * PvxOut;
+wire [30:0] applyRVol = currV_VolumeR * PvxOut;
 
 // --------------------------------------------------------------------------------------
 //		Stage Accumulate all voices    (768/16/32)
@@ -1389,8 +1433,8 @@ wire [31:0] applyRVol = currV_VolumeR * PvxOut;
 reg [20:0] sumL,sumR;
 always @(posedge i_clk) begin
 	if (PValidSample) begin
-		sumL = sumL + { {5{applyLVol[31]}},applyLVol[30:15]};
-		sumR = sumR + { {5{applyLVol[31]}},applyLVol[30:15]};
+		sumL = sumL + { {5{applyLVol[30]}},applyLVol[29:14]};
+		sumR = sumR + { {5{applyRVol[30]}},applyRVol[29:14]};
 	end else begin
 		if (clearSum) begin
 			sumL = 21'd0;
@@ -1437,15 +1481,15 @@ wire signed [15:0] ReverbR	= 16'd0 /* TODO use reg_reverbVolRight */;
 //		Mix
 // --------------------------------------------------------------------------------------
 // According to spec : impact only MAIN, not CD
-wire signed [15:0] volL        = reg_SPUMute ? 16'd0 : reg_mainVolLeft;
-wire signed [15:0] volR        = reg_SPUMute ? 16'd0 : reg_mainVolRight;
+wire signed [14:0] volL        = reg_SPUMute ? 15'd0 : reg_mainVolLeft [14:0];
+wire signed [14:0] volR        = reg_SPUMute ? 15'd0 : reg_mainVolRight[14:0];
 // [TODO] Add Reverb into sumL for correct support (mute reverb too)
-wire signed [36:0] sumPostVolL = sumL * volL;
-wire signed [36:0] sumPostVolR = sumR * volR;
+wire signed [35:0] sumPostVolL = sumL * volL;
+wire signed [35:0] sumPostVolR = sumR * volR;
 
 // Mix = Accumulate + CdSide // TODO : + RevertOutput * VolumeReverb OPTION: +ExtSide
-wire signed [21:0] postVolL    = sumPostVolL[36:15] + {{6{CdSideL[15]}} ,CdSideL};
-wire signed [21:0] postVolR    = sumPostVolL[36:15] + {{6{CdSideR[15]}} ,CdSideR};
+wire signed [21:0] postVolL    = sumPostVolL[35:14] + {{6{CdSideL[15]}} ,CdSideL};
+wire signed [21:0] postVolR    = sumPostVolL[35:14] + {{6{CdSideR[15]}} ,CdSideR};
 
 wire signed [15:0] outL,outR;
 clampSRange #(.INW(22),.OUTW(16)) Left_Clamp(.valueIn(postVolL),.valueOut(outL));

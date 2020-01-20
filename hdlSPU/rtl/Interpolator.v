@@ -20,7 +20,6 @@ module Interpolator(
 	input					i_clk,
 	// 5 Cycle latency between input and output.
 	input					i_go,
-	input			[4:0]	i_channelID,
 	input			[7:0]	i_interpolator,
 	input	signed [15:0]	i_sampleOldest,
 	input	signed [15:0]	i_sampleOlder,
@@ -28,23 +27,16 @@ module Interpolator(
 	input	signed [15:0]	i_sampleNew,
 	
 	output	signed [15:0]	o_sample_c5,
-	output          [4:0]	o_channel,
 	output					o_validSample
 );
-
-wire [7:0] interp = i_interpolator;
-wire [1:0] idx    = i_go ? 2'd0 : regIdx[1:0];
-wire [8:0] romAdr = idx[1] ? {!idx[0], ~interp} : { idx[0], interp };
 
 reg signed [15:0] rOLDEST;
 reg signed [15:0] rOLDER;
 reg signed [15:0] rOLD;
 reg signed [15:0] rNEW;
-reg         [4:0] channel;
 
 reg signed [17:0] acc;
 reg         [2:0] regIdx;
-reg			[1:0] pIDX;
 always @(posedge i_clk) begin
 	if (i_go) begin
 		regIdx	= 3'd1;	// Start at 1, stop at 4.
@@ -53,57 +45,25 @@ always @(posedge i_clk) begin
 		rOLD	= i_sampleOld;
 		rOLDER	= i_sampleOlder;
 		rOLDEST	= i_sampleOldest;
-		channel	= i_channelID;
 	end else begin
+		// Because of latency to InterpROM, when regIdx = 1, data is not there yet...
+		// BEFORE regIdx INCREMENT !
+		if (regIdx > 1) begin
+			acc = acc + { cumulativeSample[15], cumulativeSample[15], cumulativeSample};
+		end
+	
 		// Stuck at 6
-		if (regIdx < 6) begin
+		if (regIdx < 7) begin
 			regIdx = regIdx + 1;
 		end
-		
-		acc = acc + { cumulativeSample[15], cumulativeSample[15], cumulativeSample};
 	end
-	pIDX = idx;
+	Pidx = idx;
 end
 
-/*
-	Cycle 0:		i_go = 1
-		regIdx	= [6 or 0]
-		Store all data.
-		idx    = 0 
-	Cycle 1:		i_go = 0
-		regIdx	= 1
-		idx		= 1
-		acc		= 0
-		ratio	=> NEW RATIO
-		Add NEW sample to ACC
-	Cycle 2:
-		regIdx	= 2
-		idx		= 2
-		ratio	=> OLD RATIO
-		Add OLD sample to ACC
-	Cycle 3:
-		regIdx	= 3
-		idx		= 3
-		ratio	=> OLDER RATIO
-		Add OLDER sample to ACC
-	Cycle 4:
-		regIdx	= 4
-		idx		= 0
-		ratio	=> OLDEST RATIO
-		Add OLDEST sample to ACC
-	Cycle 5:
-		regIdx	= 4
-		idx		= 0
-		Add Garbage to ACC
-		
-	Cycle 6:
-		regIdx	= 4
-		idx		= 0
-		Add Garbage to ACC...
-		Loop forever...
-	
- */
-
+wire [7:0] interp = i_interpolator;
+wire [1:0] idx    = regIdx[1:0];
+reg  [1:0] Pidx; // Needed to handle latency of InterpROM.
+wire [8:0] romAdr = {idx[0], idx[1] ? ~interp : interp };
 wire signed[15:0] ratio;
 
 // 1 Clock Latency (use BRAM to store 8KBit ROM of 512x16 bits)
@@ -113,20 +73,31 @@ InterpROM instanceInterpROM(
 	.dataOut	( ratio)
 );
 
+/*
+  out = 0
+                      IDX[0]
+                      |
+                      | 
+                      |+---- IDX[1]
+                      ||
+  out = out + ((gauss[100h+i] * old)    SAR 15)		01
+  out = out + ((gauss[0FFh-i] * oldest) SAR 15)		10
+  out = out + ((gauss[1FFh-i] * older)  SAR 15)		11
+  out = out + ((gauss[000h+i] * new)    SAR 15)		00
+*/
 reg signed[15:0] src;
 always @(*) begin
-	case (pIDX)
-	2'b00 : src = rNEW;
-	2'b01 : src = rOLD;
-	2'b10 : src = rOLDER;
-	2'b11 : src = rOLDEST;
+	case (Pidx)
+	2'b00 : src = rNEW;		// Fourth
+	2'b01 : src = rOLD;		// First
+	2'b10 : src = rOLDEST;	// Second
+	2'b11 : src = rOLDER;	// Third
 	endcase
 end
-wire signed[31:0] res = ratio * src;
-wire signed[15:0] cumulativeSample = res[30:15]; // Division by 2^15 --> Imperfect.
+wire signed[31:0] res				= ratio * src;
+wire signed[15:0] cumulativeSample	= res[30:15]; // Division by 2^15 --> Imperfect.
 // NO CLAMPING... clampSRange #(.INW(32),.OUTW(16)) clampAudioSample(.valueIn(res),.valueOut(cumulativeSample));
 
-assign o_channel		= channel;
 assign o_validSample	= (regIdx == 3'd6);
 assign o_sample_c5		= acc[15:0];
 endmodule
