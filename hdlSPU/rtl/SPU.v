@@ -65,6 +65,15 @@ module SPU(
 	,output 		VALIDOUT
 );
 
+reg [23:0] debugCnt; always @(posedge i_clk)
+begin debugCnt = (n_rst == 0) ? 24'd0 : debugCnt + 1; end
+
+/* Decide if we loop ADSR cycle counter when reach 0 or 1 ?
+	0 = Number of cycle + 1 evaluation !
+	1 = Number of cycle exactly.
+*/
+parameter		CHANGE_ADSR_AT = 23'd1;
+
 wire			o_dataReadRAM;
 wire			o_dataWriteRAM;
 wire	[15:0]	i_dataInRAM; 
@@ -536,7 +545,7 @@ begin
 					reg_endx		[currVoice] = 1'b0;
 					reg_adpcmPrev	[currVoice] = 32'd0;
 					reg_InterpolatorHistory[currVoice] = 48'd0;
-					reg_adsrCycleCount[currVoice] = 23'd0; // Force ATTACK to reset to new cycle count.
+					reg_adsrCycleCount[currVoice] = CHANGE_ADSR_AT; 
 					/*	[TODO : Part from Avocado not done...]
 						if (!ignoreLoadRepeatAddress) {
 							repeatAddress._reg = startAddress._reg;
@@ -1315,44 +1324,8 @@ reg                 cmpLevel;
 wire [4:0]  	susLvl = { 1'b0, AdsrLo[3:0] } + { 5'd1 };
 wire [15:0]	EnvSusLevel= { susLvl, 11'd0 };
 
+wire [1:0] tstState = changeADSRState ? nextAdsrState : AdsrState;
 always @(*) begin
-	case (AdsrState)
-	ADSR_ATTACK: // A State
-	begin
-		EnvExponential	= AdsrLo[15];
-		EnvDirection	= 0;						// INCR
-		EnvShift		= AdsrLo[14:10];			// 0..+1F
-		EnvStep			= { 2'b01, AdsrLo[9:8] };	// +4..+7
-		cmpLevel		= 1;
-	end
-	ADSR_DECAY: // D State
-	begin
-		EnvExponential	= 1'b1;						// Exponential
-		EnvDirection	= 1;						// DECR
-		EnvShift		= { 1'b0, AdsrLo[7:4] };	// 0..+0F
-		EnvStep			= 4'b1000;					// -8
-		cmpLevel		= 1;
-	end
-	ADSR_SUSTAIN: // S State
-	begin
-		EnvExponential	= AdsrHi[15];
-		EnvDirection	= AdsrHi[14];				// INCR/DECR
-		EnvShift		= AdsrHi[12:8];				// 0..+1F
-		// +7/+6/+5/+4 if INCREASE
-		// -8/-7/-6/-5 if DECREASE
-		EnvStep			= { AdsrHi[14] , !AdsrHi[14] , ~AdsrHi[7:6] };
-		cmpLevel		= 0;
-	end
-	ADSR_RELEASE: // R State	
-	begin
-		EnvExponential	= AdsrHi[5];
-		EnvDirection	= 1;						// DECR
-		EnvShift		= AdsrHi[4:0];				// 0..+1F
-		EnvStep			= 4'b1000;					// -8
-		cmpLevel		= 0;
-	end
-	endcase
-	
 	case (AdsrState)
 	// ---- Activated only from KON
 	ADSR_ATTACK : computedNextAdsrState = KON ? ADSR_ATTACK : ADSR_DECAY; // A State -> D State if KON cleared, else stay on ATTACK.
@@ -1360,6 +1333,54 @@ always @(*) begin
 	ADSR_SUSTAIN: computedNextAdsrState = ADSR_SUSTAIN;
 	// ---- Activated only from KOFF
 	ADSR_RELEASE: computedNextAdsrState = ADSR_RELEASE;
+	endcase
+	
+	case (AdsrState)
+	ADSR_ATTACK : cmpLevel = 1;
+	ADSR_DECAY  : cmpLevel = 1;
+	ADSR_SUSTAIN: cmpLevel = 0;
+	ADSR_RELEASE: cmpLevel = 0;
+	endcase
+	
+	case (tstState)
+	ADSR_ATTACK: // A State
+	begin
+		EnvExponential	= AdsrLo[15];
+		EnvDirection	= 0;						// INCR
+		EnvShift		= AdsrLo[14:10];			// 0..+1F
+		EnvStep			= { 2'b01, ~AdsrLo[9:8] };	// +7..+4
+	end
+	ADSR_DECAY: // D State
+	begin
+		EnvExponential	= 1'b1;						// Exponential
+		EnvDirection	= 1;						// DECR
+		EnvShift		= { 1'b0, AdsrLo[7:4] };	// 0..+0F
+		EnvStep			= 4'b1000;					// -8
+	end
+	ADSR_SUSTAIN: // S State
+	begin
+		EnvExponential	= AdsrHi[15];
+		EnvDirection	= AdsrHi[14];				// INCR/DECR
+		EnvShift		= AdsrHi[12:8];				// 0..+1F
+		// +7/+6/+5/+4 if INCREASE
+		//	0 00 : 0111
+		//  0 01 : 0110
+		//  0 10 : 0101
+		//  0 11 : 0100
+		// -8/-7/-6/-5 if DECREASE
+		//	1 00 : 1000 -8
+		//  1 01 : 1001 -7
+		//  1 10 : 1010 -6
+		//  1 11 : 1011 -5
+		EnvStep			= { AdsrHi[14] , !AdsrHi[14] , AdsrHi[14] ? AdsrHi[7:6] : ~AdsrHi[7:6] };
+	end
+	ADSR_RELEASE: // R State	
+	begin
+		EnvExponential	= AdsrHi[5];
+		EnvDirection	= 1;						// DECR
+		EnvShift		= AdsrHi[4:0];				// 0..+1F
+		EnvStep			= 4'b1000;					// -8
+	end
 	endcase
 end
 
@@ -1380,12 +1401,13 @@ ADSRCycleCountModule ADSRCycleCountInstance
 	.o_AdsrStep				(adsrStep)
 );
 
-wire		reachZero		= (AdsrCycleCount == 23'd0);
+wire [22:0] decAdsrCycle    = AdsrCycleCount + { 23{1'b1} } /* Same as AdsrCycleCount - 1 */;
+wire		reachZero		= (AdsrCycleCount == CHANGE_ADSR_AT); // Go to next state when reach 1 or 0 ??? (Take care of KON event setting current voice to 1 or 0 cycle)
 wire		tooBigLvl		= (      AdsrVol ==    15'h7FFF) && (AdsrState == ADSR_ATTACK);
 wire        tooLowLvl		= ({1'b0,AdsrVol} < EnvSusLevel) && (AdsrState == ADSR_DECAY );
 wire		changeADSRState	= validSampleStage2 & reachZero & ((cmpLevel & (tooBigLvl | tooLowLvl)) | (!cmpLevel));
 
-wire [22:0] nextAdsrCycle	= reachZero ? cycleCountStart : AdsrCycleCount + { 23{1'b1} } /* Same as AdsrCycleCount - 1 */;
+wire [22:0] nextAdsrCycle	= reachZero ? cycleCountStart : decAdsrCycle;
 
 // TODO : On Sustain, should stop adding adsrStep when reachZero
 wire [14:0] nextAdsrVol;
