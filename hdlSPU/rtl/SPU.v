@@ -536,6 +536,8 @@ begin
 		//
 		if (check_Kevent) begin
 			if (reg_kEvent[currVoice]) begin	// KON or KOFF occured to this channel...
+				// Force reset counter to accept new 'state'.
+				reg_adsrCycleCount[currVoice] = CHANGE_ADSR_AT;
 				if (reg_kMode[currVoice]) begin // Voice start [TODO : have bit that said voice is stopped and check it : reg_endx ?]
 					reg_currentAdsrVOL[currVoice] = 15'd0;
 					reg_adpcmCurrAdr[currVoice] = currV_startAddr;
@@ -543,7 +545,6 @@ begin
 					reg_adpcmPos	[currVoice] = 17'd0;
 					reg_endx		[currVoice] = 1'b0;
 					reg_adpcmPrev	[currVoice] = 32'd0;
-					reg_adsrCycleCount[currVoice] = CHANGE_ADSR_AT; 
 					/*	[TODO : Part from Avocado not done...]
 						if (!ignoreLoadRepeatAddress) {
 							repeatAddress._reg = startAddress._reg;
