@@ -189,7 +189,6 @@ reg [31:0]  reg_adpcmPrev		[23:0];	// [NWRITE]
 reg [31:0]  reg_tmpAdpcmPrev;
 reg [16:0]	reg_adpcmPos		[23:0];
 reg [15:0]  reg_adpcmCurrAdr	[23:0];
-reg [47:0]	reg_InterpolatorHistory[23:0];
 reg [22:0]  reg_adsrCycleCount[23:0];
 
 reg [23:0]	reg_activeChannels;
@@ -544,7 +543,6 @@ begin
 					reg_adpcmPos	[currVoice] = 17'd0;
 					reg_endx		[currVoice] = 1'b0;
 					reg_adpcmPrev	[currVoice] = 32'd0;
-					reg_InterpolatorHistory[currVoice] = 48'd0;
 					reg_adsrCycleCount[currVoice] = CHANGE_ADSR_AT; 
 					/*	[TODO : Part from Avocado not done...]
 						if (!ignoreLoadRepeatAddress) {
@@ -603,10 +601,6 @@ begin
 		
 		if (ctrlSendOut) begin
 			regRingBufferIndex = regRingBufferIndex + 1;
-		end
-		
-		if (newSampleReady) begin
-			reg_InterpolatorHistory[currVoice] = sampleHistoryWriteBack;
 		end
 		
 		// Updated each time a new sample is issued over the voice.
@@ -838,7 +832,7 @@ reg readHeader; 	// [NWRITE]
 reg PReadHeader;	// [NWRITE]
 reg [3:0] currV_shift;
 reg [2:0] currV_filter;
-wire signed [15:0] sampleOutADPCM;
+wire signed [15:0] sampleOutADPCMRAW;
 
 always @(posedge i_clk)
 begin
@@ -858,7 +852,7 @@ begin
 		reg_tmpAdpcmPrev = currV_adpcmPrev;
 	end
 	if (updatePrev) begin
-		reg_tmpAdpcmPrev = { reg_tmpAdpcmPrev[15:0], sampleOutADPCM };
+		reg_tmpAdpcmPrev = { reg_tmpAdpcmPrev[15:0], sampleOutADPCMRAW };
 	end
 	PReadHeader = readHeader;
 end
@@ -1017,7 +1011,7 @@ begin
 			// Continue inside same block...
 		end */
 		updateVoiceADPCMPos = 1;
-		updateVoiceADPCMPrev= (nextADPCMPos[16:14] != currV_adpcmPos[16:14]);	// Store PREV ADPCM when we move to the next 16 bit only.(different line in same ADPCM block or new ADPCM block)
+		updateVoiceADPCMPrev= nextNewLine;	// Store PREV ADPCM when we move to the next 16 bit only.(different line in same ADPCM block or new ADPCM block)
 	end
 	5'd30:
 	begin
@@ -1219,6 +1213,7 @@ wire		[13:0]	lowPart		= tmpRes[13:0] & {14{nGT4000}};
 wire  [16:0]	nextPitch	= { 2'b0, GT4000, lowPart };
 wire  [16:0] nextADPCMPos	= currV_adpcmPos + nextPitch;
 wire         nextNewBlock	= nextADPCMPos[16:14] > 3'd6;
+wire		 nextNewLine    = nextADPCMPos[16:14] != currV_adpcmPos[16:14];	// Change of line.
 
 // PB : not well defined arch here... TODO : What in case of START. pure 0.
 
@@ -1226,7 +1221,9 @@ wire         nextNewBlock	= nextADPCMPos[16:14] > 3'd6;
 //		Stage 0 : ADPCM Input -> Output		(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
 
-wire newSampleReady = (adpcmSubSample == currV_adpcmPos[13:12]) & updatePrev; // Only when state machine output SAMPLE from SPU RAM and valid ADPCM out.
+wire newSampleReady		= (adpcmSubSample == currV_adpcmPos[13:12]) & updatePrev;	// Only when state machine output SAMPLE from SPU RAM and valid ADPCM out.
+wire launchInterpolator = (adpcmSubSample == 2'd3) & updatePrev;					// Interpolator must run when no more write done.
+wire signed [15:0] sampleOutADPCM   = (AdsrVol!=15'd0) ? sampleOutADPCMRAW : 16'd0; 			// To avoid buffer noise.
 
 ADPCMDecoder ADPCMDecoderUnit(
 	.i_Shift		(currV_shift),
@@ -1237,48 +1234,38 @@ ADPCMDecoder ADPCMDecoderUnit(
 
 	.i_PrevSample0	(reg_tmpAdpcmPrev[15: 0]),
 	.i_PrevSample1	(reg_tmpAdpcmPrev[31:16]),
-	.o_sample		(sampleOutADPCM)
+	.o_sample		(sampleOutADPCMRAW)
 );
 
 // TODO : Loop point / one shot spec.
-
-wire [47:0] sampleHistoryRead		= reg_InterpolatorHistory[currVoice];
-// Write back on 'newSampleReady'
-wire [47:0] sampleHistoryWriteBack	= { sampleHistoryRead[31:0], sampleOutADPCM };
 
 // --------------------------------------------------------------------------------------
 //	[COMPLETED] Stage 1 : Gaussian Filter
 // --------------------------------------------------------------------------------------
 
-/*	idx = 0,1,2,3
-
-	[No$PSX Doc]
-	-----------------------------
-	((gauss[000h+i] *    new)
-	((gauss[100h+i] *    old)
-	((gauss[1FFh-i] *  older)
-	((gauss[0FFh-i] * oldest)
-	-----------------------------
-	idx
-	0 = NEW			@0xx
-	1 = OLD			@1xx
-	2 = OLDER		@1FF - xx
-	3 = OLDEST		@0FF - xx
-*/
 wire signed [15:0]	voiceSample;
 wire				validSampleStage2;
+//                           --5 bit-- --3 bit Nibble Blk (1..7)-- -- 2 bit Sample ID (0..3) --
+wire [9:0] ringBufferADR = { currVoice,  newSampleReady ? { currV_adpcmPos[16:14]  ,   adpcmSubSample } : readRingBuffAdr};
+wire [15:0] readSample;
+wire [4:0] readRingBuffAdr;
+InterRingBuff InterRingBuffInstance
+(	.i_clk			(i_clk),
+	.i_data			(sampleOutADPCM),
+	.i_wordAddr		(ringBufferADR),
+	.i_we			(newSampleReady),		// Write when doing updatePrev, else READ.
+	.o_q			(readSample)
+);
 
 Interpolator Interpolator_inst(
 	.i_clk					(i_clk),
 	
 	// 5 Cycle latency between input and output.
-	.i_go					(newSampleReady),
-	.i_interpolator			(currV_adpcmPos[11:4]),
-	.i_sampleOldest			(sampleHistoryRead[47:32]),
-	.i_sampleOlder			(sampleHistoryRead[31:16]),
-	.i_sampleOld			(sampleHistoryRead[15: 0]),
-	.i_sampleNew			(sampleOutADPCM),
-	
+	.i_go					(launchInterpolator),
+	.i_interpolator			(currV_adpcmPos[11: 4]),
+	.i_newPos				(currV_adpcmPos[16:12]),	// [3 bit : 4 sample line | 2 bit pos in line]
+	.i_sample				(readSample),
+	.o_readRingBuffAdr		(readRingBuffAdr),
 	.o_sample_c5			(voiceSample),
 	.o_validSample			(validSampleStage2)
 );
@@ -1329,7 +1316,7 @@ always @(*) begin
 	case (AdsrState)
 	// ---- Activated only from KON
 	ADSR_ATTACK : computedNextAdsrState = KON ? ADSR_ATTACK : ADSR_DECAY; // A State -> D State if KON cleared, else stay on ATTACK.
-	ADSR_DECAY  : computedNextAdsrState = ADSR_DECAY;
+	ADSR_DECAY  : computedNextAdsrState = ADSR_SUSTAIN;
 	ADSR_SUSTAIN: computedNextAdsrState = ADSR_SUSTAIN;
 	// ---- Activated only from KOFF
 	ADSR_RELEASE: computedNextAdsrState = ADSR_RELEASE;
