@@ -220,7 +220,7 @@ reg signed [15:0]	reg_ExtVolumeR;		// DB6 External Input Volume Right
 										
 										// DAA SPU Control Register (SPUCNT)
 reg 		reg_SPUEnable;				//  DAA.15
-reg			reg_SPUMute;				//  DAA.14
+reg			reg_SPUNotMuted;			//  DAA.14
 reg	[3:0]	reg_NoiseFrequShift;		//  DAA.13-10
 reg	[3:0]	reg_NoiseFrequStep;			//  DAA.9-8 -> Modified at setup.
 reg [1:0]	reg_NoiseStepStore;
@@ -315,6 +315,8 @@ begin
 end
 
 reg updateVoiceADPCMAdr;
+reg regIsLastADPCMBlk;
+
 always @(posedge i_clk)
 begin
 	if (n_rst == 0)
@@ -338,7 +340,7 @@ begin
 		reg_ExtVolumeL				= 16'h0;
 		reg_ExtVolumeR				= 16'h0;
 		reg_SPUEnable				= 1'b0;
-		reg_SPUMute					= 1'b0;
+		reg_SPUNotMuted				= 1'b0;
 		reg_NoiseFrequShift			= 4'b0000;
 		reg_NoiseFrequStep			= 4'b1100;
 		reg_NoiseStepStore			= 2'b00;
@@ -354,6 +356,7 @@ begin
 		reg_activeChannels			= 24'd0;
 		reg_endx					= 24'd0;
 		regRingBufferIndex			= 9'd0;
+		regIsLastADPCMBlk			= 1'b0;
 	end else begin
 		if (internalWrite) begin
 			if (isD80_DFF) begin		// D80~DFF
@@ -450,7 +453,7 @@ begin
 							end
 					5'h15:	begin // SPU Control register			// 1F801DAAh - 1AAh
 							reg_SPUEnable		= dataIn[15];
-							reg_SPUMute			= dataIn[14];
+							reg_SPUNotMuted		= dataIn[14];
 							reg_NoiseFrequShift	= dataIn[13:10];
 							reg_NoiseFrequStep	= negNoiseStep; // See logic with dataIn[9:8];
 							reg_NoiseStepStore	= dataIn[9:8];
@@ -569,12 +572,26 @@ begin
 			reg_kon[currVoice] = 1'b0;
 		end
 		
+		
+		if (setAsStart) begin
+			reg_repeatAddr	[currVoice] = currV_adpcmCurrAdr;
+		end
+		
 		if (setEndX) begin
 			reg_endx		[currVoice] = 1'b1;
+			regIsLastADPCMBlk			= 1'b1;
+			if ((!isRepeatADPCMFlag) && (!NON)) begin 	// Voice must be in ADPCM mode to use flag.
+														// [TODO : is !NON check at top 'setEndX' condition ?]
+														// Here modify ADSR, which is bad. But ENDX updated by random garbage ?
+				reg_adsrState	  [currVoice] = ADSR_RELEASE;
+				reg_currentAdsrVOL[currVoice] = 15'd0;
+			end
+		end else if (isNotEndADPCMBlock) begin
+			regIsLastADPCMBlk = 1'b0;
 		end
 		
 		if (updateVoiceADPCMAdr) begin
-			reg_adpcmCurrAdr[currVoice] = currV_adpcmCurrAdr + 16'd2;	// Skip 16 byte for next ADPCM block.
+			reg_adpcmCurrAdr[currVoice] = regIsLastADPCMBlk ? currV_repeatAddr : {currV_adpcmCurrAdr + 16'd2};	// Skip 16 byte for next ADPCM block.
 		end
 		
 		if (updateVoiceADPCMPos) begin
@@ -665,7 +682,7 @@ begin
 			5'h14:	dataOutw = 16'd0; 						// 1F801DA8h [TODO] Can't read FIFO for now.
 			5'h15:	begin 									// 1F801DAAh SPU Control register
 					dataOutw = { 	reg_SPUEnable,
-									reg_SPUMute,
+									reg_SPUNotMuted,
 									reg_NoiseFrequShift,
 									reg_NoiseStepStore /* cant use converted value to reg_NoiseFrequStep*/,
 									reg_ReverbEnable,
@@ -772,7 +789,7 @@ end
 
 wire  [15:0] currV_sampleRate	= reg_sampleRate[currVoice];
 wire  [15:0] currV_startAddr	= reg_startAddr	[currVoice]; 
-// [NREAD] wire  [15:0] currV_repeatAddr	= reg_repeatAddr[currVoice];
+wire  [15:0] currV_repeatAddr	= reg_repeatAddr[currVoice];
 // [NREAD] wire         currV_koff			= reg_koff		[currVoice];
 wire		 currV_kon			= reg_kon		[currVoice];
 wire  [16:0] currV_adpcmPos		= reg_adpcmPos	[currVoice];
@@ -870,7 +887,8 @@ reg check_Kevent;
 reg zeroIndex;
 wire  [3:0] idxBuff			= zeroIndex ? 4'd0 : { 1'b0, currV_adpcmPos[16:14]} + 4'd1; // Change from Base 0 index to Base 1 index in adr.
 wire [17:0] adrRAM			= { currV_adpcmCurrAdr, 2'd0 } + {13'd0,idxBuff[3:0]};
-reg  setEndX, setAsStart; // ADPCM internal block FLAG : Start/End flags.
+reg  setEndX, setAsStart, isRepeatADPCMFlag; // ADPCM internal block FLAG : Start/End flags.
+reg  isNotEndADPCMBlock;
 reg  storePrevVxOut;
 reg	ctrlSendOut;
 reg	clearSum;
@@ -899,6 +917,7 @@ begin
 	updateVoiceADPCMPos = 0;
 	updateVoiceADPCMPrev= 0;
 	adpcmSubSample		= 0;
+	isNotEndADPCMBlock	= 0;
 
 	case (voiceInternalCnt)
 	5'd0:
@@ -927,11 +946,14 @@ begin
 	5'd2:
 	begin
 		// Here Header info is loaded and processed if necessary.
-		loadPrev	= 1;
-		setEndX		= i_dataInRAM[ 8]; // 1
-		setAsStart	= i_dataInRAM[10]; // 4
+		loadPrev			= 1;
+		setEndX				= i_dataInRAM[ 8]; // 1 : Register flag 'ended', mark block as 'last'
+		isNotEndADPCMBlock	= !i_dataInRAM[8]; //							 mark block as 'normal'
+		isRepeatADPCMFlag	= i_dataInRAM[ 9];
+		setAsStart			= i_dataInRAM[10]; // 4 : Register block as loop start.
+		
 		// [TODO] : setEndX set EDX but repeatAdress save/load with bit 1 and 4 not handled yet...
-		dataReadRAM	= 1;	// Sample 0
+		dataReadRAM			= 1;	// Sample 0
 		// Load correct Sample block based on current sample position and base block adress.
 	end
 	
@@ -1288,7 +1310,7 @@ NoiseUnit NoiseUnit_inst(
 //	[COMPLETED]	Stage 2 : Select ADPCM / Noise 	(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
 wire		NON							= reg_non [currVoice];
-wire signed [15:0] ChannelValue			= NON ? noiseLevel : voiceSample;
+wire signed [15:0] ChannelValue			= NON ? noiseLevel : (validSampleStage2 ? voiceSample : 16'd0); // [TODO ADDED DEBUG WITH VALID SAMPLE. -> REMOVE]
 wire  signed [14:0] currV_VolumeL		= reg_volumeL	[currVoice][14:0];
 wire  signed [14:0] currV_VolumeR		= reg_volumeR	[currVoice][14:0];
 
@@ -1411,20 +1433,20 @@ wire		clearKON		= reachZero & KON & validSampleStage2;
 
 // TODO : Check volume computation bit range.
 wire signed [15:0] sAdsrVol = {1'b0, AdsrVol};
-wire [30:0] tmpVxOut = ChannelValue * sAdsrVol;
-wire [15:0] vxOut	 = tmpVxOut[29:14];	// 1.15 bit precision.
+wire signed [30:0] tmpVxOut = ChannelValue * sAdsrVol;
+wire signed [15:0] vxOut	 = tmpVxOut[30:15];	// 1.15 bit precision.
 /*
 	VxOut[ch] = ChannelValue * ADSRVol
 	TODO : Use KeyON and KeyOFF
 	
 */
-reg [15:0] PvxOut;
+reg signed [15:0] PvxOut;
 reg PValidSample;
 always @(posedge i_clk) begin
 	if (storePrevVxOut) begin
 		prevChannelVxOut = vxOut;
 	end
-	PvxOut			= vxOut;
+	PvxOut			= validSampleStage2 ? vxOut : 16'd0; // [TODO DEBUG LOGIC MUX -> REMOVE]
 	PValidSample	= validSampleStage2;
 end
 
@@ -1434,17 +1456,17 @@ end
 //		Channel volume / Support Sweep (16 cycle)
 // --------------------------------------------------------------------------------------
 
-wire [30:0] applyLVol = currV_VolumeL * PvxOut;
-wire [30:0] applyRVol = currV_VolumeR * PvxOut;
+wire signed [30:0] applyLVol = currV_VolumeL * PvxOut;
+wire signed [30:0] applyRVol = currV_VolumeR * PvxOut;
 
 // --------------------------------------------------------------------------------------
 //		Stage Accumulate all voices    (768/16/32)
 // --------------------------------------------------------------------------------------
-reg [20:0] sumL,sumR;
+reg signed [20:0] sumL,sumR;
 always @(posedge i_clk) begin
 	if (PValidSample) begin
-		sumL = sumL + { {5{applyLVol[30]}},applyLVol[29:14]};
-		sumR = sumR + { {5{applyRVol[30]}},applyRVol[29:14]};
+		sumL = sumL + { {5{applyLVol[30]}},applyLVol[30:15]};
+		sumR = sumR + { {5{applyRVol[30]}},applyRVol[30:15]};
 	end else begin
 		if (clearSum) begin
 			sumL = 21'd0;
@@ -1453,13 +1475,8 @@ always @(posedge i_clk) begin
 	end
 end
 
-
 // Because we scan per channel.
 reg  signed [15:0] reg_CDRomInL,reg_CDRomInR;
-wire signed [31:0] tmpCDRomL = reg_CDRomInL * reg_CDVolumeL;
-wire signed [31:0] tmpCDRomR = reg_CDRomInR * reg_CDVolumeR;
-wire signed [15:0] CD_addL   = tmpCDRomL[30:15];
-wire signed [15:0] CD_addR   = tmpCDRomR[30:15];
 
 always @(posedge i_clk) begin
 	if (inputL) begin
@@ -1469,6 +1486,11 @@ always @(posedge i_clk) begin
 		reg_CDRomInR = CDRomInR;
 	end
 end
+
+wire signed [31:0] tmpCDRomL = reg_CDRomInL * reg_CDVolumeL;
+wire signed [31:0] tmpCDRomR = reg_CDRomInR * reg_CDVolumeR;
+wire signed [15:0] CD_addL   = tmpCDRomL[30:15];
+wire signed [15:0] CD_addR   = tmpCDRomR[30:15];
 
 wire signed [15:0] CdSideL	= reg_CDAudioEnabled	? CD_addL : 16'd0;
 wire signed [15:0] CdSideR	= reg_CDAudioEnabled	? CD_addR : 16'd0;
@@ -1491,19 +1513,22 @@ wire signed [15:0] ReverbR	= 16'd0 /* TODO use reg_reverbVolRight */;
 //		Mix
 // --------------------------------------------------------------------------------------
 // According to spec : impact only MAIN, not CD
-wire signed [14:0] volL        = reg_SPUMute ? 15'd0 : reg_mainVolLeft [14:0];
-wire signed [14:0] volR        = reg_SPUMute ? 15'd0 : reg_mainVolRight[14:0];
+wire signed [14:0] volL        = reg_SPUNotMuted ? reg_mainVolLeft [14:0] : 15'd0;
+wire signed [14:0] volR        = reg_SPUNotMuted ? reg_mainVolRight[14:0] : 15'd0;
 // [TODO] Add Reverb into sumL for correct support (mute reverb too)
 wire signed [35:0] sumPostVolL = sumL * volL;
 wire signed [35:0] sumPostVolR = sumR * volR;
 
 // Mix = Accumulate + CdSide // TODO : + RevertOutput * VolumeReverb OPTION: +ExtSide
-wire signed [21:0] postVolL    = sumPostVolL[35:14] + {{6{CdSideL[15]}} ,CdSideL};
-wire signed [21:0] postVolR    = sumPostVolL[35:14] + {{6{CdSideR[15]}} ,CdSideR};
+// 16 bit signed x 5 bit (64 channel max) 
+wire signed [20:0] CDL         = {{5{CdSideL[15]}} ,CdSideL};
+wire signed [20:0] CDR         = {{5{CdSideR[15]}} ,CdSideR};
+wire signed [20:0] postVolL    = sumPostVolL[34:14] + CDL;
+wire signed [20:0] postVolR    = sumPostVolR[34:14] + CDR;
 
 wire signed [15:0] outL,outR;
-clampSRange #(.INW(22),.OUTW(16)) Left_Clamp(.valueIn(postVolL),.valueOut(outL));
-clampSRange #(.INW(22),.OUTW(16)) RightClamp(.valueIn(postVolR),.valueOut(outR));
+clampSRange #(.INW(21),.OUTW(16)) Left_Clamp(.valueIn(postVolL),.valueOut(outL));
+clampSRange #(.INW(21),.OUTW(16)) RightClamp(.valueIn(postVolR),.valueOut(outR));
 
 assign AOUTL		= outL;
 assign AOUTR		= outR;
