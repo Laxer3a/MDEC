@@ -1,5 +1,12 @@
 /***************************************************************************************************************************************
 	Verilog code done by Laxer3A v1.0
+	
+	Many many thanks to Jakub Czekanski (Author of PSX Emulator Avocado : https://github.com/JaCzekanski/Avocado )
+	for tirelessly answering all my questions and the many hours spent discussing the PSX specs.
+	
+	I also used his implementation to debug the chip but also to check some part of the specs.
+	Without his work, my time spent on the project would have been much longer.
+	
  **************************************************************************************************************************************/
 /*	READ / WRITE Special Behavior :
 	- Overwrite of current voice MAIN VOLUME ignored.
@@ -10,13 +17,10 @@
 	TODO : No CPU READ FIFO Support for now.
 	TODO : Implement Sweep.	(Per channel, Per Main)
 	-------------------------
-	TODO : Implement ADPCM Loader.
-			- Support loop of channel.
-			- Support Packet flags.
-	TODO : Implement ADSR. (Including KON / KOFF)
-	TODO : Finish the time slicing logic. (decide the whole state machine for the SPU)
-			- Reverb.
-	TODO : Implement Reverb.
+	TODO : Reverb
+	TODO : Double KON-KOFF. What happens ?
+	TODO : Bad bus management when returning data. Some 0 cycle, some 1 cycle latency. Bus not managed at all.
+	TODO : Register 1F801DA8h read not supported (write FIFO)
 */
 
 module SPU(
@@ -66,7 +70,7 @@ module SPU(
 );
 
 reg [23:0] debugCnt; always @(posedge i_clk)
-begin debugCnt = (n_rst == 0) ? 24'd0 : debugCnt + 1; end
+begin debugCnt = (n_rst == 0) ? 24'd0 : debugCnt + 24'd1; end
 
 /* Decide if we loop ADSR cycle counter when reach 0 or 1 ?
 	0 = Number of cycle + 1 evaluation !
@@ -115,7 +119,6 @@ end
 
 wire	[1:0]	o_SPURAMByteSel = 2'b11;
 wire readFIFO;
-wire isFIFOEmpty;
 wire isFIFOFull;
 wire isFIFOHasData = fifo_r_valid;
 wire	[15:0]	fifoDataOut;
@@ -149,8 +152,6 @@ wire writeSPURAM;
 assign o_dataReadRAM	= dataReadRAM;
 assign o_dataWriteRAM	= writeSPURAM;
 
-assign isFIFOEmpty = !fifo_r_valid;
-
 SPU_RAM SPU_RAM_FPGAInternal
 (
 	.i_clk			(i_clk),
@@ -175,7 +176,6 @@ reg [15:0]	reg_sampleRate		[23:0];	// Cn4 VxPitch
 reg [15:0]	reg_startAddr		[23:0];	// Cn6 ADPCM Start  Address
 reg [14:0]	reg_currentAdsrVOL	[23:0];	// CnC Voice Current ADSR Volume
 reg [15:0]	reg_repeatAddr		[23:0];	// CnE ADPCM Repeat Address
-reg [23:0]	reg_repeatUserSet;
 reg [15:0]	reg_adsrLo			[23:0];
 reg [15:0]	reg_adsrHi			[23:0];
 
@@ -191,7 +191,7 @@ reg [16:0]	reg_adpcmPos		[23:0];
 reg [15:0]  reg_adpcmCurrAdr	[23:0];
 reg [22:0]  reg_adsrCycleCount[23:0];
 
-reg [23:0]	reg_activeChannels;
+reg [23:0]	reg_ignoreLoadRepeatAddress;
 
 reg signed [15:0]	reg_mainVolLeft;	// D80 Mainvolume Left
 reg signed [15:0]	reg_mainVolRight;	// D82 Mainvolume Left
@@ -230,7 +230,7 @@ reg			reg_SPUIRQEnable;			//  DAA.6
 parameter	XFER_STOP   = 2'd0,
 			XFER_MANUAL = 2'd1,
 			XFER_DMAWR  = 2'd2,
-			XFER_DMARD  = 2'd3; // [TODO : Not supported]
+			XFER_DMARD  = 2'd3; 		// [TODO : Not supported, DMA READ]
 reg	[1:0]	reg_SPUTransferMode;		//  DAA.5-4
 
 reg			reg_ExtReverbEnabled;		//  DAA.3
@@ -260,42 +260,10 @@ wire isD80_DFF			= (isD8 && addr[7]);							// Latency 0 : D80~DFF
 wire isChannel			= ((addr[9:8]==2'b00) | (isD8 & !addr[7])); 	// Latency 1 : C00~D7F
 wire [4:0] channelAdr	= addr[8:4];
 
-/*
-reg [15:0] readVolumeL;
-reg [15:0] readVolumeR;
-reg [15:0] readSampleRate;
-reg [15:0] readStartAddr;
-reg [15:0] readAdsrLo;
-reg [15:0] readAdsrHi;
-reg [15:0] readCurrAdsr;
-*/
-
-//----------------- Repeat Address is accessed by BOTH system (CPU & State machine, needed TRUE DOUBLE PORT)
-/*
-wire [15:0] readRepeatAddr;
-wire setRepeatByUser 	= (internalWrite & (!isD80_DFF) & isChannel & (addr[3:2]==2'b00) & (addr[3:1]==3'b111));
-*/
-/*
-DPRam #(.DW(16),.AW(5)) RepeatAddressDPRam (
-	.clk		(clk),
-	
-	.data_a		(dataIn),
-	.data_b		(newRepeatAddress),
-	.addr_a		(addr[8:4]),
-	.addr_b		(currVoice),
-	.we_a		(setRepeatByUser),
-	.we_b		(overwriteRepeatAddress),
-	.q_a		(readRepeatAddr),
-	.q_b		(currV_repeatAddr)
-);
-*/
-//---------------------------------------------------------------------------------------------------------------
-
 reg [15:0] readReverb;
 
 // Detect write transition
 wire isDMAXfer = (reg_SPUTransferMode == XFER_DMAWR);
-wire isCPUXFer = (reg_SPUTransferMode == XFER_MANUAL);
 wire dataTransferBusy		= (reg_SPUTransferMode != XFER_STOP) & fifo_r_valid;	// [TODO : works only for write , not read]
 wire dataTransferReadReq 	= reg_SPUTransferMode[1] & reg_SPUTransferMode[0];
 wire dataTransferWriteReq	= reg_SPUTransferMode[1] & (!reg_SPUTransferMode[0]);
@@ -303,6 +271,7 @@ wire dataTransferRDReq		= reg_SPUTransferMode[1];
 
 // [Write to FIFO only on transition from internalwrite from 0->1 but allow BURST with DMA transfer] 
 //  --> PROTECTED FOR EDGE TRANSITION : WRITE during multiple cycle else would perform multiple WRITE of the same value !!!!
+// Implicit in writeFIFO, not used : wire isCPUXFer = (reg_SPUTransferMode == XFER_MANUAL);
 wire writeFIFO = internalWrite & (!PInternalWrite | isDMAXfer) & isD80_DFF & (!addr[6]) & (addr[5:1] == 5'h14);
 reg PInternalWrite;
 always @(posedge i_clk)
@@ -316,6 +285,7 @@ end
 
 reg updateVoiceADPCMAdr;
 reg regIsLastADPCMBlk;
+reg reg_isRepeatADPCMFlag;
 
 always @(posedge i_clk)
 begin
@@ -352,11 +322,11 @@ begin
 		reg_ExtEnabled				= 1'b0;
 		reg_CDAudioEnabled			= 1'b0;
 		regSoundRAMDataXFerCtrl		= 16'h4;
-		reg_repeatUserSet			= 24'd0;
-		reg_activeChannels			= 24'd0;
+		reg_ignoreLoadRepeatAddress	= 24'd0;
 		reg_endx					= 24'd0;
 		regRingBufferIndex			= 9'd0;
 		regIsLastADPCMBlk			= 1'b0;
+		reg_isRepeatADPCMFlag		= 1'b0;
 	end else begin
 		if (internalWrite) begin
 			if (isD80_DFF) begin		// D80~DFF
@@ -372,63 +342,63 @@ begin
 					5'h03:	reg_reverbVolRight	= dataIn;			// 1F801D86h - 186h
 					5'h04:	begin
 								reg_kon [15: 0]		= dataIn;		// 1F801D88h - 188h
-								if (dataIn [0]) begin reg_kEvent [0] = 1; reg_kMode [0] = 1; end
-								if (dataIn [1]) begin reg_kEvent [1] = 1; reg_kMode [1] = 1; end
-								if (dataIn [2]) begin reg_kEvent [2] = 1; reg_kMode [2] = 1; end
-								if (dataIn [3]) begin reg_kEvent [3] = 1; reg_kMode [3] = 1; end
-								if (dataIn [4]) begin reg_kEvent [4] = 1; reg_kMode [4] = 1; end
-								if (dataIn [5]) begin reg_kEvent [5] = 1; reg_kMode [5] = 1; end
-								if (dataIn [6]) begin reg_kEvent [6] = 1; reg_kMode [6] = 1; end
-								if (dataIn [7]) begin reg_kEvent [7] = 1; reg_kMode [7] = 1; end
-								if (dataIn [8]) begin reg_kEvent [8] = 1; reg_kMode [8] = 1; end
-								if (dataIn [9]) begin reg_kEvent [9] = 1; reg_kMode [9] = 1; end
-								if (dataIn[10]) begin reg_kEvent[10] = 1; reg_kMode[10] = 1; end
-								if (dataIn[11]) begin reg_kEvent[11] = 1; reg_kMode[11] = 1; end
-								if (dataIn[12]) begin reg_kEvent[12] = 1; reg_kMode[12] = 1; end
-								if (dataIn[13]) begin reg_kEvent[13] = 1; reg_kMode[13] = 1; end
-								if (dataIn[14]) begin reg_kEvent[14] = 1; reg_kMode[14] = 1; end
-								if (dataIn[15]) begin reg_kEvent[15] = 1; reg_kMode[15] = 1; end
+								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] = 1; reg_kMode [0] = 1; end
+								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] = 1; reg_kMode [1] = 1; end
+								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] = 1; reg_kMode [2] = 1; end
+								if (dataIn [3] & (reg_kEvent [ 3]==0)) begin reg_kEvent [3] = 1; reg_kMode [3] = 1; end
+								if (dataIn [4] & (reg_kEvent [ 4]==0)) begin reg_kEvent [4] = 1; reg_kMode [4] = 1; end
+								if (dataIn [5] & (reg_kEvent [ 5]==0)) begin reg_kEvent [5] = 1; reg_kMode [5] = 1; end
+								if (dataIn [6] & (reg_kEvent [ 6]==0)) begin reg_kEvent [6] = 1; reg_kMode [6] = 1; end
+								if (dataIn [7] & (reg_kEvent [ 7]==0)) begin reg_kEvent [7] = 1; reg_kMode [7] = 1; end
+								if (dataIn [8] & (reg_kEvent [ 8]==0)) begin reg_kEvent [8] = 1; reg_kMode [8] = 1; end
+								if (dataIn [9] & (reg_kEvent [ 9]==0)) begin reg_kEvent [9] = 1; reg_kMode [9] = 1; end
+								if (dataIn[10] & (reg_kEvent [10]==0)) begin reg_kEvent[10] = 1; reg_kMode[10] = 1; end
+								if (dataIn[11] & (reg_kEvent [11]==0)) begin reg_kEvent[11] = 1; reg_kMode[11] = 1; end
+								if (dataIn[12] & (reg_kEvent [12]==0)) begin reg_kEvent[12] = 1; reg_kMode[12] = 1; end
+								if (dataIn[13] & (reg_kEvent [13]==0)) begin reg_kEvent[13] = 1; reg_kMode[13] = 1; end
+								if (dataIn[14] & (reg_kEvent [14]==0)) begin reg_kEvent[14] = 1; reg_kMode[14] = 1; end
+								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] = 1; reg_kMode[15] = 1; end
 							end
 					5'h05:	begin									// 1F801D8Ah - 18Ah
 								reg_kon [23:16]		= dataIn[7:0];
-								if (dataIn [0]) begin reg_kEvent[16] = 1; reg_kMode[16] = 1; end
-								if (dataIn [1]) begin reg_kEvent[17] = 1; reg_kMode[17] = 1; end
-								if (dataIn [2]) begin reg_kEvent[18] = 1; reg_kMode[18] = 1; end
-								if (dataIn [3]) begin reg_kEvent[19] = 1; reg_kMode[19] = 1; end
-								if (dataIn [4]) begin reg_kEvent[20] = 1; reg_kMode[20] = 1; end
-								if (dataIn [5]) begin reg_kEvent[21] = 1; reg_kMode[21] = 1; end
-								if (dataIn [6]) begin reg_kEvent[22] = 1; reg_kMode[22] = 1; end
-								if (dataIn [7]) begin reg_kEvent[23] = 1; reg_kMode[23] = 1; end
+								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] = 1; reg_kMode[16] = 1; end
+								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] = 1; reg_kMode[17] = 1; end
+								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] = 1; reg_kMode[18] = 1; end
+								if (dataIn [3] & (reg_kEvent [19]==0)) begin reg_kEvent[19] = 1; reg_kMode[19] = 1; end
+								if (dataIn [4] & (reg_kEvent [20]==0)) begin reg_kEvent[20] = 1; reg_kMode[20] = 1; end
+								if (dataIn [5] & (reg_kEvent [21]==0)) begin reg_kEvent[21] = 1; reg_kMode[21] = 1; end
+								if (dataIn [6] & (reg_kEvent [22]==0)) begin reg_kEvent[22] = 1; reg_kMode[22] = 1; end
+								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] = 1; reg_kMode[23] = 1; end
 							end
 					5'h06:	begin									// 1F801D8Ch - 18Ch
 								reg_koff[15: 0]		= dataIn;			
-								if (dataIn [0]) begin reg_kEvent [0] = 1; reg_kMode [0] = 0; end
-								if (dataIn [1]) begin reg_kEvent [1] = 1; reg_kMode [1] = 0; end
-								if (dataIn [2]) begin reg_kEvent [2] = 1; reg_kMode [2] = 0; end
-								if (dataIn [3]) begin reg_kEvent [3] = 1; reg_kMode [3] = 0; end
-								if (dataIn [4]) begin reg_kEvent [4] = 1; reg_kMode [4] = 0; end
-								if (dataIn [5]) begin reg_kEvent [5] = 1; reg_kMode [5] = 0; end
-								if (dataIn [6]) begin reg_kEvent [6] = 1; reg_kMode [6] = 0; end
-								if (dataIn [7]) begin reg_kEvent [7] = 1; reg_kMode [7] = 0; end
-								if (dataIn [8]) begin reg_kEvent [8] = 1; reg_kMode [8] = 0; end
-								if (dataIn [9]) begin reg_kEvent [9] = 1; reg_kMode [9] = 0; end
-								if (dataIn[10]) begin reg_kEvent[10] = 1; reg_kMode[10] = 0; end
-								if (dataIn[11]) begin reg_kEvent[11] = 1; reg_kMode[11] = 0; end
-								if (dataIn[12]) begin reg_kEvent[12] = 1; reg_kMode[12] = 0; end
-								if (dataIn[13]) begin reg_kEvent[13] = 1; reg_kMode[13] = 0; end
-								if (dataIn[14]) begin reg_kEvent[14] = 1; reg_kMode[14] = 0; end
-								if (dataIn[15]) begin reg_kEvent[15] = 1; reg_kMode[15] = 0; end
+								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] = 1; reg_kMode [0] = 0; end
+								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] = 1; reg_kMode [1] = 0; end
+								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] = 1; reg_kMode [2] = 0; end
+								if (dataIn [3] & (reg_kEvent [ 3]==0)) begin reg_kEvent [3] = 1; reg_kMode [3] = 0; end
+								if (dataIn [4] & (reg_kEvent [ 4]==0)) begin reg_kEvent [4] = 1; reg_kMode [4] = 0; end
+								if (dataIn [5] & (reg_kEvent [ 5]==0)) begin reg_kEvent [5] = 1; reg_kMode [5] = 0; end
+								if (dataIn [6] & (reg_kEvent [ 6]==0)) begin reg_kEvent [6] = 1; reg_kMode [6] = 0; end
+								if (dataIn [7] & (reg_kEvent [ 7]==0)) begin reg_kEvent [7] = 1; reg_kMode [7] = 0; end
+								if (dataIn [8] & (reg_kEvent [ 8]==0)) begin reg_kEvent [8] = 1; reg_kMode [8] = 0; end
+								if (dataIn [9] & (reg_kEvent [ 9]==0)) begin reg_kEvent [9] = 1; reg_kMode [9] = 0; end
+								if (dataIn[10] & (reg_kEvent [10]==0)) begin reg_kEvent[10] = 1; reg_kMode[10] = 0; end
+								if (dataIn[11] & (reg_kEvent [11]==0)) begin reg_kEvent[11] = 1; reg_kMode[11] = 0; end
+								if (dataIn[12] & (reg_kEvent [12]==0)) begin reg_kEvent[12] = 1; reg_kMode[12] = 0; end
+								if (dataIn[13] & (reg_kEvent [13]==0)) begin reg_kEvent[13] = 1; reg_kMode[13] = 0; end
+								if (dataIn[14] & (reg_kEvent [14]==0)) begin reg_kEvent[14] = 1; reg_kMode[14] = 0; end
+								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] = 1; reg_kMode[15] = 0; end
 							end
 					5'h07:	begin									// 1F801D8Eh - 18Eh
 								reg_koff[23:16]		= dataIn[7:0];		
-								if (dataIn [0]) begin reg_kEvent[16] = 1; reg_kMode[16] = 0; end
-								if (dataIn [1]) begin reg_kEvent[17] = 1; reg_kMode[17] = 0; end
-								if (dataIn [2]) begin reg_kEvent[18] = 1; reg_kMode[18] = 0; end
-								if (dataIn [3]) begin reg_kEvent[19] = 1; reg_kMode[19] = 0; end
-								if (dataIn [4]) begin reg_kEvent[20] = 1; reg_kMode[20] = 0; end
-								if (dataIn [5]) begin reg_kEvent[21] = 1; reg_kMode[21] = 0; end
-								if (dataIn [6]) begin reg_kEvent[22] = 1; reg_kMode[22] = 0; end
-								if (dataIn [7]) begin reg_kEvent[23] = 1; reg_kMode[23] = 0; end
+								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] = 1; reg_kMode[16] = 0; end
+								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] = 1; reg_kMode[17] = 0; end
+								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] = 1; reg_kMode[18] = 0; end
+								if (dataIn [3] & (reg_kEvent [19]==0)) begin reg_kEvent[19] = 1; reg_kMode[19] = 0; end
+								if (dataIn [4] & (reg_kEvent [20]==0)) begin reg_kEvent[20] = 1; reg_kMode[20] = 0; end
+								if (dataIn [5] & (reg_kEvent [21]==0)) begin reg_kEvent[21] = 1; reg_kMode[21] = 0; end
+								if (dataIn [6] & (reg_kEvent [22]==0)) begin reg_kEvent[22] = 1; reg_kMode[22] = 0; end
+								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] = 1; reg_kMode[23] = 0; end
 							end
 					// D9x ---------------
 					5'h08:	reg_pmon[15: 1]		= dataIn[15:1];		// 1F801D90h - 190h /* By reset also reg_pmon[0] = 1'b0; */
@@ -515,6 +485,7 @@ begin
 						reg_currentAdsrVOL[channelAdr]	= dataIn[14:0];
 					end
 					if (addr[3:1]==3'b111) begin
+						reg_ignoreLoadRepeatAddress[channelAdr] = 1'b1;
 						reg_repeatAddr[channelAdr] = dataIn;
 					end
 				end // else 1xxxxx.xxxx <--- ELSE
@@ -525,12 +496,6 @@ begin
 			// --------------------------
 			// No write.
 			// --------------------------
-			
-			// CPU for now has priority when writing a repeat address.
-			if (overwriteRepeatAddress) begin
-				reg_repeatAddr[currVoice] = newRepeatAddress;
-			end
-
 			readReverb		= reg_reverb[addr[5:1]];
 		end // end write
 
@@ -548,14 +513,10 @@ begin
 					reg_adpcmPos	[currVoice] = 17'd0;
 					reg_endx		[currVoice] = 1'b0;
 					reg_adpcmPrev	[currVoice] = 32'd0;
-					/*	[TODO : Part from Avocado not done...]
-						if (!ignoreLoadRepeatAddress) {
-							repeatAddress._reg = startAddress._reg;
-							ignoreLoadRepeatAddress = false;
-						}
-
-						loadRepeatAddress = false;
-					 */
+					
+					if (reg_ignoreLoadRepeatAddress[currVoice] == 1'b0) begin
+						reg_repeatAddr[currVoice] = currV_startAddr;
+					end
 
 					// Optionnal... can't stay for ever... ? What's the point, else everything ends up 1.
 					// reg_kon			[currVoice] = 1'b0;
@@ -565,7 +526,6 @@ begin
 				end
 			end
 			reg_kEvent			[currVoice] = 1'b0; // Reset Event.
-			reg_activeChannels	[currVoice] = 1'b1;
 		end
 		
 		if (clearKON) begin
@@ -578,19 +538,20 @@ begin
 		end
 		
 		if (setEndX) begin
-			reg_endx		[currVoice] = 1'b1;
-			regIsLastADPCMBlk			= 1'b1;
-			if ((!isRepeatADPCMFlag) && (!NON)) begin 	// Voice must be in ADPCM mode to use flag.
-														// [TODO : is !NON check at top 'setEndX' condition ?]
-														// Here modify ADSR, which is bad. But ENDX updated by random garbage ?
-				reg_adsrState	  [currVoice] = ADSR_RELEASE;
-				reg_currentAdsrVOL[currVoice] = 15'd0;
-			end
+			reg_isRepeatADPCMFlag	= isRepeatADPCMFlag; // Store value for later usage a few cycles later...
+			regIsLastADPCMBlk		= 1'b1;
 		end else if (isNotEndADPCMBlock) begin
-			regIsLastADPCMBlk = 1'b0;
+			regIsLastADPCMBlk		= 1'b0;
 		end
 		
 		if (updateVoiceADPCMAdr) begin
+			if (regIsLastADPCMBlk && (!NON)) begin		// NON checked here : we don't want RELEASE and ENDX to happen in Noise Mode. -> Garbage ADPCM can modify things.
+				reg_endx		[currVoice] = 1'b1;
+				if ((!reg_isRepeatADPCMFlag)) begin 	// Voice must be in ADPCM mode to use flag.
+					reg_adsrState	  [currVoice] = ADSR_RELEASE;
+					reg_currentAdsrVOL[currVoice] = 15'd0;
+				end
+			end
 			reg_adpcmCurrAdr[currVoice] = regIsLastADPCMBlk ? currV_repeatAddr : {currV_adpcmCurrAdr + 16'd2};	// Skip 16 byte for next ADPCM block.
 		end
 		
@@ -604,21 +565,12 @@ begin
 			reg_adpcmPrev[currVoice]	= reg_tmpAdpcmPrev;
 		end
 
-		if (setRepeatByUser) begin
-			// A/ SET FLAG WHEN WRITING CHANNEL REPEAT ADR ===> FLAG 1.
-			reg_repeatUserSet[channelAdr] = 1'b1;
-		end
-		// Not a ELSE. priority here...
-		if (resetRepeatUserFlagByCurrChannel) begin
-			reg_repeatUserSet[currVoice] = 1'b0;
-		end
-		
 		if (incrXFerAdr) begin
-			reg_dataTransferAddrCurr = reg_dataTransferAddrCurr + 1; // One half-word increment.
+			reg_dataTransferAddrCurr = reg_dataTransferAddrCurr + 18'd1; // One half-word increment.
 		end
 		
 		if (ctrlSendOut) begin
-			regRingBufferIndex = regRingBufferIndex + 1;
+			regRingBufferIndex = regRingBufferIndex + 9'd1;
 		end
 		
 		// Updated each time a new sample is issued over the voice.
@@ -636,7 +588,6 @@ begin
 end // end always block
 
 reg [15:0] dataOutw;
-wire setRepeatByUser; // [NWRITE]
 
 assign dataOut		= dataOutw;	// [TODO : for now we answer within the same cycle using combinatorial logic]
 
@@ -788,66 +739,39 @@ begin
 end
 
 wire  [15:0] currV_sampleRate	= reg_sampleRate[currVoice];
-wire  [15:0] currV_startAddr	= reg_startAddr	[currVoice]; 
+wire  [15:0] currV_startAddr	= reg_startAddr	[currVoice];
 wire  [15:0] currV_repeatAddr	= reg_repeatAddr[currVoice];
-// [NREAD] wire         currV_koff			= reg_koff		[currVoice];
-wire		 currV_kon			= reg_kon		[currVoice];
 wire  [16:0] currV_adpcmPos		= reg_adpcmPos	[currVoice];
 wire  [15:0] currV_adpcmCurrAdr	= reg_adpcmCurrAdr[currVoice];
 wire  [31:0] currV_adpcmPrev	= reg_adpcmPrev	[currVoice];
-wire		 currV_activeChannel= reg_activeChannels[currVoice];
 
 // -----------------------------------------------------------------
 // INTERNAL TIMING & STATE SECTION
 // -----------------------------------------------------------------
-reg  [9:0] counter768;
-reg        counter22Khz;
-reg        pipeCounter22Khz;
-wire [9:0] nextCounter768 = counter768 + 10'd1;
+reg  [5:0] currVoice6Bit;
+wire [4:0] currVoice = currVoice6Bit[4:0];
+reg  [4:0] voiceCounter;
 
-wire ctrl44Khz = (nextCounter768 == 10'd768);
-wire ctrl22Khz = pipeCounter22Khz & !counter22Khz;
-
+// reg  [9:0] counter768;
+// wire [9:0] nextCounter768 = counter768 + 10'd1;
+wire ctrl44Khz = (currVoice == 5'd31) && (voiceCounter == 5'd23);
+wire side22Khz = currVoice6Bit[5]; // Left / Right side for Reverb.
 always @(posedge i_clk)
 begin
-	if (n_rst == 0)
+	if (n_rst == 0 || ctrl44Khz)
 	begin
-		counter768			= 10'd0;
-		pipeCounter22Khz	= 1;
-		counter22Khz		= 0;
+		voiceCounter		= 5'd0;
+		currVoice6Bit		= 6'd0;
 	end else begin
-		counter768			= ctrl44Khz ? 10'd0 : nextCounter768;
-		if (ctrl44Khz) begin
-			pipeCounter22Khz	= counter22Khz;
-			counter22Khz		= !counter22Khz;
-		end
-	end
-end
-
-
-reg [4:0] voiceInternalCnt;
-always @(posedge i_clk)
-begin
-	if (ctrl44Khz || (n_rst==0)) begin
-		// Reset all counter and state machine...
-		currVoice			= 5'd0;		
-		voiceInternalCnt	= 5'd0;
-	end else begin
-		// Counter reset to 0 for each new voice...
-		if (voiceIncrement) begin
-			voiceInternalCnt	= 5'd0;
+		if (voiceCounter == 5'd23) begin
+			voiceCounter = 5'd0;
+			currVoice6Bit	= currVoice6Bit + 6'd1;
 		end else begin
-			voiceInternalCnt  = voiceInternalCnt + 5'd1;
+			voiceCounter = voiceCounter + 5'd1; 
 		end
-		// Increment Channel
-		currVoice			= currVoice + { 4'd0, voiceIncrement };
 	end
 end
 
-wire noMoreVoice = (currVoice == 5'd25);
-
-reg readHeader; 	// [NWRITE]
-reg PReadHeader;	// [NWRITE]
 reg [3:0] currV_shift;
 reg [2:0] currV_filter;
 wire signed [15:0] sampleOutADPCMRAW;
@@ -857,7 +781,6 @@ begin
 	if (loadPrev) begin
 		currV_shift		= i_dataInRAM[3:0];
 		currV_filter	= i_dataInRAM[6:4];
-		// [TODO Flags ADPCM Loop / Start]
 	end
 	
 	if (reg_SPUIRQEnable && (reg_ramIRQAddr==o_adrRAM[17:2])) begin
@@ -872,12 +795,8 @@ begin
 	if (updatePrev) begin
 		reg_tmpAdpcmPrev = { reg_tmpAdpcmPrev[15:0], sampleOutADPCMRAW };
 	end
-	PReadHeader = readHeader;
 end
 
-// TODO : Write back Ch1/3,
-// TODO : Write register output into last for Feedback.
-// TODO : FIFO Read/Write...
 reg voiceIncrement;						// Goto the next voice.
 reg [2:0] decodeSample;
 reg updatePrev, loadPrev;
@@ -902,7 +821,6 @@ wire isVoice3		= (currVoice == 5'd3);
 always @(*)
 begin
 	dataReadRAM			= 0;
-	voiceIncrement		= 0;
 	loadPrev			= 0;
 	updatePrev			= 0;
 	check_Kevent		= 0;
@@ -918,288 +836,140 @@ begin
 	updateVoiceADPCMPrev= 0;
 	adpcmSubSample		= 0;
 	isNotEndADPCMBlock	= 0;
+	isRepeatADPCMFlag	= 0;
 
-	case (voiceInternalCnt)
-	5'd0:
-	begin
-		// Cycle 0 : currVoice register output updated.
-		check_Kevent		= 1;
-	end
-	5'd1:
-	begin
-		// If check_Kevent --> Here, updated currV_adpcmCurrAdr
-		dataReadRAM = 1;
-		zeroIndex	= 1;
+	if (currVoice < 5'd24) begin // [Channel 0..23 Timing are VOICES in original SPU]
+		case (voiceCounter)
+		5'd0:
+		begin
+			// Cycle 0 : currVoice register output updated.
+			check_Kevent		= 1;
+		end
+		5'd1:
+		begin
+			// If check_Kevent --> Here, updated currV_adpcmCurrAdr
+			dataReadRAM = 1;
+			zeroIndex	= 1;
+			
+			// Need to preload header to setup Status stuff...
+			// Upgrade address counter if needed.
+		end
+		5'd2:
+		begin
+			// Here Header info is loaded and processed if necessary.
+			loadPrev			= 1;
+			setEndX				= i_dataInRAM[ 8]; // 1 : Register flag 'ended', mark block as 'last'
+			isNotEndADPCMBlock	= !i_dataInRAM[8]; //							 mark block as 'normal'
+			isRepeatADPCMFlag	= i_dataInRAM[ 9];
+			setAsStart			= i_dataInRAM[10]; // 4 : Register block as loop start.
+			
+			dataReadRAM			= 1;	// Sample 0
+			// Load correct Sample block based on current sample position and base block adress.
+		end
 		
-		// Need to preload header to setup Status stuff...
-		// Upgrade address counter if needed.
-		/*
-		// Cycle 1 : Reading of BRAM storing currVoice data available.
-		if (currV_activeChannel || currV_kon) begin
-		end */ /* else begin BUGGY, NEVER USE FOR NOW.
-			// [CAN : Timing broken for 44.1 Khz generation if we do...
-			// Early break... Can be removed if we want regular memory access patterns.
-			// But need to take care of using koff to mux the volume to ZERO.
-			voiceIncrement = !noMoreVoice;
-		end */
-	end
-	5'd2:
-	begin
-		// Here Header info is loaded and processed if necessary.
-		loadPrev			= 1;
-		setEndX				= i_dataInRAM[ 8]; // 1 : Register flag 'ended', mark block as 'last'
-		isNotEndADPCMBlock	= !i_dataInRAM[8]; //							 mark block as 'normal'
-		isRepeatADPCMFlag	= i_dataInRAM[ 9];
-		setAsStart			= i_dataInRAM[10]; // 4 : Register block as loop start.
+		// [TODO : Read for sample 0/1/2/3 could be reduced to a single read using temp register if needed]
+		5'd3:
+		begin
+			// For each sample 0..3 ( currV_adpcmPos[13:12] )
+			// Check if we match currV_adpcmPos[13:12]
+			// -> Push sample to gaussian interpolator.
+			// At sample 3
+			dataReadRAM	= 1;	// Sample 1
+			updatePrev	= 1;
+			adpcmSubSample	= 0;
+		end
+		5'd4:
+		begin
+			dataReadRAM	= 1;	// Sample 2
+			updatePrev	= 1;
+			adpcmSubSample	= 1;
+		end
+		5'd5:
+		begin
+			dataReadRAM	= 1;	// Sample 3
+			updatePrev	= 1;
+			adpcmSubSample	= 2;
+		end
+		5'd6:
+		begin
+			updatePrev		= 1;
+			adpcmSubSample	= 3;
+			// Before the first sample of the first channel is sent, we reset the accumulators.
+			// We put it here, but it can be moved around if needed,
+			// it must just take in account the last sample of channel 23 pipeline latency and start of channel 0 when looping.
+			clearSum		= (currVoice == 5'd0);
+		end
 		
-		// [TODO] : setEndX set EDX but repeatAdress save/load with bit 1 and 4 not handled yet...
-		dataReadRAM			= 1;	// Sample 0
-		// Load correct Sample block based on current sample position and base block adress.
-	end
-	
-	// [TODO : Read for sample 0/1/2/3 could be reduced to a single read using temp register if needed]
-	5'd3:
-	begin
-		// For each sample 0..3 ( currV_adpcmPos[13:12] )
-		// Check if we match currV_adpcmPos[13:12]
-		// -> Push sample to gaussian interpolator.
-		// At sample 3
-		dataReadRAM	= 1;	// Sample 1
-		updatePrev	= 1;
-		adpcmSubSample	= 0;
-	end
-	5'd4:
-	begin
-		dataReadRAM	= 1;	// Sample 2
-		updatePrev	= 1;
-		adpcmSubSample	= 1;
-	end
-	5'd5:
-	begin
-		dataReadRAM	= 1;	// Sample 3
-		updatePrev	= 1;
-		adpcmSubSample	= 2;
-	end
-	5'd6:
-	begin
-		updatePrev		= 1;
-		adpcmSubSample	= 3;
-		// Before the first sample of the first channel is sent, we reset the accumulators.
-		// We put it here, but it can be moved around if needed,
-		// it must just take in account the last sample of channel 23 pipeline latency and start of channel 0 when looping.
-		clearSum		= (currVoice == 5'd0);
-	end
-	
-	5'd7:
-	begin
-	end
-	//
-	// The interpolator takes 5 CYCLE to output, prefer to maintain channel active for that amount of cycle....
-	//
-	5'd8:
-	begin
-	end
-	5'd9:
-	begin
-	end
-	5'd10:
-	begin
-	end
-	5'd11:
-		// Do nothing on memory side for now...
-	begin
-	end
-	5'd12:
-	begin
-		storePrevVxOut = 1;
-		// -> If NEXT sample is OUTSIDE AND CONTINUE, SAVE sample2/sample3 (previous needed for decoding)
-		//       NEXT sample is OUTSIDE AND JUMP, set 0/0.
-		// 
-		if (isVoice1 | isVoice3) begin
-			SPUMemWRSel			= VOICE_WR;
-		end // else use FIFO to purge...
+		5'd7:
+		begin
+		end
+		//
+		// The interpolator takes 5 CYCLE to output, prefer to maintain channel active for that amount of cycle....
+		//
+		5'd8:
+		begin
+		end
+		5'd9:
+		begin
+		end
+		5'd10:
+		begin
+		end
+		5'd11:
+			// Do nothing on memory side for now...
+		begin
+		end
+		5'd12:
+		begin
+			storePrevVxOut = 1;
+			// -> If NEXT sample is OUTSIDE AND CONTINUE, SAVE sample2/sample3 (previous needed for decoding)
+			//       NEXT sample is OUTSIDE AND JUMP, set 0/0.
+			// 
+			if (isVoice1 | isVoice3) begin
+				SPUMemWRSel			= VOICE_WR;
+			end // else use FIFO to purge...
 
-		// --------------------------------
-		// ADPCM Line/Block Management
-		// --------------------------------
-		updateVoiceADPCMAdr = nextNewBlock; // [TODO, just +1 for now]
-		if (nextNewBlock) begin
-			// [TODO] New Block.
-			// FOR NOW => Continue linear.
-			// -> Jump to another block ?
-			// 1/ nextADPCMPos[16:14] = 0, anyway -> Write back into reg_adpcmPos.
-			// 2/ reg_adpcmCurrAdr += 2 or reg_adpcmCurrAdr = loopPoint. 
-			// Save reg_tmpAdpcmPrev
-		end /* else begin
-			// Continue inside same block...
-		end */
-		updateVoiceADPCMPos = 1;
-		updateVoiceADPCMPrev= nextNewLine;	// Store PREV ADPCM when we move to the next 16 bit only.(different line in same ADPCM block or new ADPCM block)
-	end
-	5'd30:
-	begin
-		if (isLastVoice) begin
-			SPUMemWRSel			= CDLeft_WR;
+			// --------------------------------
+			// ADPCM Line/Block Management
+			// --------------------------------
+			updateVoiceADPCMAdr = nextNewBlock;
+			updateVoiceADPCMPos = 1;
+			updateVoiceADPCMPrev= nextNewLine;	// Store PREV ADPCM when we move to the next 16 bit only.(different line in same ADPCM block or new ADPCM block)
 		end
-	end
-	5'd31:
-	begin
-		ctrlSendOut = isLastVoice;
-		if (isLastVoice) begin
-			SPUMemWRSel			= CDRight_WR;
+		5'd22:
+		begin
+			if (isLastVoice) begin
+				SPUMemWRSel			= CDLeft_WR;
+			end
 		end
-		voiceIncrement = 1;
+		5'd23:
+		begin
+			ctrlSendOut = isLastVoice;
+			if (isLastVoice) begin
+				SPUMemWRSel			= CDRight_WR;
+			end
+		end
+		default:
+		begin
+			// Do nothing.
+		end
+		endcase
+	end else begin  // [Channel 24..31 x 24 cycle = REVERB, FIFO Transfer, WRITE BACK CD/VOICES]
+		// - Write back timing IF USE SDRAM and not RAMBLOCK in FPGA...
+		// - Reverb timing...
 	end
-	default:
-	begin
-		// Do nothing.
-	end
-	endcase
 end
 
 // Allow transfer from FIFO any cycle where RAM not busy...
 assign readFIFO		= isFIFOHasData & (SPUMemWRSel==FIFO_WRITE) & (reg_SPUTransferMode != XFER_STOP) & (!dataReadRAM);
 assign writeSPURAM	= (readFIFO | ((SPUMemWRSel[0] | SPUMemWRSel[1]) & (!dataReadRAM)));
 
-// OUTPUT --------------------------------------------
-// Set to 1 every first cycle in the loop.
-// wire is16	= (counter768[3:0] == 4'd0);	// Loop 16 cycles.
-// wire is32	=  is16 & !counter768[4];		// Loop 32 cycles.
-// wire is768	= (counter768 == 10'd0);		// Loop 768 cycles.
-reg [4:0] currVoice;						// Loop 0..23
-//----------------------------------------------------
-
-wire ENDX = reg_endx[currVoice];
 wire  KON = reg_kon [currVoice];
-wire KOFF = reg_koff[currVoice];
 wire PMON = reg_pmon[currVoice];
-wire VoiceRepeatUserSet = reg_repeatUserSet[currVoice];
 
 // --------------------------------------------------------------------------------------
 //		Stage 0A : ADPCM Adress computation (common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-//	if (restartFlag /*First time, restart, whatever...*/ | )
-//		fetchAdr <= currV_startAddr;
-//	else
-	
-/// TODO : logic for reg [23:0]	reg_endx;
-
-// overrideRepeatWithStart <= 0;
-// nextState				<= currState;
-// requestChannelInfo		<= 0;
-
-// [Control Signal from the state machine]
-wire resetRepeatUserFlagByCurrChannel;	// Will reset the userFlag.
-wire overwriteRepeatAddress;			// Write the register file containing RepeatAddress.
-wire [15:0] newRepeatAddress;
-
-/*
-	nextAdr = loadAdr + 8;
-	loopAdr = ? currV_repeatAddr : ;
-	loadAdr = isKeyOnOnce ? currV_startAddr : ( nextAdr : loopAdr);
-*/
-/*
-	- End of block / Start.
-	- KOn
-	- KOff
-	- Block Flag
-
-	
-	
-	
-	If (whenNoMoreSample)
-		If (KeyOn)
-			CurrAddr = StartAddress
-			if (!VoiceRepeatUserSet)
-				RepeatAddress = StartAddress	// PROBLEM : Interfere with CPU write at the same timing to RepeatAddress fileregisters. For now give priority to the CPU !
-			end
-		else
-			CurrAddr = NextAddress
-			
-		ResetKeyOn for the channel anyway.
-	Decode Sample.
-
- */
-/*
-
-ADPCM FLAGS :
-// -------------------------------------------------------------------------
-   No$PSX 
-   Name      Renamed Convertion
-     Start - SetLoopPointHere (0x4)
-       End - (1) JumpToLoopPointWhenComplete else (0) continue to next block (0x1)
-    Repeat - (1) DontTouchADSR_Or_ (0) KickR_ADSR. (0 is Active only when END=1)   (0x2)
-
-
-OnReset
-// -------------------------------------------------------------------------
-	ENDX = 0;
-	
-
-KeyOn (play)
-// -------------------------------------------------------------------------
-	CurrentAdr <= StartAddress.
-	Start ADSR state from A.
-	if (noUserRepeatSet) {
-		RepeatAddress = StartAddress;
-	}
-	noUserRepeatSet = true
-	ENDX            = 0
-
-
-KeyOff (stop)
-// -------------------------------------------------------------------------
-	// No change on ADPCM.
-	Kick ADSR into R.
-
-When writing to RepeatAddress[n]
-// -------------------------------------------------------------------------
-	noUserRepeatSet[n] = FALSE;
-	END FLAG
-	ENDX = 1
-
-
-
-// -------------------------------------------------------------------------
-
-
-
-
-// -------------------------------------------------------------------------
-
-
-
-*/
-	// Read Header condition :
-	// - Previous block is full (decode complete) and we want to read the next sample (not the same block anymore)
-	// - First time we play (can trick by making it look like condition 1/)
-	//
-	// Adress reading is : 
-	// - Start adress if a new block.
-	// - Current += 16 (8) for next block.
-	// - Load RepeatAddress.
-	//
-	/*
-	if (isFirstBlock | isBlockEnded) {
-		// Load Header
-		flags_setLoopPoint 		<= data[10];	// 0x0400
-		flags_nextPacketFinal	<= data [8];	// 0x0100
-		flags_repeatWhenEnd		<= data [9];
-	}
-	*/
-	
-	// ADPCMStartAddress	(16 bit, as 8 byte step)
-	// ADPCMRepeatAddress	(16 bit, as 8 byte step)
-	// VxPitch				(write 16, clamped to 0x4000 when used without pitch modulation)
-	//									u3.12
-	// PMon[ch]				(Pitch Modulation Enable)
-	// VxOUT[ch-1]
-	/*
-	Counter = Counter + Step
-
-	SamplePos 			<= Counter[..:12]
-	Interpolator		<= Counter[11: 3]
-	*/
 //--------------------------------------------------
 //  INPUT
 //--------------------------------------------------
@@ -1218,7 +988,7 @@ IF PMON.Bit(x)=1 AND (x>0)      ;pitch modulation enable
 IF Step>3FFFh then Step=4000h   ;range +0000h..+3FFFh (0.. 176.4kHz)
 */
 // Convert S16 to U16 (Add +0x8000)
-wire SgnS2U						= prevChannelVxOut[15] ^ 1;
+wire SgnS2U						= prevChannelVxOut[15] ^ 1'b1;
 // Select Previous output modulation or standard pitch.
 wire 				pitchSel	= PMON   /* & (currVoice != 5'd0)  <--- Done at HW Setup */;
 wire signed	[16:0]	pitchMul	= pitchSel 	? { SgnS2U,SgnS2U,prevChannelVxOut[14:0] }	// -0.999,+0.999 pitch
@@ -1243,10 +1013,11 @@ wire		 nextNewLine    = nextADPCMPos[16:14] != currV_adpcmPos[16:14];	// Change 
 // --------------------------------------------------------------------------------------
 //		Stage 0 : ADPCM Input -> Output		(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-
+wire isNullADSR         = (AdsrVol==15'd0);
 wire newSampleReady		= (adpcmSubSample == currV_adpcmPos[13:12]) & updatePrev;	// Only when state machine output SAMPLE from SPU RAM and valid ADPCM out.
 wire launchInterpolator = (adpcmSubSample == 2'd3) & updatePrev;					// Interpolator must run when no more write done.
-wire signed [15:0] sampleOutADPCM   = (AdsrVol!=15'd0) ? sampleOutADPCMRAW : 16'd0; 			// To avoid buffer noise.
+// To avoid buffer noise : When Attack|Release is ZERO -> Push ZERO sample into ring buffer too.
+wire signed [15:0] sampleOutADPCM   = (isNullADSR) ? 16'd0 : sampleOutADPCMRAW;
 
 ADPCMDecoder ADPCMDecoderUnit(
 	.i_Shift		(currV_shift),
@@ -1259,8 +1030,6 @@ ADPCMDecoder ADPCMDecoderUnit(
 	.i_PrevSample1	(reg_tmpAdpcmPrev[31:16]),
 	.o_sample		(sampleOutADPCMRAW)
 );
-
-// TODO : Loop point / one shot spec.
 
 // --------------------------------------------------------------------------------------
 //	[COMPLETED] Stage 1 : Gaussian Filter
@@ -1317,7 +1086,7 @@ wire  signed [14:0] currV_VolumeR		= reg_volumeR	[currVoice][14:0];
 // --------------------------------------------------------------------------------------
 //		Stage 3A : Compute ADSR        	(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-wire  [14:0] AdsrVol			= reg_currentAdsrVOL[currVoice];
+wire  [14:0] AdsrVol			= reg_SPUEnable ? reg_currentAdsrVOL[currVoice] : 15'd0;
 wire  [15:0] AdsrLo				= reg_adsrLo	[currVoice];
 wire  [15:0] AdsrHi				= reg_adsrHi	[currVoice];
 wire   [1:0] AdsrState			= reg_adsrState	[currVoice];
@@ -1431,15 +1200,10 @@ wire		clearKON		= reachZero & KON & validSampleStage2;
 	4. Detect value threshold and change state.
  */
 
-// TODO : Check volume computation bit range.
 wire signed [15:0] sAdsrVol = {1'b0, AdsrVol};
 wire signed [30:0] tmpVxOut = ChannelValue * sAdsrVol;
 wire signed [15:0] vxOut	 = tmpVxOut[30:15];	// 1.15 bit precision.
-/*
-	VxOut[ch] = ChannelValue * ADSRVol
-	TODO : Use KeyON and KeyOFF
-	
-*/
+
 reg signed [15:0] PvxOut;
 reg PValidSample;
 always @(posedge i_clk) begin
@@ -1449,8 +1213,6 @@ always @(posedge i_clk) begin
 	PvxOut			= validSampleStage2 ? vxOut : 16'd0; // [TODO DEBUG LOGIC MUX -> REMOVE]
 	PValidSample	= validSampleStage2;
 end
-
-// TODO : Current Channel Volume Register is currV_VolumeL * outADSRVolume
 
 // --------------------------------------------------------------------------------------
 //		Channel volume / Support Sweep (16 cycle)
