@@ -83,28 +83,32 @@ wire			o_dataWriteRAM;
 wire	[15:0]	i_dataInRAM; 
 
 reg		[15:0]	o_dataOutRAM;
-reg      [1:0]	SPUMemWRSel;
+reg      [2:0]	SPUMemWRSel;
 reg 	[17:0]	o_adrRAM;
 
-parameter	FIFO_WRITE			= 2'b00,
-			VOICE_WR			= 2'b01,
-			CDLeft_WR			= 2'b10,
-			CDRight_WR			= 2'b11;
+parameter	FIFO_WRITE			= 3'b000,
+			VOICE_WR			= 3'b001,
+			CDLeft_WR			= 3'b010,
+			CDRight_WR			= 3'b011,
+			REVERB_READ			= 3'b100,
+			REVERB_WRITE		= 3'b101;
 
 reg [8:0] regRingBufferIndex;
-
+wire [17:0] reverbAdr;
+wire [15:0] reverbWriteValue;
 always @(*) begin 
 	if (o_dataWriteRAM) begin
 		// Write Section
 		case (SPUMemWRSel)
-		FIFO_WRITE:	o_adrRAM = reg_dataTransferAddrCurr;
+		FIFO_WRITE: o_adrRAM = reg_dataTransferAddrCurr;
 		VOICE_WR  : o_adrRAM = {8'd1,isVoice3,regRingBufferIndex};
 		CDLeft_WR : o_adrRAM = {9'd0         ,regRingBufferIndex};
 		CDRight_WR: o_adrRAM = {9'd1         ,regRingBufferIndex};
+		default   : o_adrRAM = reverbAdr; // Reverb
 		endcase
 	end else begin
-		// [TODO Reverb, CPU Read, ADPCM Read distinct]
-		o_adrRAM = adrRAM; // READ Section...
+		// [Reverb, ADPCM Read distinct] // TODO : CPU Read
+		o_adrRAM = SPUMemWRSel[2] ? reverbAdr : adrRAM; // READ Section...
 	end
 end
 
@@ -114,10 +118,10 @@ always @(*) begin
 	VOICE_WR  : o_dataOutRAM = vxOut;
 	CDLeft_WR : o_dataOutRAM = reg_CDRomInL;
 	CDRight_WR: o_dataOutRAM = reg_CDRomInR;
+	default   : o_dataOutRAM = reverbWriteValue;
 	endcase
 end
 
-wire	[1:0]	o_SPURAMByteSel = 2'b11;
 wire readFIFO;
 wire isFIFOFull;
 wire isFIFOHasData = fifo_r_valid;
@@ -151,7 +155,7 @@ InternalFifo
 wire writeSPURAM;
 assign o_dataReadRAM	= dataReadRAM;
 assign o_dataWriteRAM	= writeSPURAM;
-
+wire	[1:0]	o_SPURAMByteSel = 2'b11;
 SPU_RAM SPU_RAM_FPGAInternal
 (
 	.i_clk			(i_clk),
@@ -327,6 +331,7 @@ begin
 		regRingBufferIndex			= 9'd0;
 		regIsLastADPCMBlk			= 1'b0;
 		reg_isRepeatADPCMFlag		= 1'b0;
+		reverb_CounterWord			= 18'd0;
 	end else begin
 		if (internalWrite) begin
 			if (isD80_DFF) begin		// D80~DFF
@@ -411,7 +416,10 @@ begin
 					// 5'h0F: Do nothing ENDX is READONLY.			// 1F801D9Eh - 19Eh
 					// DAx ---------------
 					// 5'h10: [1F801DA0] Do nothing... (WEIRD reg)
-					5'h11:	reg_mBase			= dataIn;			// 1F801DA2h - 1A2h
+					5'h11:	begin
+								reg_mBase			= dataIn;		// 1F801DA2h - 1A2h
+								reverb_CounterWord	= 18'd0;
+							end
 					5'h12:	reg_ramIRQAddr		= dataIn;			// 1F801DA4h - 1A4h
 					5'h13:	begin									// 1F801DA6h - 1A6h
 								// Adress (dataIn) is multiple x8 in byte adress.
@@ -492,11 +500,6 @@ begin
 					// Current volume L/R channels. (1F801E00h..1F801E5Fh)
 					// 1E60~1FFFF Unknown/Unused
 			end
-		end else begin 
-			// --------------------------
-			// No write.
-			// --------------------------
-			readReverb		= reg_reverb[addr[5:1]];
 		end // end write
 
 		//
@@ -583,6 +586,19 @@ begin
 		end
 		if (changeADSRState) begin
 			reg_adsrState[currVoice]		= nextAdsrState;
+		end
+		if (incReverbCounter) begin
+			//  if counter == last valid index -> loop to zero.
+			if (reverb_CounterWord == {~reg_mBase,2'b11}) begin
+				// reverb_CounterWord+1   >= 262144 -  reg_mBase
+				// reverb_CounterWord+1-1 >= 262144 -  reg_mBase   -1
+				// reverb_CounterWord     >= 262144 + ~reg_mBase+1 -1
+				// reverb_CounterWord     >=          ~reg_mBase+1 -1  (262144 out of range 17:0, loop counter, not needed), +1-1 simplify.
+				// replace                ==          ~reg_mBase
+				reverb_CounterWord = 18'd0;
+			end else begin
+				reverb_CounterWord = reverb_CounterWord + 18'd1;
+			end
 		end
 	end // end reset
 end // end always block
@@ -752,9 +768,10 @@ reg  [5:0] currVoice6Bit;
 wire [4:0] currVoice = currVoice6Bit[4:0];
 reg  [4:0] voiceCounter;
 
+wire isLastCycle = (voiceCounter == 5'd23);
 // reg  [9:0] counter768;
 // wire [9:0] nextCounter768 = counter768 + 10'd1;
-wire ctrl44Khz = (currVoice == 5'd31) && (voiceCounter == 5'd23);
+wire ctrl44Khz = (currVoice == 5'd31) && isLastCycle;
 wire side22Khz = currVoice6Bit[5]; // Left / Right side for Reverb.
 always @(posedge i_clk)
 begin
@@ -763,7 +780,7 @@ begin
 		voiceCounter		= 5'd0;
 		currVoice6Bit		= 6'd0;
 	end else begin
-		if (voiceCounter == 5'd23) begin
+		if (isLastCycle) begin
 			voiceCounter = 5'd0;
 			currVoice6Bit	= currVoice6Bit + 6'd1;
 		end else begin
@@ -818,6 +835,238 @@ wire isLastVoice	= (currVoice == 5'd23);
 wire isVoice1		= (currVoice == 5'd1);
 wire isVoice3		= (currVoice == 5'd3);
 
+reg [7:0] reverbCnt;
+always @(posedge i_clk)
+begin
+	if (currVoice[4:3] != 2'd3) begin
+		reverbCnt = 8'd0;
+	end else begin
+		reverbCnt = reverbCnt + 1;
+	end
+end
+
+// 000xx
+wire signed [15:0] dAPF1	= reg_reverb[0];
+wire signed [15:0] dAPF2	= reg_reverb[1];
+wire signed [15:0]  vIIR	= reg_reverb[2];
+wire signed [15:0] vCOMB1	= reg_reverb[3];
+
+// 001xx
+wire signed [15:0] vCOMB2	= reg_reverb[4];
+wire signed [15:0] vCOMB3	= reg_reverb[5];
+wire signed [15:0] vCOMB4	= reg_reverb[6];
+wire signed [15:0] vWALL	= reg_reverb[7];
+
+// 010xx
+wire signed [15:0] vAPF1	= reg_reverb[8];
+wire signed [15:0] vAPF2	= reg_reverb[9];
+wire signed [15:0] mLSAME	= reg_reverb[10];
+wire signed [15:0] mRSAME	= reg_reverb[11];
+
+wire signed [15:0] negvAPF1	= (~vAPF1) + 16'd1;
+wire signed [15:0] negvAPF2	= (~vAPF2) + 16'd1;
+
+// 011xx
+wire signed [15:0] mLCOMB1	= reg_reverb[12];
+wire signed [15:0] mRCOMB1	= reg_reverb[13];
+wire signed [15:0] mLCOMB2	= reg_reverb[14];
+wire signed [15:0] mRCOMB2	= reg_reverb[15];
+
+// 100xx
+wire signed [15:0] dLSAME	= reg_reverb[16];
+wire signed [15:0] dRSAME	= reg_reverb[17];
+wire signed [15:0] mLDIFF	= reg_reverb[18];
+wire signed [15:0] mRDIFF	= reg_reverb[19];
+
+// 101xx
+wire signed [15:0] mLCOMB3	= reg_reverb[20];
+wire signed [15:0] mRCOMB3	= reg_reverb[21];
+wire signed [15:0] mLCOMB4	= reg_reverb[22];
+wire signed [15:0] mRCOMB4	= reg_reverb[23];
+
+// 110xx
+wire signed [15:0] dLDIFF	= reg_reverb[24];
+wire signed [15:0] dRDIFF	= reg_reverb[25];
+wire signed [15:0] mLAPF1	= reg_reverb[26];
+wire signed [15:0] mRAPF1	= reg_reverb[27];
+
+// 111xx
+wire signed [15:0] mLAPF2	= reg_reverb[28];
+wire signed [15:0] mRAPF2	= reg_reverb[29];
+wire signed [15:0] vLIN		= reg_reverb[30];
+wire signed [15:0] vRIN		= reg_reverb[31];
+
+reg  signed [15:0] mulA;
+reg  signed [15:0] mulB;
+wire signed [15:0] lineIn     = side22Khz ? ReverbR : ReverbL;
+wire signed [30:0] resMulAB   = mulA * mulB;
+wire signed [15:0] resMulAB16 = resMulAB[30:15];  
+wire signed [15:0] addB       = accAdd ? accReverb : 16'd0;
+wire signed [16:0] addC       = addB + resMulAB16;
+// [TODO] Clamp addC to 16 bit instead of 17 bits.
+wire signed [15:0] clampedAddC = addC[16:1];
+
+reg  signed [15:0] accReverb;
+always @(posedge i_clk)
+begin
+	accReverb = clampedAddC;
+end
+
+// [TODO] : wrReverb signal to SPU RAM.
+// [TODO] : State machine.
+reg [15:0] adrB;
+
+reg [3:0] sideAReg;
+reg [4:0] sideBReg;
+reg       minus2;
+reg [1:0] selB;
+reg       accAdd;
+reg		  wrReverb;
+
+parameter 	SA_VWALL	=	4'h0,
+			SA_VIIR		=	4'h1,
+			SA_ZERO		=	4'h2,
+			SA_ONE		=	4'h3,
+			SA_COMB1	=	4'h4,
+			SA_COMB2	=	4'h5,
+			SA_COMB3	=	4'h6,
+			SA_COMB4	=	4'h7,
+			SA_VAPF1	=	4'h8,
+			SA_VAPF2	=	4'h9,
+			SA_NVAPF1	=	4'hA,
+			SA_NVAPF2	=	4'hB,
+			SA_NEG_ONE	=	4'hC,
+			SA_VIN		=	4'hD;
+			
+parameter 	SB_DLSAME	=	5'h0,
+			SB_DRSAME	=	5'h1,
+			SB_MLSAME	=	5'h2,
+			SB_MRSAME	=	5'h3,
+
+			SB_DLDIFF	=	5'h4,
+			SB_DRDIFF	=	5'h5,
+			SB_MLDIFF	=	5'h6,
+			SB_MRDIFF	=	5'h7,
+
+			SB_MLCOMB1	=	5'h8,
+			SB_MRCOMB1	=	5'h9,
+			SB_MLCOMB2	=	5'hA,
+			SB_MRCOMB2	=	5'hB,
+
+			SB_MLCOMB3	=	5'hC,
+			SB_MRCOMB3	=	5'hD,
+			SB_MLCOMB4	=	5'hE,
+			SB_MRCOMB4	=	5'hF,
+
+			SB_MLAPF1_ADPF1 =	5'h10,
+			SB_MRAPF1_ADPF1 =	5'h11,
+			SB_MLAPF2_ADPF2 =	5'h12,
+			SB_MRAPF2_ADPF2 =	5'h13,
+			
+			SB_MLAPF1 =	5'h14,
+			SB_MRAPF1 =	5'h15,
+			SB_MLAPF2 =	5'h16,
+			SB_MRAPF2 =	5'h17,
+			
+			SB_FAKEREAD 	  =	5'h18;
+
+parameter 	SB_DxSAME		=	4'h0,
+			SB_MxSAME		=	4'h1,
+			SB_DxDIFF		=	4'h2,
+			SB_MxDIFF		=	4'h3,
+			SB_MxCOMB1		=	4'h4,
+			SB_MxCOMB2		=	4'h5,
+			SB_MxCOMB3		=	4'h6,
+			SB_MxCOMB4		=	4'h7,
+			SB_MxAPF1_ADPF1 =	4'h8,
+			SB_MxAPF2_ADPF2 =	4'h9,
+			SB_MxAPF1 		=	4'hA,
+			SB_MxAPF2		=	4'hB;
+			
+parameter	SEL_IN	  = 2'd0,
+			SEL_RAM	  = 2'd1,
+			SEL_ACC	  = 2'd2;
+
+                   //15->17 bit +   0/-1 Half Word.(-2 byte)
+wire [17:0] reverbAdrPreRing = {adrB, 2'd0} + {17{minus2}}; // [Read Memory from Reverb Adr stuff]
+reg  [17:0] reverb_CounterWord;
+reg         incReverbCounter;
+
+ReverbWrapAdr ReverbWrapAdrInst(
+	.i_offsetRegister	(reverbAdrPreRing),	// Word Offset.
+	.i_baseAdr			(reg_mBase),		// x8 byte 16 bit reg.
+	.i_offsetCounter	(reverb_CounterWord),// Word Offset.
+	.o_reverbAdr		(reverbAdr)			// Word output absolute adr.
+);
+
+// Value to write to the SPU RAM for reverb data bus.
+assign reverbWriteValue	= accReverb;
+
+always @(*)
+begin
+	// 4 Bit
+	case (sideAReg)
+	SA_VWALL:	mulA = vWALL;
+	SA_VIIR:	mulA = vIIR;
+	SA_ZERO:	mulA = 16'h0;
+	SA_ONE:		mulA = 16'h7FFF; // Trick, not 1, but 0.99996948 -> 0.99997
+	
+	SA_COMB1:	mulA = vCOMB1;
+	SA_COMB2:	mulA = vCOMB2;
+	SA_COMB3:	mulA = vCOMB3;
+	SA_COMB4:	mulA = vCOMB4;
+	
+	SA_VAPF1:	mulA = vAPF1;
+	SA_VAPF2:	mulA = vAPF2;
+	SA_NVAPF1:	mulA = negvAPF1;
+	SA_NVAPF2:	mulA = negvAPF2;
+	SA_VIN:		mulA = side22Khz ? vRIN : vLIN;
+	default:	mulA = 16'h8000; // -1 // SA_NEG_ONE
+	endcase
+
+	//  5 Bit
+	case (sideBReg)
+	SB_DLSAME:  adrB = dLSAME;
+	SB_DRSAME:  adrB = dRSAME;
+	SB_MLSAME:  adrB = mLSAME;// -2 variant
+	SB_MRSAME:  adrB = mRSAME;// -2 variant
+	
+	SB_DLDIFF:  adrB = dLDIFF;
+	SB_DRDIFF:  adrB = dRDIFF;
+	SB_MLDIFF:  adrB = mLDIFF;// -2 variant
+	SB_MRDIFF:  adrB = mRDIFF;// -2 variant
+	
+	SB_MLCOMB1: adrB = mLCOMB1;
+	SB_MRCOMB1: adrB = mRCOMB1;
+	SB_MLCOMB2: adrB = mLCOMB2;
+	SB_MRCOMB2: adrB = mRCOMB2;
+	
+	SB_MLCOMB3: adrB = mLCOMB3;
+	SB_MRCOMB3: adrB = mRCOMB3;
+	SB_MLCOMB4: adrB = mLCOMB4;
+	SB_MRCOMB4: adrB = mRCOMB4;
+	
+	SB_MLAPF1_ADPF1: adrB = mLAPF1 - dAPF1;
+	SB_MRAPF1_ADPF1: adrB = mRAPF1 - dAPF1;
+	SB_MLAPF2_ADPF2: adrB = mLAPF2 - dAPF2;
+	SB_MRAPF2_ADPF2: adrB = mRAPF2 - dAPF2;
+	
+	SB_MLAPF1: adrB = mLAPF1;
+	SB_MRAPF1: adrB = mRAPF1;
+	SB_MLAPF2: adrB = mLAPF2;
+	SB_MRAPF2: adrB = mRAPF2;
+	default:   adrB = 16'd0; // SB_FAKEREAD
+	endcase
+
+	// [Select Lin/Acc/RamOut]
+	case (selB)
+	SEL_IN:		mulB = lineIn;
+	SEL_RAM:	mulB = i_dataInRAM;
+	// Not used, mulA used for sign <= SEL_NRAM:   mulB = (~i_dataInRAM) + 16'd1; // -i_dataInRAM
+	default:	mulB = accReverb;
+	endcase
+end
+
 always @(*)
 begin
 	dataReadRAM			= 0;
@@ -838,7 +1087,19 @@ begin
 	isNotEndADPCMBlock	= 0;
 	isRepeatADPCMFlag	= 0;
 
-	if (currVoice < 5'd24) begin // [Channel 0..23 Timing are VOICES in original SPU]
+	sideAReg			= SA_ZERO;
+	sideBReg			= SB_FAKEREAD;
+	minus2				= 0;
+	selB				= SEL_ACC;
+	accAdd				= 0;
+	wrReverb			= 0;
+	incReverbCounter	= 0;
+	
+	if (currVoice[4:3] != 2'd3) begin // [Channel 0..23 Timing are VOICES in original SPU]
+		// [TODO when working on SDRAM like timing 
+		// - Read for sample 0/1/2/3 could be reduced to a single read by storing last read value into register.
+		// - CPU<->SPU Data Transfer done during unused cycles (Voice 0..23 except 1/3 write back) => Allow 2MB/Sec of transfer just there.
+		// - Move CD Rom Write back to Reverb Timing space. ( SPUMemWRSel = CDLeft_WR / CDRight_WR )
 		case (voiceCounter)
 		5'd0:
 		begin
@@ -866,8 +1127,6 @@ begin
 			dataReadRAM			= 1;	// Sample 0
 			// Load correct Sample block based on current sample position and base block adress.
 		end
-		
-		// [TODO : Read for sample 0/1/2/3 could be reduced to a single read using temp register if needed]
 		5'd3:
 		begin
 			// For each sample 0..3 ( currV_adpcmPos[13:12] )
@@ -955,8 +1214,168 @@ begin
 		end
 		endcase
 	end else begin  // [Channel 24..31 x 24 cycle = REVERB, FIFO Transfer, WRITE BACK CD/VOICES]
-		// - Write back timing IF USE SDRAM and not RAMBLOCK in FPGA...
-		// - Reverb timing...
+		// dataReadRAM set to 0 : Write Enabled always.
+		// ALLOW FIFO TRANSFER while REVERB TIME NOT RUNNING.
+		SPUMemWRSel	= reg_ReverbEnable ? REVERB_READ : FIFO_WRITE;	// Reverb Read / Write : [Bus given to Reverb for all cycles]
+		
+		case (reverbCnt)
+		// [14 Read + 4 Write = ]
+		// ---------------------------------------------------------------------------------------------------------
+		// W(mLSAME, (Lin + R(dLSAME) * vWALL - R(mLSAME - 2)) * vIIR + R(mLSAME - 2)); (3 Read + 1 Write)
+		// ---------------------------------------------------------------------------------------------------------
+		// 0 : Acc  = vLin * Sample;
+		8'd0:
+		begin sideAReg = SA_VIN;   sideBReg = SB_FAKEREAD;            minus2 = 0; selB = SEL_IN;   accAdd = 0; end
+		
+		// 1 : Acc += R(dLSAME) * vWALL;
+		8'd1: // A : Read Request
+		begin sideAReg = SA_ZERO;  sideBReg = {SB_DxSAME, side22Khz}; minus2 = 0; selB = SEL_ACC;  accAdd = 1; end
+		8'd2: // B : Data Process
+		begin sideAReg = SA_VWALL; sideBReg = SB_FAKEREAD;            minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		
+		// 2 : Acc -= R(mLSAME - 2));
+		8'd3: // A : Read Request
+		begin sideAReg = SA_ZERO;  sideBReg = {SB_MxSAME, side22Khz}; minus2 = 1; selB = SEL_ACC;  accAdd = 1; end
+		8'd4: // B : Data Process
+		begin sideAReg = SA_NEG_ONE;   sideBReg = SB_FAKEREAD;        minus2 = 0; selB = SEL_RAM; accAdd = 1; end
+		
+		// 3 : Acc *= vIIR; + Set Read R(mLSAME - 2)
+		8'd5: // A : Data Process
+		begin sideAReg = SA_VIIR;  sideBReg = {SB_MxSAME, side22Khz}; minus2 = 1; selB = SEL_ACC;  accAdd = 0; end
+
+		// 4 : Acc += R(mLSAME - 2);
+		8'd6: // B : Data Process
+		begin sideAReg = SA_ONE;   sideBReg = SB_FAKEREAD;            minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+
+		// 5 : W(mLSAME, Acc);
+		8'd7: // A : Write Request
+		begin sideAReg = SA_ZERO;  sideBReg = {SB_MxSAME, side22Khz}; minus2 = 0; selB = SEL_ACC;  accAdd = 0; /*SPUMemWRSel	= reg_ReverbEnable ? REVERB_WRITE : FIFO_WRITE;*/ end
+
+		// ---------------------------------------------------------------------------------------------------------
+		// W(mLDIFF, (Lin + R(dRDIFF) * vWALL - R(mLDIFF - 2)) * vIIR + R(mLDIFF - 2)); (3 Read + 1 Write)
+		// ---------------------------------------------------------------------------------------------------------
+		// 6 : Acc  = vLin * Sample;
+		8'd8:
+		begin sideAReg = SA_VIN;   sideBReg = SB_FAKEREAD;            minus2 = 0; selB = SEL_IN;   accAdd = 0; end
+		
+		// 7 : Acc += R(dRDIFF) * vWALL; <---- INVERSE !
+		8'd9: // A : Read Request
+		begin sideAReg = SA_ZERO;  sideBReg = {SB_DxDIFF, !side22Khz}; minus2 = 0; selB = SEL_ACC;  accAdd = 1; end
+		8'd10: // B : Data Process
+		begin sideAReg = SA_VWALL; sideBReg = SB_FAKEREAD;            minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		
+		// 8 : Acc -= R(mLDIFF - 2));
+		8'd11: // A : Read Request
+		begin sideAReg = SA_ZERO;    sideBReg = {SB_MxDIFF, side22Khz}; minus2 = 1; selB = SEL_ACC;  accAdd = 1; end
+		8'd12: // B : Data Process
+		begin sideAReg = SA_NEG_ONE; sideBReg = SB_FAKEREAD;            minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		
+		// 9 : Acc *= vIIR; + Set Read R(mLDIFF - 2)
+		8'd13: // A : Data Process
+		begin sideAReg = SA_VIIR;  sideBReg = {SB_MxDIFF, side22Khz}; minus2 = 1; selB = SEL_ACC;  accAdd = 0; end
+		//10 : Acc += R(mLDIFF - 2);
+		8'd14: // B : Data Process
+		begin sideAReg = SA_ONE;   sideBReg = SB_FAKEREAD;            minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+
+		//11 : W(mLDIFF, Acc);
+		8'd15: // A : Write Request
+		begin sideAReg = SA_ZERO;  sideBReg = {SB_MxDIFF, side22Khz}; minus2 = 0; selB = SEL_ACC;  accAdd = 0; /*SPUMemWRSel	= reg_ReverbEnable ? REVERB_WRITE : FIFO_WRITE;*/ end
+
+		// ---------------------------------------------------------------------------------------------------------
+		// Sample Lout = vCOMB1 * R(mLCOMB1) + vCOMB2 * R(mLCOMB2) + vCOMB3 * R(mLCOMB3) + vCOMB4 * R(mLCOMB4);
+		//				 4 Read
+		// ---------------------------------------------------------------------------------------------------------
+		// 12: Acc  = vCOMB1 * R(mLCOMB1);
+		8'd16:
+		begin sideAReg = SA_ZERO;  sideBReg = {SB_MxCOMB1, side22Khz}; minus2 = 0; selB = SEL_ACC;  accAdd = 0; end
+		//                     R(mLCOMB2)
+		8'd17:
+		begin sideAReg = SA_COMB1; sideBReg = {SB_MxCOMB2, side22Khz}; minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		8'd18:
+		// 13: Acc += vCOMB2 * Read;   +R(mLCOMB3)
+		begin sideAReg = SA_COMB2; sideBReg = {SB_MxCOMB3, side22Khz}; minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		8'd19:
+		// 14: Acc += vCOMB3 * Read;   +R(mLCOMB4)
+		begin sideAReg = SA_COMB3; sideBReg = {SB_MxCOMB4, side22Khz}; minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		8'd20:
+		// 15: Acc += vCOMB4 * Read;   +R(mLAPF1 - dAPF1)
+		begin sideAReg = SA_COMB4; sideBReg = {SB_MxAPF1_ADPF1, side22Khz}; minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		// ---------------------------------------------------------------------------------------------------------
+		// Lout = Lout - (vAPF1 * R(mLAPF1 - dAPF1));
+		// W(mLAPF1, Lout);
+		//                1 Read + 1 Write
+		// ---------------------------------------------------------------------------------------------------------
+		// 16: Acc -= (vAPF1 * R(mLAPF1 - dAPF1));
+		8'd21: // B : Data Process
+		begin sideAReg = SA_NVAPF1; sideBReg = SB_FAKEREAD;                  minus2 = 0; selB = SEL_RAM; accAdd = 1; end
+		// 17 : W(mLAPF1, Acc);
+		8'd22: // C : Write Request (Note : use ADD to keep value, different from previous writes)
+		begin sideAReg = SA_ZERO;  sideBReg = {SB_MxAPF1, side22Khz};       minus2 = 0; selB = SEL_ACC;  accAdd = 1; /*SPUMemWRSel	= reg_ReverbEnable ? REVERB_WRITE : FIFO_WRITE; */ end
+		
+		// ---------------------------------------------------------------------------------------------------------
+		// Lout = Lout * vAPF1 + R(mLAPF1 - dAPF1);
+		//                1 Read
+		// ---------------------------------------------------------------------------------------------------------
+		// 18: Acc *= vAPF1; + Read (mLAPF1 - dAPF1)
+		8'd23: 
+		begin sideAReg = SA_VAPF1;  sideBReg = {SB_MxAPF1_ADPF1, side22Khz}; minus2 = 0; selB = SEL_ACC;  accAdd = 0; end
+		// 19: Acc += R(mLAPF1 - dAPF1); + Read(mLAPF2 - dAPF2)
+		8'd24:
+		begin sideAReg = SA_ONE;    sideBReg = {SB_MxAPF2_ADPF2, side22Khz}; minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		
+		// ---------------------------------------------------------------------------------------------------------
+		// Lout = Lout - (vAPF2 * R(mLAPF2 - dAPF2));
+		// W(mLAPF2, Lout);
+		//                1 Read + 1 Write
+		// ---------------------------------------------------------------------------------------------------------
+		// 20: Acc -= R(mLAPF2 - dAPF2);
+		8'd25:
+		begin sideAReg = SA_NVAPF2; sideBReg = SB_FAKEREAD;                  minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		// 21: W(mLAPF2, Acc);
+		8'd26:
+		begin sideAReg = SA_ZERO;  sideBReg = {SB_MxAPF2, side22Khz};        minus2 = 0; selB = SEL_ACC;  accAdd = 1; /*SPUMemWRSel	= reg_ReverbEnable ? REVERB_WRITE : FIFO_WRITE;*/ end
+		
+		// ---------------------------------------------------------------------------------------------------------
+		// Lout = Lout * vAPF2 + R(mLAPF2 - dAPF2);
+		//                1 Read
+		// ---------------------------------------------------------------------------------------------------------
+		// 18: Acc *= vAPF2; + Read (mLAPF2 - dAPF2)
+		8'd27: 
+		begin sideAReg = SA_VAPF2;  sideBReg = {SB_MxAPF2_ADPF2, side22Khz}; minus2 = 0; selB = SEL_ACC;  accAdd = 0; end
+		// 19: Acc += R(mLAPF2 - dAPF2);
+		8'd28:
+		begin sideAReg = SA_ONE;    sideBReg = SB_FAKEREAD;                  minus2 = 0; selB = SEL_RAM;  accAdd = 1; end
+		
+		// ---------------------------------------------------------------------------------------------------------
+		// [TODO] Add to output audio : Lout * spu->reverbVolume.getLeft()
+		// spu->reverbCurrentAddress = wrap(spu, spu->reverbCurrentAddress + 2); when LR complete. (22 Khz)
+		// ---------------------------------------------------------------------------------------------------------
+		/*
+			...[CD WRITE BACK]...
+			...[SPU READ/WRITE FROM CPU/DMA] => Could also be integrated in VOICE state 10-18.
+		5'd22:
+		begin
+			if (isLastVoice) begin
+				SPUMemWRSel			= CDLeft_WR;
+			end
+		end
+		5'd23:
+		begin
+			ctrlSendOut = isLastVoice;
+			if (isLastVoice) begin
+				SPUMemWRSel			= CDRight_WR;
+			end
+		end
+		*/
+		8'd29:
+		begin
+			// Increment reverb offset every 22 Khz (step 29 of RIGHT side)
+			incReverbCounter = side22Khz; // Increment adr when on the end of RIGHT block.
+		end
+		default:
+		begin
+		end
+		endcase
 	end
 end
 
@@ -966,6 +1385,7 @@ assign writeSPURAM	= (readFIFO | ((SPUMemWRSel[0] | SPUMemWRSel[1]) & (!dataRead
 
 wire  KON = reg_kon [currVoice];
 wire PMON = reg_pmon[currVoice];
+wire  EON = reg_eon [currVoice];
 
 // --------------------------------------------------------------------------------------
 //		Stage 0A : ADPCM Adress computation (common : once every 32 cycle)
@@ -1016,8 +1436,6 @@ wire		 nextNewLine    = nextADPCMPos[16:14] != currV_adpcmPos[16:14];	// Change 
 wire isNullADSR         = (AdsrVol==15'd0);
 wire newSampleReady		= (adpcmSubSample == currV_adpcmPos[13:12]) & updatePrev;	// Only when state machine output SAMPLE from SPU RAM and valid ADPCM out.
 wire launchInterpolator = (adpcmSubSample == 2'd3) & updatePrev;					// Interpolator must run when no more write done.
-// To avoid buffer noise : When Attack|Release is ZERO -> Push ZERO sample into ring buffer too.
-wire signed [15:0] sampleOutADPCM   = (isNullADSR) ? 16'd0 : sampleOutADPCMRAW;
 
 ADPCMDecoder ADPCMDecoderUnit(
 	.i_Shift		(currV_shift),
@@ -1030,6 +1448,8 @@ ADPCMDecoder ADPCMDecoderUnit(
 	.i_PrevSample1	(reg_tmpAdpcmPrev[31:16]),
 	.o_sample		(sampleOutADPCMRAW)
 );
+// To avoid buffer noise : When Attack|Release is ZERO -> Push ZERO sample into ring buffer too.
+wire signed [15:0] sampleOutADPCM   = (isNullADSR) ? 16'd0 : sampleOutADPCMRAW;
 
 // --------------------------------------------------------------------------------------
 //	[COMPLETED] Stage 1 : Gaussian Filter
@@ -1225,14 +1645,21 @@ wire signed [30:0] applyRVol = currV_VolumeR * PvxOut;
 //		Stage Accumulate all voices    (768/16/32)
 // --------------------------------------------------------------------------------------
 reg signed [20:0] sumL,sumR;
+reg signed [20:0] sumReverbL,sumReverbR;
 always @(posedge i_clk) begin
 	if (PValidSample) begin
 		sumL = sumL + { {5{applyLVol[30]}},applyLVol[30:15]};
 		sumR = sumR + { {5{applyRVol[30]}},applyRVol[30:15]};
+		if (EON) begin
+			sumReverbL = sumReverbL + { {5{applyLVol[30]}},applyLVol[30:15]};
+			sumReverbR = sumReverbR + { {5{applyRVol[30]}},applyRVol[30:15]};
+		end
 	end else begin
 		if (clearSum) begin
 			sumL = 21'd0;
 			sumR = 21'd0;
+			sumReverbL = 21'd0;
+			sumReverbR = 21'd0;
 		end
 	end
 end
@@ -1262,13 +1689,27 @@ wire signed [15:0] CdSideR	= reg_CDAudioEnabled	? CD_addR : 16'd0;
 // --------------------------------------------------------------------------------------
 //		Reverb Input (1536 / 768 / 16)
 // --------------------------------------------------------------------------------------
-wire EON; EONSelect SelectCh(.v(reg_eon), currVoice, .o(EON));
+wire EON; EONSelect SelectCh(.v(), currVoice, .o(EON));
 ReverbInput = (reg_CDAudioReverbEnabled		? CdSide    : 0)
             + (VoiceReverbEnable 			? VoiceSide : 0)
             + (reg_ExtReverbEnabled   		? ExtSide   : 0);
 // TODO Reverb Unit
 */
-wire signed [15:0] ReverbL	= 16'd0 /* TODO use reg_reverbVolLeft  */;
+
+/*
+	TODO :
+	Step 0 : reverbCD L/R     = reg_CDAudioReverbEnabled ? CdSideL/R : 0;
+			 reverbVoice L/R  = sumReverbL/R
+	Step 1 : ReverbInput = reverbCD + reverbVoice L/R
+			 Compute Reverb
+			 
+	Change to current implementation :
+	Now    : (sumL/R * volL/R) + CDL/R
+	Future : (sumL/R + CDL/R + (reg_ReverbEnable ? reverbOutL/R : 0)) * volL/R
+	TODO   : Handling of reg_ReverbEnable may be different => Write 0 or stop running Reverb at ALL.
+*/
+
+wire signed [15:0] ReverbL	= 16'd0 /* TODO use reg_reverbVolLeft + CD Rom input if reverb */;
 wire signed [15:0] ReverbR	= 16'd0 /* TODO use reg_reverbVolRight */;
 
 // --------------------------------------------------------------------------------------
