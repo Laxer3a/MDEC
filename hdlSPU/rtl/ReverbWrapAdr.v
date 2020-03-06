@@ -16,5 +16,5 @@ module ReverbWrapAdr(
 	wire [17:0] rollAdr = addressWord2[17:0] + { i_baseAdr, 2'd0 };
 
 	// If part.
-	wire [17:0] result  = overflowAdr ? rollAdr : addressWord2[17:0];
+	assign o_reverbAdr  = overflowAdr ? rollAdr : addressWord2[17:0];
 endmodule
