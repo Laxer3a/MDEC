@@ -64,10 +64,12 @@ module ADSRCycleCountModule
 	// Signe[14:0]x[14:0]/8000 -> >> 15 bit.
 	wire signed [15:0] sAdsrLevel = { 1'b0, i_adsrLevel };
 	wire signed [29:0] stepE = adsrStepBeforeOptDiv * sAdsrLevel;
-	wire signed [14:0] resDiv;
-	SDivTrunc #(.INW(30),.OUTW(15)) mySignedDivisionBy256(.valueIn(stepE),.valueOut(resDiv));
+	
+	// Not a real division, but a SHIFT signed for negative value.
+	// wire signed [14:0] resDiv;
+	// SDivTrunc #(.INW(30),.OUTW(15)) mySignedDivisionBy32768(.valueIn(stepE),.valueOut(resDiv));
 
-	assign o_AdsrStep = i_step2ExpDecr ? resDiv : adsrStepBeforeOptDiv;
+	assign o_AdsrStep = i_step2ExpDecr ? stepE[29:15] : adsrStepBeforeOptDiv;
 	
 	// --------------------------------------------------
 	//	[Env Cycle Count]

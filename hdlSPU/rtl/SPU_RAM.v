@@ -1,5 +1,8 @@
 /***************************************************************************************************************************************
 	Verilog code done by Laxer3A v1.0
+	Fake ram with :
+	- Last memory data kept available for further re-read.
+	- Latency of 4 cycles.
  **************************************************************************************************************************************/
 module SPU_RAM
 (
@@ -33,11 +36,20 @@ module SPU_RAM
 		addr_reg			= i_wordAddr;
 		readByteSelect_reg	= i_byteSelect & {i_re,i_re};
 	end
-		
+	
 	// Continuous assignment implies read returns NEW data.
 	// This is the natural behavior of the TriMatrix memory
 	// blocks in Single Port mode.  
-	wire [7:0] low = readByteSelect_reg[0] ? ramL[addr_reg] : 8'd0;
-	wire [7:0] hig = readByteSelect_reg[1] ? ramM[addr_reg] : 8'd0;
+	wire [7:0] low = readByteSelect_reg[0] ? ramL[addr_reg] : cachL;
+	wire [7:0] hig = readByteSelect_reg[1] ? ramM[addr_reg] : cachM;
+	
+	// Keep last data forever...
+	reg [7:0] cachL, cachM;
+	always @ (posedge i_clk)
+	begin
+		if (readByteSelect_reg[0]) begin cachL = low; end
+		if (readByteSelect_reg[1]) begin cachM = hig; end
+	end
+	
 	assign o_q = { hig , low };
 endmodule
