@@ -786,7 +786,7 @@ wire ctrl44Khz = (currVoice == 5'd31) && isLastCycle;
 wire side22Khz = currVoice6Bit[5]; // Left / Right side for Reverb.
 always @(posedge i_clk)
 begin
-	if (n_rst == 0 || ctrl44Khz)
+	if (n_rst == 0)
 	begin
 		voiceCounter		= 5'd0;
 		currVoice6Bit		= 6'd0;
