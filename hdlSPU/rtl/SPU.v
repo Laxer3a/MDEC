@@ -657,7 +657,7 @@ begin
 			5'h11:	dataOutw = reg_mBase;					// 1F801DA2h
 			5'h12:	dataOutw = reg_ramIRQAddr;				// 1F801DA4h
 			5'h13:	dataOutw = reg_dataTransferAddr;		// 1F801DA6h
-			5'h14:	dataOutw = 16'd0; 						// 1F801DA8h [TODO] Can't read FIFO for now.
+			5'h14:	dataOutw = 16'hFF; 						// 1F801DA8h Can't read FIFO.
 			5'h15:	begin 									// 1F801DAAh SPU Control register
 					dataOutw = { 	reg_SPUEnable,
 									reg_SPUNotMuted,
@@ -908,7 +908,7 @@ wire signed [15:0] vRIN		= reg_reverb[31];
 
 reg  signed [15:0] mulA;
 reg  signed [15:0] mulB;
-wire signed [15:0] lineIn     = side22Khz ? ReverbR : ReverbL;
+wire signed [15:0] lineIn     = sumReverb[15:0]; // [TODO CLAMP]
 wire signed [30:0] resMulAB   = mulA * mulB;
 wire signed [15:0] resMulAB16 = resMulAB[30:15];  
 wire signed [15:0] addB       = accAdd ? accReverb : 16'd0;
@@ -922,7 +922,6 @@ begin
 	accReverb = clampedAddC;
 end
 
-// [TODO] : wrReverb signal to SPU RAM.
 reg [15:0] adrB;
 
 reg [3:0] sideAReg;
@@ -930,7 +929,6 @@ reg [4:0] sideBReg;
 reg       minus2;
 reg [1:0] selB;
 reg       accAdd;
-reg		  wrReverb;
 reg		  isRight;
 
 parameter 	SA_VWALL	=	4'h0,
@@ -1102,7 +1100,6 @@ begin
 	selB				= SEL_ACC;
 	accAdd				= 1;
 	
-	wrReverb			= 0;
 	isRight				= 0;
 	
 	if (currVoice[4:3] != 2'd3) begin // [Channel 0..23 Timing are VOICES in original SPU]
@@ -1628,27 +1625,31 @@ wire signed [30:0] applyRVol = currV_VolumeR * PvxOut;
 //		Stage Accumulate all voices    (768/16/32)
 // --------------------------------------------------------------------------------------
 reg signed [20:0] sumL,sumR;
-reg signed [20:0] sumReverbL,sumReverbR;
+reg signed [20:0] sumReverb;
+wire signed [15:0] reverbApply = side22Khz ? applyRVol[30:15] : applyLVol[30:15];
 always @(posedge i_clk) begin
 	if (PValidSample) begin
 		sumL = sumL + { {5{applyLVol[30]}},applyLVol[30:15]};
 		sumR = sumR + { {5{applyRVol[30]}},applyRVol[30:15]};
 		if (EON) begin
-			sumReverbL = sumReverbL + { {5{applyLVol[30]}},applyLVol[30:15]};
-			sumReverbR = sumReverbR + { {5{applyRVol[30]}},applyRVol[30:15]};
+			sumReverb = sumReverb + { {5{reverbApply[15]}}, reverbApply };
 		end
 	end else begin
 		if (clearSum) begin
-			sumL = 21'd0;
-			sumR = 21'd0;
-			sumReverbL = 21'd0;
-			sumReverbR = 21'd0;
+			sumL		= 21'd0;
+			sumR		= 21'd0;
+			sumReverb	= 21'd0;
 		end
 	end
 end
 
 // Because we scan per channel.
 reg  signed [15:0] reg_CDRomInL,reg_CDRomInR;
+// Select correct volume based on 22 Khz switch bit.
+wire signed [15:0] volume			= side22Khz ? reg_reverbVolRight : reg_reverbVolLeft;
+wire signed [31:0] valueReverb      = accReverb * volume; 
+wire signed [15:0] valueReverbFinal = reg_ReverbEnable ? valueReverb[30:15] : 16'd0;
+reg  signed [15:0] regValueReverbLeft,regValueReverbRight;
 
 always @(posedge i_clk) begin
 	if (inputL) begin
@@ -1656,6 +1657,16 @@ always @(posedge i_clk) begin
 	end
 	if (inputR) begin
 		reg_CDRomInR = CDRomInR;
+	end
+
+	if (ctrlSendOut) begin
+		if (side22Khz) begin
+			// Right Side
+			regValueReverbRight = valueReverbFinal;
+		end else begin
+			// Left Side
+			regValueReverbLeft  = valueReverbFinal;
+		end
 	end
 end
 
@@ -1668,32 +1679,15 @@ wire signed [15:0] CdSideL	= reg_CDAudioEnabled	? CD_addL : 16'd0;
 wire signed [15:0] CdSideR	= reg_CDAudioEnabled	? CD_addR : 16'd0;
 // wire signed [15:0] ExtSide = reg_ExtEnabled		? (extInput * extLRVolume) : 16'd0; // Volume R + L
 
-/*
 // --------------------------------------------------------------------------------------
 //		Reverb Input (1536 / 768 / 16)
 // --------------------------------------------------------------------------------------
-wire EON; EONSelect SelectCh(.v(), currVoice, .o(EON));
-ReverbInput = (reg_CDAudioReverbEnabled		? CdSide    : 0)
-            + (VoiceReverbEnable 			? VoiceSide : 0)
-            + (reg_ExtReverbEnabled   		? ExtSide   : 0);
-// TODO Reverb Unit
-*/
-
-/*
-	TODO :
-	Step 0 : reverbCD L/R     = reg_CDAudioReverbEnabled ? CdSideL/R : 0;
-			 reverbVoice L/R  = sumReverbL/R
-	Step 1 : ReverbInput = reverbCD + reverbVoice L/R
-			 Compute Reverb
-			 
-	Change to current implementation :
-	Now    : (sumL/R * volL/R) + CDL/R
-	Future : (sumL/R + CDL/R + (reg_ReverbEnable ? reverbOutL/R : 0)) * volL/R
-	TODO   : Handling of reg_ReverbEnable may be different => Write 0 or stop running Reverb at ALL.
-*/
-
-wire signed [15:0] ReverbL	= 16'd0 /* TODO use reg_reverbVolLeft + CD Rom input if reverb */;
-wire signed [15:0] ReverbR	= 16'd0 /* TODO use reg_reverbVolRight */;
+// Get CD Data post-volume for REVERB : Enabled ? If so, which side ?
+wire signed [15:0] cdReverbInput = reg_CDAudioReverbEnabled ? 16'd0 : (side22Khz ? CdSideR : CdSideL);
+// Sum CD Reverb and Voice Reverb.
+wire signed [20:0] reverbFull	 = sumReverb + {{5{cdReverbInput[15]}},cdReverbInput};
+// [Assign clamped value to Reverb INPUT]
+clampSRange #(.INW(21),.OUTW(16)) Reverb_Clamp(.valueIn(reverbFull),.valueOut(lineIn));
 
 // --------------------------------------------------------------------------------------
 //		Mix
@@ -1701,16 +1695,15 @@ wire signed [15:0] ReverbR	= 16'd0 /* TODO use reg_reverbVolRight */;
 // According to spec : impact only MAIN, not CD
 wire signed [14:0] volL        = reg_SPUNotMuted ? reg_mainVolLeft [14:0] : 15'd0;
 wire signed [14:0] volR        = reg_SPUNotMuted ? reg_mainVolRight[14:0] : 15'd0;
-// [TODO] Add Reverb into sumL for correct support (mute reverb too)
 wire signed [35:0] sumPostVolL = sumL * volL;
 wire signed [35:0] sumPostVolR = sumR * volR;
 
-// Mix = Accumulate + CdSide // TODO : + RevertOutput * VolumeReverb OPTION: +ExtSide
-// 16 bit signed x 5 bit (64 channel max) 
-wire signed [20:0] CDL         = {{5{CdSideL[15]}} ,CdSideL};
-wire signed [20:0] CDR         = {{5{CdSideR[15]}} ,CdSideR};
-wire signed [20:0] postVolL    = sumPostVolL[34:14] + CDL;
-wire signed [20:0] postVolR    = sumPostVolR[34:14] + CDR;
+// Mix = Accumulate + CdSide + RevertOutput
+// 16 bit signed x 5 bit (64 channel max)
+wire signed [16:0] CDAndReverbL= CdSideL + regValueReverbLeft ;
+wire signed [16:0] CDAndReverbR= CdSideR + regValueReverbRight;
+wire signed [20:0] postVolL    = sumPostVolL[34:14] + {{4{CDAndReverbL[16]}} ,CDAndReverbL};
+wire signed [20:0] postVolR    = sumPostVolR[34:14] + {{4{CDAndReverbR[16]}} ,CDAndReverbR};
 
 wire signed [15:0] outL,outR;
 clampSRange #(.INW(21),.OUTW(16)) Left_Clamp(.valueIn(postVolL),.valueOut(outL));
