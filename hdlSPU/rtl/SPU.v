@@ -14,13 +14,7 @@
 	- Write of 1F801DA0h is not supported (UNKNOWN REGISTER), Read is FAKE hardcoded value.
 	- 1F801E60h R/W Not supported.
 	----- Unmet in games ----
-	TODO : No CPU READ FIFO Support for now.
 	TODO : Implement Sweep.	(Per channel, Per Main)
-	-------------------------
-	TODO : Reverb
-	TODO : Double KON-KOFF. What happens ?
-	TODO : Bad bus management when returning data. Some 0 cycle, some 1 cycle latency. Bus not managed at all.
-	TODO : Register 1F801DA8h read not supported (write FIFO)
 */
 
 module SPU(
@@ -31,30 +25,30 @@ module SPU(
 	// CPU can do 32 bit read/write but they are translated into multiple 16 bit access.
 	// CPU can do  8 bit read/write but it will receive 16 bit. Write will write 16 bit. (See No$PSX specs)
 	,input			SPUCS	// We have only 11 adress bit, so for read and write, we tell the chip is selected.
-	,input			SPUDREQ
-	,input			SPUDACK
+	
+	// No ACK/REQ on CPU SIDE
 	,input			SRD
 	,input			SWRO
-	,input	[ 9:0]	addr		// Here Sony spec is probably in HALF-WORD (9 bit), we keep in BYTE for now. (10 bit)
+	,input	[ 9:0]	addr			// Here Sony spec is probably in HALF-WORD (9 bit), we keep in BYTE for now. (10 bit)
 	,input	[15:0]	dataIn
 	,output	[15:0]	dataOut
-	,output			dataOutValid
+	,output			dataOutValid	// Always 1 cycle after SRD.
 	,output			SPUINT
 	
 	// CPU DMA stuff.
-	,input			srd
-	,input			swr0
-	,input			spudack
-	,output			spudreq
+	// When SPU is in DMA READ mode, out 'SPUDREQ' is always '1' EXCEPT when data is output. In this case, SPUDACK is 1.
+	// When DMA is reading, SPUDREQ = 0, then read dataOut
+	// ______XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_______
+	,output			SPUDREQ
+	// ____________XXXXX______XXXXX______XXXXX______XXXXX______XXXXX______XXXXX______XXXXX______
+	,input			SPUDACK
 
-	/*
 	// RAM Side
 	,output	[17:0]	o_adrRAM
 	,output			o_dataReadRAM
 	,output			o_dataWriteRAM
 	,input	[15:0]	i_dataInRAM
 	,output	[15:0]	o_dataOutRAM
-	*/
 	
 	// From CD-Rom, serial stuff in original HW,
 	// 
@@ -78,13 +72,14 @@ begin debugCnt = (n_rst == 0) ? 24'd0 : debugCnt + 24'd1; end
 */
 parameter		CHANGE_ADSR_AT = 23'd1;
 
-wire			o_dataReadRAM	= !SPUMemWRSel[2];
-wire			o_dataWriteRAM	=  SPUMemWRSel[2];
-wire	[15:0]	i_dataInRAM; 
-
-reg		[15:0]	o_dataOutRAM;
 reg      [2:0]	SPUMemWRSel;
-reg 	[17:0]	o_adrRAM;
+reg 	[17:0]	internal_adrRAM;
+reg		[15:0]	internal_dataOutRAM;
+
+assign			o_adrRAM		= internal_adrRAM;
+assign			o_dataReadRAM	= !SPUMemWRSel[2];
+assign			o_dataWriteRAM	=  SPUMemWRSel[2];
+assign			o_dataOutRAM	= internal_dataOutRAM;
 
 parameter	VOICEMD				= 2'd1,
 			FIFO_MD				= 2'd2,
@@ -112,24 +107,24 @@ wire [15:0] reverbWriteValue;
 always @(*) begin
 	// Write Section
 	case (SPUMemWRSel)
-	VOICE_RD  : o_adrRAM = adrRAM;
-	FIFO_RD   : o_adrRAM = reg_dataTransferAddrCurr; // TODO : CPU READ.
-	VOICE_WR  : o_adrRAM = {8'd1,isVoice3,regRingBufferIndex};
-	CD_WR     : o_adrRAM = {8'd0,isRight ,regRingBufferIndex};
-	FIFO_WRITE: o_adrRAM = reg_dataTransferAddrCurr;
+	VOICE_RD  : internal_adrRAM = adrRAM;
+	FIFO_RD   : internal_adrRAM = reg_dataTransferAddrCurr;
+	VOICE_WR  : internal_adrRAM = {8'd1,isVoice3,regRingBufferIndex};
+	CD_WR     : internal_adrRAM = {8'd0,isRight ,regRingBufferIndex};
+	FIFO_WRITE: internal_adrRAM = reg_dataTransferAddrCurr;
 	// REVERB_READ:
 	// REVERB_WRITE:
-	default   : o_adrRAM = reverbAdr; // Reverb
+	default   : internal_adrRAM = reverbAdr; // Reverb
 	endcase
 end
 
 always @(*) begin
 	// Garbage in case of read, but ignored...
 	case (SPUMemWRSel[1:0])
-	FIFO_MD		: o_dataOutRAM = fifoDataOut;
-	VOICEMD		: o_dataOutRAM = vxOut;
-	CDROMMD		: o_dataOutRAM = isRight ? reg_CDRomInR : reg_CDRomInL;
-	default		: o_dataOutRAM = reverbWriteValue; // REVB_MD
+	FIFO_MD		: internal_dataOutRAM = fifoDataOut;
+	VOICEMD		: internal_dataOutRAM = vxOut;
+	CDROMMD		: internal_dataOutRAM = isRight ? reg_CDRomInR : reg_CDRomInL;
+	default		: internal_dataOutRAM = reverbWriteValue; // REVB_MD
 	endcase
 end
 
@@ -164,20 +159,8 @@ InternalFifo
 );
 
 wire writeSPURAM;
-assign o_dataReadRAM	= (!writeSPURAM) & (SPUMemWRSel[0] | SPUMemWRSel[1]); // Avoid doing READ when not needed.
-assign o_dataWriteRAM	= writeSPURAM;
-wire	[1:0]	o_SPURAMByteSel = 2'b11;
-SPU_RAM SPU_RAM_FPGAInternal
-(
-	.i_clk			(i_clk),
-	.i_re			(o_dataReadRAM),
-	.i_we			(o_dataWriteRAM),
-	.i_wordAddr		(o_adrRAM),
-	.i_data			(o_dataOutRAM),
-	.i_byteSelect	(o_SPURAMByteSel),
-	
-	.o_q			(i_dataInRAM)
-);
+assign o_dataReadRAM    = (!writeSPURAM) & (SPUMemWRSel[0] | SPUMemWRSel[1]); // Avoid doing READ when not needed.
+assign o_dataWriteRAM   = writeSPURAM;
 
 wire internalWrite = SWRO & SPUCS;
 wire internalRead  = SRD  & SPUCS;
@@ -245,7 +228,7 @@ reg			reg_SPUIRQEnable;			//  DAA.6
 parameter	XFER_STOP   = 2'd0,
 			XFER_MANUAL = 2'd1,
 			XFER_DMAWR  = 2'd2,
-			XFER_DMARD  = 2'd3; 		// [TODO : Not supported, CPU/DMA READ]
+			XFER_DMARD  = 2'd3;
 reg	[1:0]	reg_SPUTransferMode;		//  DAA.5-4
 
 reg			reg_ExtReverbEnabled;		//  DAA.3
@@ -274,8 +257,6 @@ wire isD80_DFF			= (isD8 && addr[7]);							// Latency 0 : D80~DFF
 // [NREAD] wire isReverb			= isD80_DFF & addr[6];							// Latency 1 : DC0~DFF
 wire isChannel			= ((addr[9:8]==2'b00) | (isD8 & !addr[7])); 	// Latency 1 : C00~D7F
 wire [4:0] channelAdr	= addr[8:4];
-
-reg [15:0] readReverb;
 
 // Detect write transition
 wire isDMAXfer = (reg_SPUTransferMode == XFER_DMAWR);
@@ -707,7 +688,7 @@ begin
 			5'h1F:	dataOutw = 16'h8021; // Weird 1DBE
 			endcase
 		end else begin				// DC0~DFF
-			dataOutw = readReverb;
+			dataOutw = reg_reverb[addr[5:1]];
 		end
 	end else if (isChannel) begin	// C00~D7F
 		case (addr[3:1])
@@ -841,7 +822,6 @@ reg	ctrlSendOut;
 reg	clearSum;
 reg updateVoiceADPCMPos;
 reg updateVoiceADPCMPrev;
-wire isLastVoice	= (currVoice == 5'd23);
 wire isVoice1		= (currVoice == 5'd1);
 wire isVoice3		= (currVoice == 5'd3);
 
@@ -851,7 +831,7 @@ begin
 	if (currVoice[4:3] != 2'd3) begin
 		reverbCnt = 8'd0;
 	end else begin
-		reverbCnt = reverbCnt + 1;
+		reverbCnt = reverbCnt + 8'd1;
 	end
 end
 
@@ -1202,10 +1182,6 @@ begin
 			updateVoiceADPCMAdr = nextNewBlock;
 			updateVoiceADPCMPos = 1;
 			updateVoiceADPCMPrev= nextNewLine;	// Store PREV ADPCM when we move to the next 16 bit only.(different line in same ADPCM block or new ADPCM block)
-		end
-		5'd23:
-		begin
-//			ctrlSendOut = isLastVoice;
 		end
 		default:
 		begin
