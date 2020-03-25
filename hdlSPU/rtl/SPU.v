@@ -77,6 +77,7 @@ reg 	[17:0]	internal_adrRAM;
 reg		[15:0]	internal_dataOutRAM;
 
 assign			o_adrRAM		= internal_adrRAM;
+// [BREAK] Double assignement, if we remove we are fucked !!!
 assign			o_dataReadRAM	= !SPUMemWRSel[2];
 assign			o_dataWriteRAM	=  SPUMemWRSel[2];
 assign			o_dataOutRAM	= internal_dataOutRAM;
@@ -159,6 +160,7 @@ InternalFifo
 );
 
 wire writeSPURAM;
+// [BREAK] If we remove double assignment, we are fucked !!!!
 assign o_dataReadRAM    = (!writeSPURAM) & (SPUMemWRSel[0] | SPUMemWRSel[1]); // Avoid doing READ when not needed.
 assign o_dataWriteRAM   = writeSPURAM;
 
@@ -259,7 +261,9 @@ wire isChannel			= ((addr[9:8]==2'b00) | (isD8 & !addr[7])); 	// Latency 1 : C00
 wire [4:0] channelAdr	= addr[8:4];
 
 // Detect write transition
-wire isDMAXfer = (reg_SPUTransferMode == XFER_DMAWR);
+wire isDMAXferWR  = (reg_SPUTransferMode == XFER_DMAWR);
+wire isDMAXferRD  = (reg_SPUTransferMode == XFER_DMARD);
+// TODO is better ? : wire dataTransferBusy		= (isDMAXferWR & fifo_r_valid) | isDMAXferRD;
 wire dataTransferBusy		= (reg_SPUTransferMode != XFER_STOP) & fifo_r_valid;	// [TODO : works only for write , not read]
 wire dataTransferReadReq 	= reg_SPUTransferMode[1] & reg_SPUTransferMode[0];
 wire dataTransferWriteReq	= reg_SPUTransferMode[1] & (!reg_SPUTransferMode[0]);
@@ -268,7 +272,7 @@ wire dataTransferRDReq		= reg_SPUTransferMode[1];
 // [Write to FIFO only on transition from internalwrite from 0->1 but allow BURST with DMA transfer] 
 //  --> PROTECTED FOR EDGE TRANSITION : WRITE during multiple cycle else would perform multiple WRITE of the same value !!!!
 // Implicit in writeFIFO, not used : wire isCPUXFer = (reg_SPUTransferMode == XFER_MANUAL);
-wire writeFIFO = internalWrite & (!PInternalWrite | isDMAXfer) & isD80_DFF & (!addr[6]) & (addr[5:1] == 5'h14);
+wire writeFIFO = internalWrite & (!PInternalWrite | isDMAXferWR) & isD80_DFF & (!addr[6]) & (addr[5:1] == 5'h14);
 reg PInternalWrite;
 always @(posedge i_clk)
 begin
@@ -597,14 +601,14 @@ end // end always block
 
 reg [15:0] dataOutw;
 
-assign dataOut		= dataOutw;	// [TODO : for now we answer within the same cycle using combinatorial logic]
+assign dataOut		= readSPU ? i_dataInRAM : dataOutw;
 
 reg internalReadPipe;
 reg incrXFerAdr;
 always @ (posedge i_clk) 
 begin
 	internalReadPipe	= internalRead;
-	incrXFerAdr			= readFIFO;
+	incrXFerAdr			= readFIFO | readSPU;
 end
 
 assign dataOutValid	= internalReadPipe; // Pipe read. For now everything answer at the NEXT clock, ONCE.
@@ -795,8 +799,9 @@ begin
 	if (reg_SPUIRQEnable && (reg_ramIRQAddr==o_adrRAM[17:2])) begin
 		reg_SPUIRQSet = 1'b1;
 	end
-	if (reg_SPUIRQEnable == 1'b0) begin
-		reg_SPUIRQSet = 1'b0; // Acknowledge if IRQ was set.
+	if (reg_SPUIRQEnable == 1'b0 /* || (n_rst == 0) */) begin // On Reset, enable will reset the IRQ with 1 cycle latency... No need for n_rst signal.
+		// Acknowledge if IRQ was set.
+		reg_SPUIRQSet = 1'b0;
 	end
 	if (loadPrev) begin
 		reg_tmpAdpcmPrev = currV_adpcmPrev;
@@ -805,6 +810,8 @@ begin
 		reg_tmpAdpcmPrev = { reg_tmpAdpcmPrev[15:0], sampleOutADPCMRAW };
 	end
 end
+
+assign SPUINT = reg_SPUIRQSet;
 
 reg voiceIncrement;						// Goto the next voice.
 reg [2:0] decodeSample;
@@ -820,6 +827,7 @@ reg  isNotEndADPCMBlock;
 reg  storePrevVxOut;
 reg	ctrlSendOut;
 reg	clearSum;
+reg readSPU;
 reg updateVoiceADPCMPos;
 reg updateVoiceADPCMPrev;
 wire isVoice1		= (currVoice == 5'd1);
@@ -888,7 +896,7 @@ wire signed [15:0] vRIN		= reg_reverb[31];
 
 reg  signed [15:0] mulA;
 reg  signed [15:0] mulB;
-wire signed [15:0] lineIn     = sumReverb[15:0]; // [TODO CLAMP]
+wire signed [15:0] lineIn;
 wire signed [30:0] resMulAB   = mulA * mulB;
 wire signed [15:0] resMulAB16 = resMulAB[30:15];  
 wire signed [15:0] addB       = accAdd ? accReverb : 16'd0;
@@ -1054,6 +1062,8 @@ begin
 	endcase
 end
 
+assign SPUDREQ = isDMAXferRD & !readSPU;
+
 always @(*)
 begin
 	loadPrev			= 0;
@@ -1072,6 +1082,7 @@ begin
 	adpcmSubSample		= 0;
 	isNotEndADPCMBlock	= 0;
 	isRepeatADPCMFlag	= 0;
+	readSPU				= 0;
 
 	// Keep data in the reverb loop by default...
 	sideAReg			= SA_ZERO;
@@ -1153,6 +1164,7 @@ begin
 		5'd14:
 		begin
 			SPUMemWRSel			= FIFO_WRITE; // Allow only ONCE XFer per voice...
+			// [BREAK] SPUMemWRSel = isDMAXferRD ? FIFO_RD : FIFO_WRITE; // Allow only ONCE XFer per voice...
 		end
 		5'd15:
 		begin
@@ -1168,7 +1180,11 @@ begin
 		end
 		5'd18:
 		begin
-			storePrevVxOut = 1;
+			// Will increment the counter... ?
+			// Will only accept to go to the next value if ACK is reading/accepting the value...
+			readSPU			= (isDMAXferRD & SPUDACK);
+			
+			storePrevVxOut	= 1;
 			// -> If NEXT sample is OUTSIDE AND CONTINUE, SAVE sample2/sample3 (previous needed for decoding)
 			//       NEXT sample is OUTSIDE AND JUMP, set 0/0.
 			// 
@@ -1337,7 +1353,7 @@ assign readFIFO		= isFIFOHasData & isFIFOWR & (reg_SPUTransferMode != XFER_STOP)
 
 // A.[Write when FIFO data available AND mode is read FIFO]
 // B.[Write when mode is not read FIFO but write back     ]
-assign writeSPURAM	= readFIFO | (!isFIFOWR & SPUMemWRSel[2]); 
+assign writeSPURAM	= readFIFO | (!isFIFOWR & SPUMemWRSel[2]);
 
 wire  KON = reg_kon [currVoice];
 wire PMON = reg_pmon[currVoice];
