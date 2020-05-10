@@ -47,9 +47,13 @@ module dither(
 	wire [9:0] gsum = { 2'b0 , gIn } + off9;
 	wire [9:0] bsum = { 2'b0 , bIn } + off9;
 
-	wire [7:0] rclamp; clampSPositive #(.INW(10),.OUTW(8)) clampSPositive_R(.valueIn(rsum),.valueOut(rclamp));
-	wire [7:0] gclamp; clampSPositive #(.INW(10),.OUTW(8)) clampSPositive_G(.valueIn(gsum),.valueOut(gclamp));
-	wire [7:0] bclamp; clampSPositive #(.INW(10),.OUTW(8)) clampSPositive_B(.valueIn(bsum),.valueOut(bclamp));
+	wire [7:0] rclamp;
+	wire [7:0] gclamp;
+	wire [7:0] bclamp;
+	
+	clampSPositive #(.INW(10),.OUTW(8)) clampSPositive_R(.valueIn(rsum),.valueOut(rclamp));
+	clampSPositive #(.INW(10),.OUTW(8)) clampSPositive_G(.valueIn(gsum),.valueOut(gclamp));
+	clampSPositive #(.INW(10),.OUTW(8)) clampSPositive_B(.valueIn(bsum),.valueOut(bclamp));
 	
 	assign r = rclamp[7:3];
 	assign g = gclamp[7:3];
