@@ -20,7 +20,6 @@ module GPUPipeCtrl2(
 	
 	// --- Value, Fixed per primitive ---
 	input	 [1:0]	GPU_REG_TexFormat,
-	input	[14:0]	GPU_REG_CLUT,
 	input			GPU_TEX_DISABLE,
 	
 	// --- ALL STAGES : Just STOP ---
@@ -42,7 +41,6 @@ module GPUPipeCtrl2(
 
 	// --- Stage 1 Output Control ---
 	output			missT_c1,			// TRUE garantee it is about VALID pixel/request.
-	output			validPixel_c1,
 	output			pixelInFlight,
 	
 	// --- Stage 2 Write back Control ---
@@ -74,7 +72,6 @@ module GPUPipeCtrl2(
 	input           updateTexCacheComplete,
 	
 	// Clut$ Side
-	output			requDataClut_c1,
 	output [7:0]	indexPal,	// Temp
 	input  [15:0]	dataClut_c2
 );
@@ -90,7 +87,7 @@ module GPUPipeCtrl2(
 	wire isTexturedPixel_c0 	= validPixel_c0 & !GPU_TEX_DISABLE;
 
 	// REQUEST TO TEX$ : VALID PIXEL TEXTURED
-	assign	requDataTex_c0		= (isTexturedPixel_c0 | missT_c1/* & (!loadingText) & (!requestMissTexture_c1) */) /*| endRequestMissTexture*/; // Note : (!requestMissTexture) not necessary, but makes signal clearer (requ last 1 cycle instead of 2 in case of MISS)
+	assign	requDataTex_c0		= (isTexturedPixel_c0 | missT_c1);
 	assign	adrTexReq_c0		= selPauseTex ? PtexelAdress_c1 : texelAdress_c0;
 	
 	// -------------------------------------------------------------
@@ -119,33 +116,13 @@ module GPUPipeCtrl2(
 		.indexLookup		(index_c1)
 	);
 	
-	// REQUEST TO CLU$ : VALID PIXEL TEXTURED AND TEX$ HIT AND PALETTE BASED.
-	wire    isClutPixel_c1		= PisTexturedPixel_c1 & (!PisTrueColor_c1);
-	assign	requDataClut_c1		= 1; // ((TexHit_c1     & isClutPixel_c1) /* & (!loadingClut)*/)  /* | endRequestMissClut */;
-
 	// ----------------------------------------------------------------
 	// [Lookup palette using selector.]
-	assign	indexPal			= /*selPauseClut ? PPindex_c2 :*/ index_c1;   // TODO CIRCULAR ISSUE
-	// [Compute Index of Block and adress if Clut$ miss]
-	/*	FULL PALETTE DECODING
-		-------------------------------
-		YYYY.YYYY.Y___.____.____  <-- ignore LSB we count in HALF-WORD			Y = 512 lines of 2048 bytes
-		____.____._XXX.XXX_.____												X = Multiple of 32 bytes (16 half word)
-		____.____.___I.IIII.III_												I = Index palette 0..255
-		
-		=> wire [9:0] colIndex = { 2'b0, index } + { GPU_REG_CLUT[5:0] , 5'b0 }; 
-
-		CACHE LINE UPDATE Multiple of 16 colors, 32 bytes.
-		-------------------------------
-		YYYY.YYYY.Y___.____.____  
-		____.____._XXX.XXX_.____
-		____.____.___I.III_.____  <-- Cache line is 32 bytes. */
-	wire [5:0] colIndex_c1		= { 2'b0, indexPal[7:4] } + GPU_REG_CLUT[5:0];
+	assign	indexPal			= index_c1;
 	// ----------------------------------------------------------------
 	
 	// Assign to user control outside
 	assign	missT_c1		= TexMiss_c1;
-	assign	validPixel_c1	= PValidPixel_c1;
 	
 	assign requTexCacheUpdate_c1	= TexMiss_c1;
 	assign adrTexCacheUpdate_c0		= PtexelAdress_c1[18:2];

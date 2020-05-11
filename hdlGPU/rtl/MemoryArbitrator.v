@@ -70,7 +70,9 @@ module MemoryArbitrator(
 	output          fifoFull,			// 
 	output			fifoComplete,		// = Empty signal + all mem operation completed. Needed to know that primitive work is complete.
 	
-	// --- TODO There will be one more bus here, when we want TO READ the pixel from some command (VRAM->CPU Xfer need that)
+	output 			o_dataArrived,		// 1 when data is available.
+	output [31:0]	o_dataValue,		//
+	input			i_dataConsumed,		// Set to 1 AFTER 1 Cycle of o_dataArrived set, then 0.
 
 	// -----------------------------------
 	// [GPU BUS SIDE MODE]
@@ -91,13 +93,14 @@ module MemoryArbitrator(
 	output [63:0]   TexCacheData,
 	
 	// -- CLUT$ Stuff --
-	input			requestCLUTLoad,
-	input			CLUTIs8BPP,
-	input  [14:0]	CLUTAdr,
+	// CLUT$ Load Request
+	input           requClutCacheUpdate,
+	input  [14:0]   adrClutCacheUpdate,
+	output          updateClutCacheComplete,
 	
 	// CLUT$ feed updated $ data to cache.
 	output          ClutCacheWrite,
-	output  [6:0]   ClutWriteIndex,
+	output  [2:0]   ClutWriteIndex,
 	output [31:0]   ClutCacheData,
 	
 	input			isBlending,
@@ -117,7 +120,6 @@ module MemoryArbitrator(
 	
 	output			resetPipelinePixelStateSpike,
 	output			resetMask,				// Reset the list of used pixel inside the block for next block processing.
-	output			busyCLUT,
 	
 	output			notMemoryBusyCurrCycle,
 	output			notMemoryBusyNextCycle,
@@ -131,7 +133,7 @@ module MemoryArbitrator(
     output [19:0]   adr_o,   // ADR_O() address
     input  [31:0]   dat_i,   // DAT_I() data in
     output [31:0]   dat_o,   // DAT_O() data out
-	output  [6:0]	cnt_o,
+	output  [2:0]	cnt_o,
     output  [3:0]   sel_o,   // SEL_O() select output
 	output   wrt_o,
 	output 	 req_o,
@@ -143,12 +145,12 @@ reg 		s_importBGBlockSingleClock;
 wire		prevClutCacheWrite;
 
 reg readStuff;
-reg [2:0] nextState;
+reg [3:0] nextState,currState;
 //reg writePixelInternal;
 reg       incrX, resetX;
 reg s_store;
 reg s_storeColor;
-reg [6:0] currX;
+reg [3:0] currX;
 reg s_writeGPU;
 reg s_storeAdr;
 reg	s_updateTexCacheCompleteL;
@@ -157,7 +159,6 @@ reg	s_updateTexCacheCompleteR;
 // reg resetMSK;
 reg loadBGInternal;
 reg s_setLoadOnGoing,s_resetLoadOnGoing;
-reg [2:0] currState;
 reg [3:0] ReadMode, regReadMode;
 
 reg [15:0]  regFillColor;
@@ -166,7 +167,7 @@ reg  [1:0]	regValidPair;
 reg  [2:0]	regPairID;
 reg			s_resetMask;
 reg [19:0]	s_busAdr;	
-reg  [6:0]  s_cnt;		
+reg  [2:0]  s_cnt;
 reg         s_busREQ;	
 reg  [1:0]  busWMSK;	
 reg [31:0]	busDataW;	
@@ -175,23 +176,18 @@ reg			busWRT;
 // TODO : Put those constant into single constant file...
 parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
 			MEM_CMD_FILL		= 3'b010,
+			MEM_CMD_RDBURST		= 3'b011,
+			MEM_CMD_WRBURST		= 3'b100,
 			// Other command to come later...
 			MEM_CMD_NONE		= 3'b000;
 
-parameter	DEFAULT_STATE		= 3'b000, 
-			READ_STATE			= 3'd1, 
-			WRITE_BG			= 3'd2, 
-			READ_BG				= 3'd3, 
-			READ_BG_START		= 3'd4, 
-			FILL_BG				= 3'd5, 
-			WRITE_PIXPAIR		= 3'd7;
 
 assign importedBGBlock = cacheBGRead;
 assign saveLoadOnGoing = regSaveLoadOnGoing;
 assign importBGBlockSingleClock = s_importBGBlockSingleClock; 
 
-// reg  [15:0] cacheBGMsk;
-// reg  [14:0] cacheBGAdr;
+reg [511:0] vvReadCache;
+
 reg  [17:0] baseAdr;
 reg  [31:0] regDatI;
 
@@ -207,41 +203,72 @@ assign TexCacheData[63:32]	= dat_i;
 assign TexCacheData[31: 0]  = regDatI;
 assign adrTexCacheWrite		= baseAdr[17:1];
 
+assign ClutWriteIndex		= pipeLoadIndex[2:0];	// Pipelined CurrX
 
-reg PWriteGPU,PPWriteGPU;
-reg [6:0] PCurrX;
-always @(posedge gpuClk) begin
-	PPWriteGPU  = PWriteGPU;
-	PWriteGPU	= prevClutCacheWrite;
-	PCurrX		= currX[6:0];
-end
-assign ClutWriteIndex		= PCurrX;
-assign ClutCacheWrite		= PWriteGPU;
-assign busyCLUT 			= PWriteGPU | prevClutCacheWrite;
-assign prevClutCacheWrite   = s_writeGPU & (regReadMode[3:1] == 3'd2);
 assign TexCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd3);
-
-
 // wire   bgIsInCache			= (cacheBGAdr == bgRequestAdr[17:3]);
 // wire   s_validbgPixel		= bgIsInCache & bgRequest & (currState == DEFAULT_STATE); // Test State because we want to avoid TRUE while LOADING...
 // assign validbgPixel			= s_validbgPixel;
 // assign writePixelDone		= s_writePixelDone;
 assign updateTexCacheCompleteL	= s_updateTexCacheCompleteL;
 assign updateTexCacheCompleteR	= s_updateTexCacheCompleteR;
+assign updateClutCacheComplete	= s_updateClutCacheComplete;
 
 reg    s_resetPipelinePixelStateSpike;
 assign resetPipelinePixelStateSpike	= s_resetPipelinePixelStateSpike;
 //
 // GPU Side State machine...
 //
+
+reg loadBank, loadVVBank;
+reg pipeLoadVVBank;
+reg [3:0] pipeLoadIndex;
+always @(posedge gpuClk)
+begin
+	if (i_nRst == 1'b0) begin
+		pipeLoadVVBank = 1'b0;
+		pipeLoadIndex  = 4'd0; 
+	end else begin
+		pipeLoadVVBank = loadVVBank;
+		pipeLoadIndex  = {bankID,currX[2:0]}; 
+	end
+end
+
+reg PClutCacheWrite;
+assign ClutCacheWrite		= PClutCacheWrite;		// Pipelined Write
+always @(posedge gpuClk)
+begin
+	if (i_nRst == 1'b0) begin
+		PClutCacheWrite		= 1'b0;
+	end else begin
+		PClutCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd2);
+	end
+end
+
+reg bankID;
+reg [31:0] maskBank;
+
+reg loadVVIndexW;
+reg [3:0] VVIndex;
+reg [1:0] ClearBankIDs;
+reg clearBanksCheck;
+reg [15:0] WStencil;
+
+reg VV_GPU_ChkMsk;
+reg VV_GPU_ForceMsk;
+
 always @(posedge gpuClk)
 begin
 	if (i_nRst == 1'b0) begin
 		currState	= DEFAULT_STATE;
 //		cacheBGAdr	= 15'h7FFF;
 //		cacheBGMsk	= 16'd0;
-		currX		= 7'd0;
+		currX		= 4'd0;
 		regSaveLoadOnGoing	= 1'b0;
+		bankID		= 1'b0;
+		VVIndex		= 4'd0;
+		ClearBankIDs = 2'd0;
+		WStencil	= 16'd0;
 	end else begin
 		currState	= nextState;
 		
@@ -259,6 +286,68 @@ begin
 			3'd5: begin cacheBGRead[191:160] = dat_i; end
 			3'd6: begin cacheBGRead[223:192] = dat_i; end
 			3'd7: begin cacheBGRead[255:224] = dat_i; end
+			endcase
+		end
+
+		// [Read and Write BURST COMMAND]
+		if (loadBank | loadVVIndexW) begin
+			bankID = memoryWriteCommand[3];
+		end
+		
+		// [Read BURST Command ONLY]
+		if (loadBank & !loadVVIndexW) begin
+			if (memoryWriteCommand[3]) begin
+				maskBank[31:16] = memoryWriteCommand[55:40];	// Pixel Select Mask
+				if (memoryWriteCommand[22]) begin				// Clear other bank ?
+					maskBank[15:0] = 16'd0;
+				end
+			end else begin
+				maskBank[15:0] = memoryWriteCommand[55:40];	// Pixel Select Mask
+				if (memoryWriteCommand[22]) begin			// Clear other bank ?
+					maskBank[31:16] = 16'd0;
+				end
+			end
+		end
+
+		// BEFORE ClearBankIDs Set !
+		if (clearBanksCheck) begin
+			if (ClearBankIDs[0]) begin
+				maskBank[15:0] = 16'd0;
+			end
+			if (ClearBankIDs[1]) begin
+				maskBank[31:16] = 16'd0;
+			end
+		end
+
+		// [Write BURST Command ONLY]
+		if (loadVVIndexW) begin
+			VVIndex			= memoryWriteCommand[27:24];
+			ClearBankIDs	= memoryWriteCommand[23:22];
+			WStencil		= memoryWriteCommand[55:40];
+			VV_GPU_ChkMsk	= memoryWriteCommand[5];
+			VV_GPU_ForceMsk	= memoryWriteCommand[4];
+		end
+		
+		if (pipeLoadVVBank) begin
+			case (pipeLoadIndex)
+			// 16 pixels (2x8)
+			4'h0: begin vvReadCache[ 31:  0] = dat_i; end
+			4'h1: begin vvReadCache[ 63: 32] = dat_i; end
+			4'h2: begin vvReadCache[ 95: 64] = dat_i; end
+			4'h3: begin vvReadCache[127: 96] = dat_i; end
+			4'h4: begin vvReadCache[159:128] = dat_i; end
+			4'h5: begin vvReadCache[191:160] = dat_i; end
+			4'h6: begin vvReadCache[223:192] = dat_i; end
+			4'h7: begin vvReadCache[255:224] = dat_i; end
+			4'h8: begin vvReadCache[287:256] = dat_i; end
+			// 16 pixels (2x8)
+			4'h9: begin vvReadCache[319:288] = dat_i; end
+			4'hA: begin vvReadCache[351:320] = dat_i; end
+			4'hB: begin vvReadCache[383:352] = dat_i; end
+			4'hC: begin vvReadCache[415:384] = dat_i; end
+			4'hD: begin vvReadCache[447:416] = dat_i; end
+			4'hE: begin vvReadCache[479:448] = dat_i; end
+			4'hF: begin vvReadCache[511:480] = dat_i; end
 			endcase
 		end
 		
@@ -312,10 +401,10 @@ begin
 		end
 		
 		if (incrX) begin
-			currX = currX + 7'd1;
+			currX = currX + 4'b0001;
 		end else begin
 			if (resetX) begin
-				currX = 7'd0;
+				currX = 0;
 			end
 		end
 		
@@ -336,16 +425,71 @@ assign adr_o = s_busAdr;
 assign cnt_o = s_cnt;
 assign req_o = s_busREQ;
 assign sel_o = {busWMSK[1],busWMSK[1],busWMSK[0],busWMSK[0]};
-assign dat_o = busDataW; // TODO NEVER ASSIGNED
+assign dat_o = busDataW;
 assign wrt_o = !readStuff;
 // Input
 wire busACK		= ack_i;
 
-wire [8:0]  colorIDX   = baseAdr[8:0] + { 2'b00, currX };
+reg	s_updateClutCacheComplete;
 
 wire isTexReq  		= requTexCacheUpdateL  | requTexCacheUpdateR;
 wire isFirstBlockBlending = ((saveBGBlock == 2'b01) & isBlending);
 // wire hasValidPixels = pixelValid[0] | pixelValid[1];
+parameter	DEFAULT_STATE	= 4'b0000, 
+			READ_STATE		= 4'b0001, 
+			WRITE_BG		= 4'b0010, 
+			READ_BG			= 4'b0011, 
+			READ_BG_START	= 4'b0100,
+			READ_BURST		= 4'b0101,
+			WRITE_PIXPAIR	= 4'b0110,
+//			READ_BURST_START= 4'd7, DEPRECATED
+
+			// TRICK : Bit [3] select between fill and WRITE -> If 1, Bit[0] select fill / write burst data.
+			FILL_BG			= 4'b1000,
+			WRITE_BURST		= 4'b1001;
+
+reg [31:0] currVVPixelW;
+reg  [1:0] currVVStencilPair;
+wire [3:0] rotationAmount	= {bankID,VVIndex[3:1]} + {1'b0,currX[2:0]};
+wire [511:0] rotatedPix		= VVIndex[0] ? {vvReadCache[15:0],vvReadCache[511:16]}: vvReadCache;
+wire [31:0]  rotatedMsk     = VVIndex[0] ? {maskBank[0],maskBank[31:1]} : maskBank;
+reg [1:0]    currMaskPix;
+always@(*)
+begin
+	// [BANK ID is done by a more complex logic computation for WRITE in the GPU side, not Arbitrator]
+	case (rotationAmount)
+	4'h0: begin currVVPixelW = rotatedPix[ 31:  0]; currMaskPix = rotatedMsk[ 1: 0]; end
+	4'h1: begin currVVPixelW = rotatedPix[ 63: 32]; currMaskPix = rotatedMsk[ 3: 2]; end
+	4'h2: begin currVVPixelW = rotatedPix[ 95: 64]; currMaskPix = rotatedMsk[ 5: 4]; end
+	4'h3: begin currVVPixelW = rotatedPix[127: 96]; currMaskPix = rotatedMsk[ 7: 6]; end
+	4'h4: begin currVVPixelW = rotatedPix[159:128]; currMaskPix = rotatedMsk[ 9: 8]; end
+	4'h5: begin currVVPixelW = rotatedPix[191:160]; currMaskPix = rotatedMsk[11:10]; end
+	4'h6: begin currVVPixelW = rotatedPix[223:192]; currMaskPix = rotatedMsk[13:12]; end
+	4'h7: begin currVVPixelW = rotatedPix[255:224]; currMaskPix = rotatedMsk[15:14]; end
+	4'h8: begin currVVPixelW = rotatedPix[287:256]; currMaskPix = rotatedMsk[17:16]; end
+	4'h9: begin currVVPixelW = rotatedPix[319:288]; currMaskPix = rotatedMsk[19:18]; end
+	4'hA: begin currVVPixelW = rotatedPix[351:320]; currMaskPix = rotatedMsk[21:20]; end
+	4'hB: begin currVVPixelW = rotatedPix[383:352]; currMaskPix = rotatedMsk[23:22]; end
+	4'hC: begin currVVPixelW = rotatedPix[415:384]; currMaskPix = rotatedMsk[25:24]; end
+	4'hD: begin currVVPixelW = rotatedPix[447:416]; currMaskPix = rotatedMsk[27:26]; end
+	4'hE: begin currVVPixelW = rotatedPix[479:448]; currMaskPix = rotatedMsk[29:28]; end
+	4'hF: begin currVVPixelW = rotatedPix[511:480]; currMaskPix = rotatedMsk[31:30]; end
+	endcase
+	
+	case (currX[2:0])
+	3'd0: begin currVVStencilPair = WStencil[ 1: 0]; end
+	3'd1: begin currVVStencilPair = WStencil[ 3: 2]; end
+	3'd2: begin currVVStencilPair = WStencil[ 5: 4]; end
+	3'd3: begin currVVStencilPair = WStencil[ 7: 6]; end
+	3'd4: begin currVVStencilPair = WStencil[ 9: 8]; end
+	3'd5: begin currVVStencilPair = WStencil[11:10]; end
+	3'd6: begin currVVStencilPair = WStencil[13:12]; end
+	3'd7: begin currVVStencilPair = WStencil[15:14]; end
+	endcase
+end
+wire [31:0] currVVPixelWFinal		= { VV_GPU_ForceMsk | currVVPixelW[31],currVVPixelW[30:16],VV_GPU_ForceMsk | currVVPixelW[15], currVVPixelW[14:0] };
+wire  [1:0] currVVPixelWFinalSel	= ({2{!VV_GPU_ChkMsk}} | (~currVVStencilPair)) & currMaskPix;	// Write all pixels if VV_GPU_ChkMsk=0, else write Pixel when Stencil IS 0.
+			
 always @(*)
 begin
 	// Default
@@ -354,7 +498,7 @@ begin
 //	writePixelInternal	= 1'b0;
 	resetX				= 1'b0;
 	incrX				= 1'b0;
-	s_cnt				= 7'd0;
+	s_cnt				= 3'd0;
 	s_busAdr			= 20'd0;
 	s_busREQ			= 1'b0;
 	ReadMode			= 4'd0;
@@ -364,17 +508,23 @@ begin
 	s_storeColor		= 1'b0;
 	s_updateTexCacheCompleteL	= 1'b0;
 	s_updateTexCacheCompleteR	= 1'b0;
+	s_updateClutCacheComplete	= 1'b0;
 	s_setLoadOnGoing	= 0;
 	s_resetLoadOnGoing	= 0;
 	s_importBGBlockSingleClock	= 0;
 	s_resetPipelinePixelStateSpike	= 0;
 	s_resetMask			= 0;
+	loadBank			= 0;
+	loadVVBank			= 0;
+	loadVVIndexW		= 0;
+	clearBanksCheck		= 0;
 	
 //	resetMSK			= 1'b0;
 //	s_storeCacheAdr		= 1'b0;
 	loadBGInternal		= 1'b0;
 
-	if ((currState != FILL_BG) && (currState != WRITE_PIXPAIR)) begin
+	if ((!currState[3]) && (currState != WRITE_PIXPAIR)) begin
+		// Burst Mode Write pixels : BG.
 		case (currX[2:0])
 		3'd0: begin busDataW = exportedBGBlock[ 31:  0]; busWMSK = exportedMSKBGBlock[ 1: 0]; end
 		3'd1: begin busDataW = exportedBGBlock[ 63: 32]; busWMSK = exportedMSKBGBlock[ 3: 2]; end
@@ -386,8 +536,9 @@ begin
 		3'd7: begin busDataW = exportedBGBlock[255:224]; busWMSK = exportedMSKBGBlock[15:14]; end
 		endcase
 	end else begin
-		busDataW = {regPixColorR,regFillColor};
-		busWMSK  = regValidPair;
+		// FILL COLOR or VRAM<->VRAM Copy
+		busDataW = currState[0] ? currVVPixelWFinal		: {regPixColorR,regFillColor};
+		busWMSK  = currState[0] ? currVVPixelWFinalSel	: regValidPair;
 	end
 	
 	case (currState)
@@ -430,38 +581,53 @@ begin
 				s_busAdr	= { memoryWriteCommand[21:7] , 5'd0 };
 				s_storeColor = 1'b1;
 				s_storeAdr	= 1'b1;
+				s_setLoadOnGoing = 1;
 				case (memoryWriteCommand[2:0])
 				MEM_CMD_PIXEL2VRAM:
 				begin
 					nextState	= WRITE_PIXPAIR;
-					s_cnt		= 7'd0; // 1 Pair
+					s_cnt		= 3'd0; // 1 Pair
+				end
+				MEM_CMD_RDBURST:
+				begin
+					loadBank	= 1;
+					nextState	= READ_BURST;
+					s_cnt		= 3'd7;
+				end
+				MEM_CMD_WRBURST:
+				begin
+					loadBank	= 1;
+					loadVVIndexW= 1;
+					nextState	= WRITE_BURST;
+					s_cnt		= 3'd7;
 				end
 				MEM_CMD_FILL:
 				begin
 					nextState	= FILL_BG;
-					s_cnt		= 7'd7; // 8 Pair
+					s_cnt		= 3'd7; // 8 Pair
 				end
 				default:
 				begin
 					// Do nothing.
 				end
 				endcase
-				s_setLoadOnGoing = 1;
 			end else begin
 				if (spikeBGBlock & (saveBGBlock[1] | isFirstBlockBlending)) begin
 					s_busREQ	= 1'b1;
-					s_cnt		= 7'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
+					s_cnt		= 3'd7;			// TODO : Could optimize BURST size based on cacheBGMsk complete.
 					nextState	= isFirstBlockBlending ? READ_BG : WRITE_BG;
 					s_setLoadOnGoing = 1; // Trick : if we have a spike but NOT with type 11 or 10, we still signal for GPU state machine.
 				end else begin
-					if (requestCLUTLoad) begin
-						s_cnt				= CLUTIs8BPP ? 7'd127 : 7'd7;
-						ReadMode			= { 3'd2, 1'b0 };
-						s_storeAdr			= 1'b1;
-						s_setLoadOnGoing	= 1;
-						s_busAdr			= { CLUTAdr, 5'd0 }; // Adr by 32 byte block.
-						s_busREQ			= 1'b1;
-						nextState			= READ_STATE;
+					if (requClutCacheUpdate) begin
+						// [READ]
+						// ... CLUT$ Update ...
+						ReadMode	= { 3'd2, 1'b0 }; // Remove this bit.
+						s_storeAdr	= 1'b1;
+						s_setLoadOnGoing = 1;
+						s_busAdr	= { adrClutCacheUpdate, 5'd0 }; // Adr by 32 byte block.
+						s_busREQ	= 1'b1;
+						s_cnt       = 3'd7; // 8 block of 32 bit.
+						nextState	= READ_STATE;
 					end else begin
 						if (isTexReq) begin
 							ReadMode = { 3'd3, requTexCacheUpdateR };
@@ -473,13 +639,13 @@ begin
 								// Left First...
 								s_busAdr	= { adrTexCacheUpdateL, 3'd0 }; // Adr by 8 byte block.
 								s_busREQ	= 1'b1;
-								s_cnt       = 7'd1; // 2 block of 32 bit.
+								s_cnt       = 3'd1; // 2 block of 32 bit.
 								nextState	= READ_STATE;
 							end else begin
 								// Right Second...
 								s_busAdr	= { adrTexCacheUpdateR, 3'd0 }; // Adr by 8 byte block.
 								s_busREQ	= 1'b1;
-								s_cnt       = 7'd1; // 2 block of 32 bit.
+								s_cnt       = 3'd1; // 2 block of 32 bit.
 								nextState	= READ_STATE;
 							end
 						end
@@ -500,25 +666,14 @@ begin
 				loadBGInternal = 1'b1;
 			end
 			*/
-			3'd2: // Clut 32 / 512 byte
+			3'd2: // Clut 32 byte
 			begin
-				s_busAdr = { baseAdr[17:9],colorIDX,2'b0 };
+				s_busAdr = { adrClutCacheUpdate, currX[2:0],2'd0 };
 				s_writeGPU = 1'b1;
-				if ((CLUTIs8BPP & (currX[6:0] == 7'd127)) | (!CLUTIs8BPP & (currX[6:0] == 7'd7))) begin
-					
-				end
-				/***
-
-					TODO : CLUTIs8BPP flag
-				
-				s_writeGPU = 1'b1;
-				if () begin
+				if (currX[2:0] == 3'b111) begin
 					// Last value write (only 2)
-					s_updateClutCacheCompleteL = !regReadMode[0];
-					s_updateClutCacheCompleteR =  regReadMode[0];
+					s_updateClutCacheComplete = 1'b1;
 				end
-				
-				****/
 			end
 			3'd3: // Texture 8 byte
 			begin
@@ -594,10 +749,50 @@ begin
 			nextState	= DEFAULT_STATE;
 		end
 	end
+	/* Done when starting the command...
+	READ_BURST_START:
+	begin
+		s_busREQ	= 1'b1;
+		s_cnt		= 3'd7;
+		nextState	= READ_BURST;
+	end
+	*/
+	READ_BURST:
+	begin
+		if (busACK) begin
+			incrX		= 1'b1;
+			s_busAdr	= { baseAdr[17:3], currX[2:0], 2'b0 };
+			s_busREQ	= 1'b1;
+			// readStuff default = 1 <--- READ
+			loadVVBank	= 1'b1;
+		end else begin
+			s_busREQ	= 1'b0;
+			s_resetLoadOnGoing = 1;
+			nextState = DEFAULT_STATE;
+		end
+	end
+	WRITE_BURST:
+	begin
+		if (busACK) begin
+			incrX		= 1'b1;
+			s_busAdr	= { baseAdr[17:3], currX[2:0], 2'd0 };
+			s_busREQ	= 1'b1;
+			readStuff	= 1'b0; // WRITE SIGNAL.
+		end else begin
+			// clearBank1 if requested.
+			// clearBank0
+			clearBanksCheck = 1'b1;
+
+			// END
+			s_busREQ	= 1'b0;
+			s_resetLoadOnGoing = 1;
+			nextState	= DEFAULT_STATE;
+		end
+	end
 	READ_BG_START:
 	begin
 		s_busREQ	= 1'b1;
-		s_cnt		= 7'd7;
+		s_cnt		= 3'd7;
 		nextState	= READ_BG;
 	end
 	READ_BG:

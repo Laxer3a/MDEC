@@ -17,7 +17,6 @@ module GPUBackend(
 	// GPU Setup
 	// -------------------------------
 	input	 [1:0]	GPU_REG_Transparency,
-	input	[14:0]	GPU_REG_CLUT,
 	input	 [1:0]	GPU_REG_TexFormat,
 	input			noTexture,
 	input			noblend,
@@ -74,7 +73,6 @@ module GPUBackend(
 	input           updateTexCacheCompleteL,
 	
 	// Clut$ Side
-	output			requDataClut_c1L,
 	output [7:0]	indexPalL,	// Temp
 	input  [15:0]	dataClut_c2L,
 
@@ -91,7 +89,6 @@ module GPUBackend(
 	input           updateTexCacheCompleteR,
 	
 	// Clut$ Side
-	output			requDataClut_c1R,
 	output [7:0]	indexPalR,	// Temp
 	input  [15:0]	dataClut_c2R,
 	
@@ -125,7 +122,7 @@ module GPUBackend(
 );
 	reg [255:0] cacheBG;
 	reg  [15:0] cacheBGMsk;
-	wire missT_c1L,missC_c1L,missT_c1R,missC_c1R;
+	wire missT_c1L,missT_c1R;
 	wire [18:0]	adrTexReqL,adrTexReqR;
 	wire pixelInFlightL,pixelInFlightR;
 
@@ -146,7 +143,7 @@ module GPUBackend(
 	assign exportedBGBlock			= cacheBG;
 	assign exportedMSKBGBlock		= cacheBGMsk;
 
-	assign o_missTC					= missT_c1L | missC_c1L | missT_c1R | missC_c1R;
+	assign o_missTC					= missT_c1L | missT_c1R;
 
 	// Do operation on the bus for READ/WRITE WHEN :
 	// - Load BG on first block if BLENDING ENABLED
@@ -183,7 +180,6 @@ module GPUBackend(
 
 	wire [9:0] leftX 	=  iScrX_Mul2;
 	wire [9:0] rightX	= {iScrX_Mul2[9:1],1'b1};
-	wire validPixelC1L,validPixelC1R;
 	
 	assign o_pixelInFlight = pixelInFlightL | pixelInFlightR;
 	
@@ -193,7 +189,6 @@ module GPUBackend(
 		
 		// --- Value, Fixed per primitive ---
 		.GPU_REG_TexFormat	(GPU_REG_TexFormat),
-		.GPU_REG_CLUT		(GPU_REG_CLUT),
 		.GPU_TEX_DISABLE	(noTexture),
 		
 		// --- ALL STAGES : Just STOP ---
@@ -218,7 +213,6 @@ module GPUBackend(
 
 		// --- Stage 1 Output Control ---
 		.missT_c1			(missT_c1L),			// TRUE garantee it is about VALID pixel/request.
-		.validPixel_c1		(validPixelC1L),
 		
 		// --- Stage 2 Write back Control ---
 		.oPixelStateSpike	(oPixelStateSpikeL),
@@ -246,7 +240,6 @@ module GPUBackend(
 		.adrTexCacheUpdate_c0		(adrTexCacheUpdate_c0L	),
 		.updateTexCacheComplete		(updateTexCacheCompleteL),
                                      
-		.requDataClut_c1			(requDataClut_c1L		),
 		.indexPal					(indexPalL				),	// Temp
 		.dataClut_c2				(dataClut_c2L			)
 	);
@@ -257,7 +250,6 @@ module GPUBackend(
 		
 		// --- Value, Fixed per primitive ---
 		.GPU_REG_TexFormat	(GPU_REG_TexFormat),
-		.GPU_REG_CLUT		(GPU_REG_CLUT),
 		.GPU_TEX_DISABLE	(noTexture),
 		
 		// --- ALL STAGES : Just STOP ---
@@ -281,7 +273,6 @@ module GPUBackend(
 
 		// --- Stage 1 Output Control ---
 		.missT_c1			(missT_c1R),			// TRUE garantee it is about VALID pixel/request.
-		.validPixel_c1		(validPixelC1R),
 		
 		// --- Stage 2 Write back Control ---
 		.oPixelStateSpike	(oPixelStateSpikeR),
@@ -309,7 +300,6 @@ module GPUBackend(
 		.adrTexCacheUpdate_c0		(adrTexCacheUpdate_c0R	),
 		.updateTexCacheComplete		(updateTexCacheCompleteR),
                                      
-		.requDataClut_c1			(requDataClut_c1R		),
 		.indexPal					(indexPalR				),	// Temp
 		.dataClut_c2				(dataClut_c2R			)
 	);
