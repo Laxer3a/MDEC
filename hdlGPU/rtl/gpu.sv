@@ -1,66 +1,66 @@
 /*
-	POSSIBLE OPTIMIZATION :
-	- Line outside draw area check optimization can be added.
-	- Triangle Setup avoid R,G,B setup division latency if all same vertex color (or white) : (!bIsPerVtxCol) | bIgnoreColor ?
-	- Triangle 'snake' parsing can be optimized in cycle count.
-	- State Machine for RGBUV setup division latency can be optimized. (Now 6 cycle latency implementation -> 5 or 4 ?)
-	- Use an INVERSE instead of division per component. --> Inverse of DET can be computed a few step earlier.
-		While loading UVRGB... as soon as coordinates are loaded.
-	- If target Mhz can not be reached,
-		Store intermediate result from previous state into registers.
-		Ex : Copy, Triangle stuff, etc...
+    POSSIBLE OPTIMIZATION :
+    - Line outside draw area check optimization can be added.
+    - Triangle Setup avoid R,G,B setup division latency if all same vertex color (or white) : (!bIsPerVtxCol) | bIgnoreColor ?
+    - Triangle 'snake' parsing can be optimized in cycle count.
+    - State Machine for RGBUV setup division latency can be optimized. (Now 6 cycle latency implementation -> 5 or 4 ?)
+    - Use an INVERSE instead of division per component. --> Inverse of DET can be computed a few step earlier.
+        While loading UVRGB... as soon as coordinates are loaded.
+    - If target Mhz can not be reached,
+        Store intermediate result from previous state into registers.
+        Ex : Copy, Triangle stuff, etc...
  */
 module gpu
 //	import gpuPack::*;
-	(
-	input			clk,
-	input			i_nrst,
+    (
+    input			clk,
+    input			i_nrst,
 
-	input			gpuAdrA2, // Called A2 because multiple of 4
-	input			gpuSel,
-	output			o_canWrite,
-	
-	output			IRQRequest,
+    input			gpuAdrA2, // Called A2 because multiple of 4
+    input			gpuSel,
+    output			o_canWrite,
 
-	// Video output...
+    output			IRQRequest,
+
+    // Video output...
 //	output	[7:0]	red,
 //	output	[7:0]	green,
 //	output	[7:0]	blue,
 //	output          owritePixelL,
 //	output          owritePixelR,
-	output	[31:0]	mydebugCnt,
+    output	[31:0]	mydebugCnt,
 
-	//
-	// Temporary Memory Interface
-	//
-	output [19:0]   adr_o,   // ADR_O() address
-	input  [31:0]   dat_i,   // DAT_I() data in
-	output [31:0]   dat_o,   // DAT_O() data out
-	output  [2:0]	cnt_o,
-	output  [3:0]   sel_o,
-	output			wrt_o,
-	output			req_o,
-	input			ack_i,
+    //
+    // Temporary Memory Interface
+    //
+    output [19:0]   adr_o,   // ADR_O() address
+    input  [31:0]   dat_i,   // DAT_I() data in
+    output [31:0]   dat_o,   // DAT_O() data out
+    output  [2:0]	cnt_o,
+    output  [3:0]   sel_o,
+    output			wrt_o,
+    output			req_o,
+    input			ack_i,
 
-	/*
-	output			hSync,
-	output			vSync, // cSync pin exist in real HW : hSync | vSync most likely
-	output			hBlank,
-	output			vBlank,
-	*/
+    /*
+    output			hSync,
+    output			vSync, // cSync pin exist in real HW : hSync | vSync most likely
+    output			hBlank,
+    output			vBlank,
+    */
 
-	/*
-	input	[14:0]	iaddrWord,
-	input	[15:0]	iwriteBitSelect,
-	input	[15:0]	iwriteBitValue,
-	output	[15:0]	oStencilOut,
-	*/
+    /*
+    input	[14:0]	iaddrWord,
+    input	[15:0]	iwriteBitSelect,
+    input	[15:0]	iwriteBitValue,
+    output	[15:0]	oStencilOut,
+    */
 
-	input			write,
-	input			read,
-	input 	[31:0]	cpuDataIn,
-	output reg [31:0]	cpuDataOut,
-	output			validDataOut
+    input			write,
+    input			read,
+    input 	[31:0]	cpuDataIn,
+    output reg [31:0]	cpuDataOut,
+    output reg			validDataOut
 );
 
 typedef enum logic[5:0] {
@@ -74,47 +74,47 @@ typedef enum logic[5:0] {
     FILL_LINE  					= 6'd7,
     COPYCV_START 				= 6'd8,
     COPYVC_START 				= 6'd9,
-	CPY_RS1						= 6'd10,
-	CPY_R1						= 6'd11,
-	CPY_RS2						= 6'd12,
-	CPY_R2						= 6'd13,
-	CPY_LWS1					= 6'd14,
-	CPY_LW1						= 6'd15,
-	CPY_LRS						= 6'd16,
-	CPY_LR						= 6'd17,
-	CPY_WS2						= 6'd18,
-	CPY_W2						= 6'd19,
-	CPY_WS3						= 6'd20,
-	CPY_W3						= 6'd21,
-	START_LINE_TEST_LEFT		= 6'd22,
-	START_LINE_TEST_RIGHT		= 6'd23,
-	SCAN_LINE					= 6'd24,
-	SCAN_LINE_CATCH_END			= 6'd25,
-	TMP_2 						= 6'd26,
-	TMP_3 						= 6'd27,
-	TMP_4 						= 6'd28,
-	SETUP_RX					= 6'd29,
-	SETUP_RY					= 6'd30,
-	SETUP_GX					= 6'd31,
-	SETUP_GY					= 6'd32,
-	SETUP_BX					= 6'd33,
-	SETUP_BY					= 6'd34,
-	SETUP_UX					= 6'd35,
-	SETUP_UY					= 6'd36,
-	SETUP_VX					= 6'd37,
-	SETUP_VY					= 6'd38,
-	RECT_SCAN_LINE				= 6'd39,
-	WAIT_3						= 6'd40,
-	WAIT_2						= 6'd41,
-	WAIT_1						= 6'd42,
-	SELECT_PRIMITIVE			= 6'd43,
-	COPYCV_COPY					= 6'd44,
-	RECT_READ_MASK				= 6'd45,
-	COPYVC_TOCPU				= 6'd46,
-	LINE_END					= 6'd47,
-	FLUSH_COMPLETE_STATE		= 6'd48,
-	COPY_START_LINE				= 6'd49,
-	CPY_ENDLINE					= 6'd50
+    CPY_RS1						= 6'd10,
+    CPY_R1						= 6'd11,
+    CPY_RS2						= 6'd12,
+    CPY_R2						= 6'd13,
+    CPY_LWS1					= 6'd14,
+    CPY_LW1						= 6'd15,
+    CPY_LRS						= 6'd16,
+    CPY_LR						= 6'd17,
+    CPY_WS2						= 6'd18,
+    CPY_W2						= 6'd19,
+    CPY_WS3						= 6'd20,
+    CPY_W3						= 6'd21,
+    START_LINE_TEST_LEFT		= 6'd22,
+    START_LINE_TEST_RIGHT		= 6'd23,
+    SCAN_LINE					= 6'd24,
+    SCAN_LINE_CATCH_END			= 6'd25,
+    TMP_2 						= 6'd26,
+    TMP_3 						= 6'd27,
+    TMP_4 						= 6'd28,
+    SETUP_RX					= 6'd29,
+    SETUP_RY					= 6'd30,
+    SETUP_GX					= 6'd31,
+    SETUP_GY					= 6'd32,
+    SETUP_BX					= 6'd33,
+    SETUP_BY					= 6'd34,
+    SETUP_UX					= 6'd35,
+    SETUP_UY					= 6'd36,
+    SETUP_VX					= 6'd37,
+    SETUP_VY					= 6'd38,
+    RECT_SCAN_LINE				= 6'd39,
+    WAIT_3						= 6'd40,
+    WAIT_2						= 6'd41,
+    WAIT_1						= 6'd42,
+    SELECT_PRIMITIVE			= 6'd43,
+    COPYCV_COPY					= 6'd44,
+    RECT_READ_MASK				= 6'd45,
+    COPYVC_TOCPU				= 6'd46,
+    LINE_END					= 6'd47,
+    FLUSH_COMPLETE_STATE		= 6'd48,
+    COPY_START_LINE				= 6'd49,
+    CPY_ENDLINE					= 6'd50
 } workState_t;
 
 //parameter
@@ -203,8 +203,8 @@ typedef struct packed {
 
 parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
             MEM_CMD_FILL		= 3'b010,
-			MEM_CMD_RDBURST		= 3'b011,
-			MEM_CMD_WRBURST		= 3'b100,
+            MEM_CMD_RDBURST		= 3'b011,
+            MEM_CMD_WRBURST		= 3'b100,
             // Other command to come later...
             MEM_CMD_NONE		= 3'b000;
 
@@ -503,16 +503,30 @@ wire				isRightPLXmaxTri;
 wire				isLineInsideDrawArea;
 wire				isInsideBBoxTriRectL;
 wire				isInsideBBoxTriRectR;
+// -- mike moved
+
+wire  [5:0] adrXSrc;
+wire  [5:0] adrXDst;
+
+wire       performSwitch;
+reg         cpyBank;
+reg			resetBank, switchBank;
+wire xCopyDirectionIncr;
+wire [4:0] tmpidx;
+wire [3:0] cpyIdx;
+wire  [8:0]		scrDstY;
+reg	 [ 6:0] counterXDst;
+
 
 // ------------------ Debug Stuff --------------
 reg [31:0] rdebugCnt;
 always @(posedge clk)
 begin
-	if (i_nrst == 0) begin
-		rdebugCnt = 32'd0;
-	end else begin
-		rdebugCnt = rdebugCnt + 32'd1;
-	end
+    if (i_nrst == 0) begin
+        rdebugCnt = 32'd0;
+    end else begin
+        rdebugCnt = rdebugCnt + 32'd1;
+    end
 end
 assign mydebugCnt =rdebugCnt;
 // ---------------------------------------------
@@ -522,23 +536,23 @@ wire writeGP1		=  gpuAdrA2 & gpuSel & write;
 assign o_canWrite	= !isFifoFull;
 always @(*)
 begin
-	if (gpuSel & read) begin
-		// Register +4 Read
-		if (gpuAdrA2) begin
-			cpuDataOut	=  reg1Out;
-		end else begin
-			if (setStencilMode == 3'd7) begin
-				// [TODO VRAM->CPU]
-				validDataOut	= 1;
-				cpuDataOut		= regGpuInfo;
-			end else begin
-				validDataOut	= 1;
-				cpuDataOut		= regGpuInfo;
-			end
-		end
-	end else begin
-		cpuDataOut	=  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
-	end
+    cpuDataOut	  =  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
+    validDataOut = 0;
+    if (gpuSel & read) begin
+        // Register +4 Read
+        if (gpuAdrA2) begin
+            cpuDataOut	=  reg1Out;
+        end else begin
+            if (setStencilMode == 3'd7) begin
+                // [TODO VRAM->CPU]
+                validDataOut	= 1;
+                cpuDataOut		= regGpuInfo;
+            end else begin
+                validDataOut	= 1;
+                cpuDataOut		= regGpuInfo;
+            end
+        end
+    end
 end
 
 assign IRQRequest = GPU_REG_IRQSet;
@@ -584,87 +598,87 @@ reg			clearOtherBank;
 wire		writeBankOld = performSwitch & (cpyBank ^ (!xCopyDirectionIncr));
 always @(*)
 begin
-	case (memoryCommand)
-	// CPU 2 VRAM : [16,16,2,15,...]
-	MEM_CMD_PIXEL2VRAM:    parameters = 	{ { WRPixelL15 , LPixel[14:0] }									// [55:40] LEFT PIXEL
-											, { WRPixelR15 , RPixel[14:0] }									// [39:24] RIGHT PIXEL !!!! (REVERSED CONVENTION !!!)
-											, cmd1ValidR, cmd1ValidL										// [23:22]
-											, { scrY[8:0], pixelX[9:4] }									// [21: 7]
-											, pixelX[3:1]													// [ 6: 4]
-											, flush 														// [    3]
-											};
-	// FILL MEMORY SEGMENT
-	MEM_CMD_FILL:			parameters =	{ { 1'b0, RegB0[7:3] , RegG0[7:3] , RegR0[7:3] }				// [55:40]
-											, 16'd0															// [39:24]
-											, 1'b1 // Dont care, but used in check SW.						// [23]
-											, 1'b0															// [22]
-											, { scrY[8:0], scrSrcX }										// [21:7]
-											, 3'd0															// [ 6:4]
-											, 1'b1															// [   3]
-											};
-	// READ A 16 PIXEL DATA BURST.
-	MEM_CMD_RDBURST:		parameters =	{ maskRead16													// [55:40] Mask
-											, 16'd0															// [39:24] 
-											, 1'b1 															// [23]
-											, clearOtherBank												// [22]
-											, { scrY[8:0], scrSrcX }										// [21:7]
-											, 3'd0															// [ 6:4]  Clear Opposite Bnk
-											, cpyBank														// [   3]  Bank
-											};
-	// WRITE A 16 PIXEL DATA BURST.
-	MEM_CMD_WRBURST:		parameters =	{ stencilReadValue16											// [55:40]
-											, 12'd0															// [39:28]
-											, cpyIdx														// [27:24]
-											, clearBank1													// [23]
-											, clearBank0													// [22]
-											, { scrDstY[8:0], scrDstX }										// [21:7]
-											, 1'b0															// [   6]
-											, GPU_REG_CheckMaskBit											// [   5]
-											, GPU_REG_ForcePixel15MaskSet									// [   4]
-											, writeBankOld									/* Old Bank */	// [   3]
-											};
-	default: parameters = 53'd0;
-	endcase
+    case (memoryCommand)
+    // CPU 2 VRAM : [16,16,2,15,...]
+    MEM_CMD_PIXEL2VRAM:    parameters = 	{ { WRPixelL15 , LPixel[14:0] }									// [55:40] LEFT PIXEL
+                                            , { WRPixelR15 , RPixel[14:0] }									// [39:24] RIGHT PIXEL !!!! (REVERSED CONVENTION !!!)
+                                            , cmd1ValidR, cmd1ValidL										// [23:22]
+                                            , { scrY[8:0], pixelX[9:4] }									// [21: 7]
+                                            , pixelX[3:1]													// [ 6: 4]
+                                            , flush 														// [    3]
+                                            };
+    // FILL MEMORY SEGMENT
+    MEM_CMD_FILL:			parameters =	{ { 1'b0, RegB0[7:3] , RegG0[7:3] , RegR0[7:3] }				// [55:40]
+                                            , 16'd0															// [39:24]
+                                            , 1'b1 // Dont care, but used in check SW.						// [23]
+                                            , 1'b0															// [22]
+                                            , { scrY[8:0], scrSrcX }										// [21:7]
+                                            , 3'd0															// [ 6:4]
+                                            , 1'b1															// [   3]
+                                            };
+    // READ A 16 PIXEL DATA BURST.
+    MEM_CMD_RDBURST:		parameters =	{ maskRead16													// [55:40] Mask
+                                            , 16'd0															// [39:24]
+                                            , 1'b1 															// [23]
+                                            , clearOtherBank												// [22]
+                                            , { scrY[8:0], scrSrcX }										// [21:7]
+                                            , 3'd0															// [ 6:4]  Clear Opposite Bnk
+                                            , cpyBank														// [   3]  Bank
+                                            };
+    // WRITE A 16 PIXEL DATA BURST.
+    MEM_CMD_WRBURST:		parameters =	{ stencilReadValue16											// [55:40]
+                                            , 12'd0															// [39:28]
+                                            , cpyIdx														// [27:24]
+                                            , clearBank1													// [23]
+                                            , clearBank0													// [22]
+                                            , { scrDstY[8:0], scrDstX }										// [21:7]
+                                            , 1'b0															// [   6]
+                                            , GPU_REG_CheckMaskBit											// [   5]
+                                            , GPU_REG_ForcePixel15MaskSet									// [   4]
+                                            , writeBankOld									/* Old Bank */	// [   3]
+                                            };
+    default: parameters = 53'd0;
+    endcase
 end
 
 Fifo
 #(
-	.DEPTH_WIDTH	(4),
-	.DATA_WIDTH		(16)
+    .DEPTH_WIDTH	(4),
+    .DATA_WIDTH		(16)
 )
 Fifo_instMSB
 (
-	.clk			(clk ),
-	.rst			(rstInFIFO),
+    .clk			(clk ),
+    .rst			(rstInFIFO),
 
-	.wr_data_i		(cpuDataIn[31:16]),
-	.wr_en_i		(writeFifo),
+    .wr_data_i		(cpuDataIn[31:16]),
+    .wr_en_i		(writeFifo),
 
-	.rd_data_o		(fifoDataOut[31:16]),
-	.rd_en_i		(readFifoMSB),
+    .rd_data_o		(fifoDataOut[31:16]),
+    .rd_en_i		(readFifoMSB),
 
-	.full_o			(isFifoFullMSB),
-	.empty_o		(isFifoEmptyMSB)
+    .full_o			(isFifoFullMSB),
+    .empty_o		(isFifoEmptyMSB)
 );
 
 Fifo
 #(
-	.DEPTH_WIDTH	(4),
-	.DATA_WIDTH		(16)
+    .DEPTH_WIDTH	(4),
+    .DATA_WIDTH		(16)
 )
 Fifo_instLSB
 (
-	.clk			(clk ),
-	.rst			(rstInFIFO),
+    .clk			(clk ),
+    .rst			(rstInFIFO),
 
-	.wr_data_i		(cpuDataIn[15:0]),
-	.wr_en_i		(writeFifo),
+    .wr_data_i		(cpuDataIn[15:0]),
+    .wr_en_i		(writeFifo),
 
-	.rd_data_o		(fifoDataOut[15:0]),
-	.rd_en_i		(readFifoLSB),
+    .rd_data_o		(fifoDataOut[15:0]),
+    .rd_en_i		(readFifoLSB),
 
-	.full_o			(isFifoFullLSB),
-	.empty_o		(isFifoEmptyLSB)
+    .full_o			(isFifoFullLSB),
+    .empty_o		(isFifoEmptyLSB)
 );
 
 // TODO GPU DMA Stuff
@@ -674,41 +688,41 @@ assign gpuReceiveCmdReady	= !isFifoFull;
 assign gpuReadyReceiveDMA	= !isFifoFull;
 
 assign reg1Out = {
-					// Default : 1480.2.000h
+                    // Default : 1480.2.000h
 
-					// Default 1
-					GPU_DisplayEvenOddLinesInterlace,	// 31
-					GPU_REG_DMADirection,				// 29-30
-					gpuReadyReceiveDMA,					// 28
+                    // Default 1
+                    GPU_DisplayEvenOddLinesInterlace,	// 31
+                    GPU_REG_DMADirection,				// 29-30
+                    gpuReadyReceiveDMA,					// 28
 
-					// default 4
-					gpuReadySendToCPU,				// 27
-					gpuReceiveCmdReady,				// 26
-					dmaDataRequest,					// 25
-					GPU_REG_IRQSet,					// 24
+                    // default 4
+                    gpuReadySendToCPU,				// 27
+                    gpuReceiveCmdReady,				// 26
+                    dmaDataRequest,					// 25
+                    GPU_REG_IRQSet,					// 24
 
-					// default 80
-					GPU_REG_DisplayDisabled,		// 23
-					GPU_REG_IsInterlaced,			// 22
-					GPU_REG_BufferRGB888,			// 21
-					GPU_REG_VideoMode,				// 20 (0=NTSC, 1=PAL)
-					GPU_REG_VerticalResolution,		// 19 (0=240, 1=480, when Bit22=1)
-					GPU_REG_HorizResolution,		// 17-18 (0=256, 1=320, 2=512, 3=640)
-					GPU_REG_HorizResolution368,		// 16 (0=256/320/512/640, 1=368)
-					// default 2
-					GPU_REG_TextureDisable,			// 15
-					GPU_REG_ReverseFlag,			// 14
-					(GPU_REG_CurrentInterlaceField & GPU_REG_IsInterlaced) | (!GPU_REG_IsInterlaced),	// 13
-					GPU_REG_CheckMaskBit,			// 12
-					// default 000
-					GPU_REG_ForcePixel15MaskSet,	// 11
-					GPU_REG_DrawDisplayAreaOn,		// 10
-					GPU_REG_DitherOn,				// 9
-					GPU_REG_TexFormat,				// 7-8
-					GPU_REG_Transparency,			// 5-6
-					GPU_REG_TexBasePageY,			// 4
-					GPU_REG_TexBasePageX			// 0-3
-				};
+                    // default 80
+                    GPU_REG_DisplayDisabled,		// 23
+                    GPU_REG_IsInterlaced,			// 22
+                    GPU_REG_BufferRGB888,			// 21
+                    GPU_REG_VideoMode,				// 20 (0=NTSC, 1=PAL)
+                    GPU_REG_VerticalResolution,		// 19 (0=240, 1=480, when Bit22=1)
+                    GPU_REG_HorizResolution,		// 17-18 (0=256, 1=320, 2=512, 3=640)
+                    GPU_REG_HorizResolution368,		// 16 (0=256/320/512/640, 1=368)
+                    // default 2
+                    GPU_REG_TextureDisable,			// 15
+                    GPU_REG_ReverseFlag,			// 14
+                    (GPU_REG_CurrentInterlaceField & GPU_REG_IsInterlaced) | (!GPU_REG_IsInterlaced),	// 13
+                    GPU_REG_CheckMaskBit,			// 12
+                    // default 000
+                    GPU_REG_ForcePixel15MaskSet,	// 11
+                    GPU_REG_DrawDisplayAreaOn,		// 10
+                    GPU_REG_DitherOn,				// 9
+                    GPU_REG_TexFormat,				// 7-8
+                    GPU_REG_Transparency,			// 5-6
+                    GPU_REG_TexBasePageY,			// 4
+                    GPU_REG_TexBasePageX			// 0-3
+                };
 
 //                  13 bit signed  12 bit signed
 // -1024..+1023 Input. + -1024..+1023 Offset => -2048..+2047 12 bit signed.
@@ -742,58 +756,58 @@ wire setDisplayMode	= writeGP1 & (cpuDataIn[29:24] == 6'd8);
 wire getGPUInfo		= writeGP1 & (cpuDataIn[29:28] == 2'd1); // 0h1X command.
 
 /*	GP1(10h) - Get GPU Info
-	GP1(11h..1Fh) - Mirrors of GP1(10h), Get GPU Info
-	After sending the command, the result can be read (immediately) from GPUREAD register (there's no NOP or other delay required) (namely GPUSTAT.Bit27 is used only for VRAM-Reads, but NOT for GPU-Info-Reads, so do not try to wait for that flag).
-	  0-23  Select Information which is to be retrieved (via following GPUREAD)
-	On Old 180pin GPUs, following values can be selected:
-	  00h-01h = Returns Nothing (old value in GPUREAD remains unchanged)
-	  02h     = Read Texture Window setting  ;GP0(E2h) ;20bit/MSBs=Nothing
-	  03h     = Read Draw area top left      ;GP0(E3h) ;19bit/MSBs=Nothing
-	  04h     = Read Draw area bottom right  ;GP0(E4h) ;19bit/MSBs=Nothing
-	  05h     = Read Draw offset             ;GP0(E5h) ;22bit
-	  06h-07h = Returns Nothing (old value in GPUREAD remains unchanged)
-	  08h-FFFFFFh = Mirrors of 00h..07h
-	On New 208pin GPUs, following values can be selected:
-	  00h-01h = Returns Nothing (old value in GPUREAD remains unchanged)
-	  02h     = Read Texture Window setting  ;GP0(E2h) ;20bit/MSBs=Nothing
-	  03h     = Read Draw area top left      ;GP0(E3h) ;20bit/MSBs=Nothing
-	  04h     = Read Draw area bottom right  ;GP0(E4h) ;20bit/MSBs=Nothing
-	  05h     = Read Draw offset             ;GP0(E5h) ;22bit
-	  06h     = Returns Nothing (old value in GPUREAD remains unchanged)
-	  07h     = Read GPU Type (usually 2)    ;see "GPU Versions" chapter		/// EXTENSION GPU
-	  08h     = Unknown (Returns 00000000h) (lightgun on some GPUs?)
-	  09h-0Fh = Returns Nothing (old value in GPUREAD remains unchanged)
-	  10h-FFFFFFh = Mirrors of 00h..0Fh
+    GP1(11h..1Fh) - Mirrors of GP1(10h), Get GPU Info
+    After sending the command, the result can be read (immediately) from GPUREAD register (there's no NOP or other delay required) (namely GPUSTAT.Bit27 is used only for VRAM-Reads, but NOT for GPU-Info-Reads, so do not try to wait for that flag).
+      0-23  Select Information which is to be retrieved (via following GPUREAD)
+    On Old 180pin GPUs, following values can be selected:
+      00h-01h = Returns Nothing (old value in GPUREAD remains unchanged)
+      02h     = Read Texture Window setting  ;GP0(E2h) ;20bit/MSBs=Nothing
+      03h     = Read Draw area top left      ;GP0(E3h) ;19bit/MSBs=Nothing
+      04h     = Read Draw area bottom right  ;GP0(E4h) ;19bit/MSBs=Nothing
+      05h     = Read Draw offset             ;GP0(E5h) ;22bit
+      06h-07h = Returns Nothing (old value in GPUREAD remains unchanged)
+      08h-FFFFFFh = Mirrors of 00h..07h
+    On New 208pin GPUs, following values can be selected:
+      00h-01h = Returns Nothing (old value in GPUREAD remains unchanged)
+      02h     = Read Texture Window setting  ;GP0(E2h) ;20bit/MSBs=Nothing
+      03h     = Read Draw area top left      ;GP0(E3h) ;20bit/MSBs=Nothing
+      04h     = Read Draw area bottom right  ;GP0(E4h) ;20bit/MSBs=Nothing
+      05h     = Read Draw offset             ;GP0(E5h) ;22bit
+      06h     = Returns Nothing (old value in GPUREAD remains unchanged)
+      07h     = Read GPU Type (usually 2)    ;see "GPU Versions" chapter		/// EXTENSION GPU
+      08h     = Unknown (Returns 00000000h) (lightgun on some GPUs?)
+      09h-0Fh = Returns Nothing (old value in GPUREAD remains unchanged)
+      10h-FFFFFFh = Mirrors of 00h..0Fh
  */
 reg [31:0] gpuInfoMux;
 always @(*)
 begin
-	case (cpuDataIn[3:0])	// NEW GPU SPEC, 2:0 on OLD GPU
-	4'd0:
-		gpuInfoMux = regGpuInfo;
-	4'd1:
-		gpuInfoMux = regGpuInfo;
-	4'd2:
-		// Texture Window Setting.
-		gpuInfoMux = { 12'd0, GPU_REG_WindowTextureOffsetY, GPU_REG_WindowTextureOffsetX, GPU_REG_WindowTextureMaskY,GPU_REG_WindowTextureMaskX };
-	4'd3:
-		// Draw Top Left
-		gpuInfoMux = { 12'd0, GPU_REG_DrawAreaY0,GPU_REG_DrawAreaX0}; // 20 bit on new GPU, 19 bit on OLD GPU.
-	4'd4:
-		// Draw Bottom Right
-		gpuInfoMux = { 12'd0, GPU_REG_DrawAreaY1,GPU_REG_DrawAreaX1};
-	4'd5:
-		// Draw Offset
-		gpuInfoMux = { 10'd0, GPU_REG_OFFSETY, GPU_REG_OFFSETX };
-	4'd6:
-		gpuInfoMux = regGpuInfo;
-	4'd7:
-		gpuInfoMux = 32'h00000002;
-	4'd8:
-		gpuInfoMux = 32'd0;
-	default:	// 0x9..F
-		gpuInfoMux = regGpuInfo;
-	endcase
+    case (cpuDataIn[3:0])	// NEW GPU SPEC, 2:0 on OLD GPU
+    4'd0:
+        gpuInfoMux = regGpuInfo;
+    4'd1:
+        gpuInfoMux = regGpuInfo;
+    4'd2:
+        // Texture Window Setting.
+        gpuInfoMux = { 12'd0, GPU_REG_WindowTextureOffsetY, GPU_REG_WindowTextureOffsetX, GPU_REG_WindowTextureMaskY,GPU_REG_WindowTextureMaskX };
+    4'd3:
+        // Draw Top Left
+        gpuInfoMux = { 12'd0, GPU_REG_DrawAreaY0,GPU_REG_DrawAreaX0}; // 20 bit on new GPU, 19 bit on OLD GPU.
+    4'd4:
+        // Draw Bottom Right
+        gpuInfoMux = { 12'd0, GPU_REG_DrawAreaY1,GPU_REG_DrawAreaX1};
+    4'd5:
+        // Draw Offset
+        gpuInfoMux = { 10'd0, GPU_REG_OFFSETY, GPU_REG_OFFSETX };
+    4'd6:
+        gpuInfoMux = regGpuInfo;
+    4'd7:
+        gpuInfoMux = 32'h00000002;
+    4'd8:
+        gpuInfoMux = 32'd0;
+    default:	// 0x9..F
+        gpuInfoMux = regGpuInfo;
+    endcase
 end
 
 wire [15:0] newClutValue = { /*issue.*/rstTextureCache, fifoDataOutClut };
@@ -806,156 +820,156 @@ wire [4:0]	nextClutPacket	= rClutPacketCount + 5'h1F;
 
 always @(posedge clk)
 begin
-	if (getGPUInfo) begin
-		regGpuInfo = gpuInfoMux;
-	end
+    if (getGPUInfo) begin
+        regGpuInfo = gpuInfoMux;
+    end
 
-	if (rstGPU) begin
-		GPU_REG_OFFSETX				<= 11'd0;
-		GPU_REG_OFFSETY				<= 11'd0;
-		GPU_REG_TexBasePageX		<= 4'd0;
-		GPU_REG_TexBasePageY		<= 1'b0;
-		GPU_REG_Transparency		<= 2'd0;
-		GPU_REG_TexFormat			<= 2'd0; //
-		GPU_REG_DitherOn			<= 1'd0; //
-		GPU_REG_DrawDisplayAreaOn	<= 1'b0; // Default by GP1(00h) definition.
-		GPU_REG_TextureDisable		<= 1'b0;
-		GPU_REG_TextureXFlip		<= 1'b0;
-		GPU_REG_TextureYFlip		<= 1'b0;
-		GPU_REG_WindowTextureMaskX	<= 5'd0;
-		GPU_REG_WindowTextureMaskY	<= 5'd0;
-		GPU_REG_WindowTextureOffsetX<= 5'd0;
-		GPU_REG_WindowTextureOffsetY<= 5'd0;
-		GPU_REG_DrawAreaX0			<= 10'd0;
-		GPU_REG_DrawAreaY0			<= 10'd0; // 8:0 on old GPU.
-		GPU_REG_DrawAreaX1			<= 10'd1023;	//
-		GPU_REG_DrawAreaY1			<= 10'd511;		//
-		GPU_REG_ForcePixel15MaskSet <= 0;
-		GPU_REG_CheckMaskBit		<= 0;
-		GPU_REG_CurrentInterlaceField <= 1; // Odd field by default (bit 14 = 1 on reset)
-		GPU_REG_IRQSet				<= 0;
-		GPU_REG_DisplayDisabled		<= 1;
-		GPU_REG_DMADirection		<= 2'b00; // Off
-		GPU_REG_IsInterlaced		<= 0;
-		GPU_REG_BufferRGB888		<= 0;
-		GPU_REG_VideoMode			<= 0;
-		GPU_REG_VerticalResolution	<= 0;
-		GPU_REG_HorizResolution		<= 2'b0;
-		GPU_REG_HorizResolution368	<= 0;
-		GPU_REG_ReverseFlag			<= 0;
+    if (rstGPU) begin
+        GPU_REG_OFFSETX				<= 11'd0;
+        GPU_REG_OFFSETY				<= 11'd0;
+        GPU_REG_TexBasePageX		<= 4'd0;
+        GPU_REG_TexBasePageY		<= 1'b0;
+        GPU_REG_Transparency		<= 2'd0;
+        GPU_REG_TexFormat			<= 2'd0; //
+        GPU_REG_DitherOn			<= 1'd0; //
+        GPU_REG_DrawDisplayAreaOn	<= 1'b0; // Default by GP1(00h) definition.
+        GPU_REG_TextureDisable		<= 1'b0;
+        GPU_REG_TextureXFlip		<= 1'b0;
+        GPU_REG_TextureYFlip		<= 1'b0;
+        GPU_REG_WindowTextureMaskX	<= 5'd0;
+        GPU_REG_WindowTextureMaskY	<= 5'd0;
+        GPU_REG_WindowTextureOffsetX<= 5'd0;
+        GPU_REG_WindowTextureOffsetY<= 5'd0;
+        GPU_REG_DrawAreaX0			<= 10'd0;
+        GPU_REG_DrawAreaY0			<= 10'd0; // 8:0 on old GPU.
+        GPU_REG_DrawAreaX1			<= 10'd1023;	//
+        GPU_REG_DrawAreaY1			<= 10'd511;		//
+        GPU_REG_ForcePixel15MaskSet <= 0;
+        GPU_REG_CheckMaskBit		<= 0;
+        GPU_REG_CurrentInterlaceField <= 1; // Odd field by default (bit 14 = 1 on reset)
+        GPU_REG_IRQSet				<= 0;
+        GPU_REG_DisplayDisabled		<= 1;
+        GPU_REG_DMADirection		<= 2'b00; // Off
+        GPU_REG_IsInterlaced		<= 0;
+        GPU_REG_BufferRGB888		<= 0;
+        GPU_REG_VideoMode			<= 0;
+        GPU_REG_VerticalResolution	<= 0;
+        GPU_REG_HorizResolution		<= 2'b0;
+        GPU_REG_HorizResolution368	<= 0;
+        GPU_REG_ReverseFlag			<= 0;
 
-		GPU_REG_DispAreaX			<= 10'd0;
-		GPU_REG_DispAreaY			<=  9'd0;
-		GPU_REG_RangeX0				<= 12'h200;		// 200h
-		GPU_REG_RangeX1				<= 12'hC00;		// 200h + 256x10
-		GPU_REG_RangeY0				<= 10'h10;		//  10h
-		GPU_REG_RangeY1				<= 10'h100; 	//  10h + 240
-		RegCLUT						= 16'h8000;	// Invalid CLUT ADR on reset.
-		rClutLoading				= 1'b0;
-		rClutPacketCount			= 5'd0;
-		rPalette4Bit				= 1'b0;
+        GPU_REG_DispAreaX			<= 10'd0;
+        GPU_REG_DispAreaY			<=  9'd0;
+        GPU_REG_RangeX0				<= 12'h200;		// 200h
+        GPU_REG_RangeX1				<= 12'hC00;		// 200h + 256x10
+        GPU_REG_RangeY0				<= 10'h10;		//  10h
+        GPU_REG_RangeY1				<= 10'h100; 	//  10h + 240
+        RegCLUT						= 16'h8000;	// Invalid CLUT ADR on reset.
+        rClutLoading				= 1'b0;
+        rClutPacketCount			= 5'd0;
+        rPalette4Bit				= 1'b0;
 
-	end else begin
-		if (/*issue.*/loadE5Offsets) begin
-			GPU_REG_OFFSETX <= fifoDataOut[10: 0];
-			GPU_REG_OFFSETY <= fifoDataOut[21:11];
-		end
-		if (/*issue.*/loadTexPageE1 || /*issue.*/loadTexPage) begin
-			GPU_REG_TexBasePageX 	<= /*issue.*/loadTexPage ? fifoDataOut[19:16] : fifoDataOut[3:0];
-			GPU_REG_TexBasePageY 	<= /*issue.*/loadTexPage ? fifoDataOut[20]    : fifoDataOut[4];
-			GPU_REG_Transparency 	<= /*issue.*/loadTexPage ? fifoDataOut[22:21] : fifoDataOut[6:5];
-			GPU_REG_TexFormat    	<= /*issue.*/loadTexPage ? fifoDataOut[24:23] : fifoDataOut[8:7];
-			GPU_REG_TextureDisable	<= /*issue.*/loadTexPage ? fifoDataOut[27]    : fifoDataOut[11];
-		end
-		if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-			rClutPacketCount		= { CLUTIs8BPP , 3'b0, !CLUTIs8BPP }; // Load 1 packet or 16
-		end
-		if (/*issue.*/loadTexPageE1) begin // Texture Attribute only changed by E1 Command.
-			GPU_REG_DitherOn     <= fifoDataOut[9];
-			GPU_REG_DrawDisplayAreaOn <= fifoDataOut[10];
-			GPU_REG_TextureXFlip <= fifoDataOut[12];
-			GPU_REG_TextureYFlip <= fifoDataOut[13];
-		end
-		if (/*issue.*/loadTexWindowSetting) begin
-			GPU_REG_WindowTextureMaskX   <= fifoDataOut[4:0];
-			GPU_REG_WindowTextureMaskY   <= fifoDataOut[9:5];
-			GPU_REG_WindowTextureOffsetX <= fifoDataOut[14:10];
-			GPU_REG_WindowTextureOffsetY <= fifoDataOut[19:15];
-		end
-		
-		if (decClutCount) begin
-			rClutPacketCount = nextClutPacket; // Decrement -1.
-		end
-		
-		if (/*issue.*/loadClutPage) begin
-			if (newClutValue[15] == 1'b0 && (newClutValue != RegCLUT)) begin
-				// Loading only happens when :
-				// - Switch from invalid to valid CLUT ADR. (Reset or cache flush)
-				// - Switch from valid   do difference valid CLUT ADR.
-				//
-				// WARNING : rClutPacketCount the number of PACKET TO LOAD IS UPDATED WHEN LOADING THE TEXTURE FORMAT !!!! NOT WHEN CLUT FLAT IS SET !!!!
-				//
-				rClutLoading	= 1'b1;
-			end
-			// Load always the value, whatever the value is (valid or invalid)
-			RegCLUT		= newClutValue;
-		end
+    end else begin
+        if (/*issue.*/loadE5Offsets) begin
+            GPU_REG_OFFSETX <= fifoDataOut[10: 0];
+            GPU_REG_OFFSETY <= fifoDataOut[21:11];
+        end
+        if (/*issue.*/loadTexPageE1 || /*issue.*/loadTexPage) begin
+            GPU_REG_TexBasePageX 	<= /*issue.*/loadTexPage ? fifoDataOut[19:16] : fifoDataOut[3:0];
+            GPU_REG_TexBasePageY 	<= /*issue.*/loadTexPage ? fifoDataOut[20]    : fifoDataOut[4];
+            GPU_REG_Transparency 	<= /*issue.*/loadTexPage ? fifoDataOut[22:21] : fifoDataOut[6:5];
+            GPU_REG_TexFormat    	<= /*issue.*/loadTexPage ? fifoDataOut[24:23] : fifoDataOut[8:7];
+            GPU_REG_TextureDisable	<= /*issue.*/loadTexPage ? fifoDataOut[27]    : fifoDataOut[11];
+        end
+        if (/*issue.*/issuePrimitive != NO_ISSUE) begin
+            rClutPacketCount		= { CLUTIs8BPP , 3'b0, !CLUTIs8BPP }; // Load 1 packet or 16
+        end
+        if (/*issue.*/loadTexPageE1) begin // Texture Attribute only changed by E1 Command.
+            GPU_REG_DitherOn     <= fifoDataOut[9];
+            GPU_REG_DrawDisplayAreaOn <= fifoDataOut[10];
+            GPU_REG_TextureXFlip <= fifoDataOut[12];
+            GPU_REG_TextureYFlip <= fifoDataOut[13];
+        end
+        if (/*issue.*/loadTexWindowSetting) begin
+            GPU_REG_WindowTextureMaskX   <= fifoDataOut[4:0];
+            GPU_REG_WindowTextureMaskY   <= fifoDataOut[9:5];
+            GPU_REG_WindowTextureOffsetX <= fifoDataOut[14:10];
+            GPU_REG_WindowTextureOffsetY <= fifoDataOut[19:15];
+        end
 
-		if (endClutLoading) begin
-			rClutLoading	= 1'b0;
-			rPalette4Bit	= (GPU_REG_TexFormat == PIX_4BIT);
-		end
-		
-		if (/*issue.*/loadDrawAreaTL) begin
-			GPU_REG_DrawAreaX0 <= fifoDataOut[ 9: 0];
-			GPU_REG_DrawAreaY0 <= { 1'b0, fifoDataOut[18:10] }; // 19:10 on NEW GPU.
-		end
-		if (/*issue.*/loadDrawAreaBR) begin
-			GPU_REG_DrawAreaX1 <= fifoDataOut[ 9: 0];
-			GPU_REG_DrawAreaY1 <= { 1'b0, fifoDataOut[18:10] }; // 19:0 on NEW GPU.
-		end
-		if (/*issue.*/loadMaskSetting) begin
-			GPU_REG_ForcePixel15MaskSet <= fifoDataOut[0];
-			GPU_REG_CheckMaskBit		<= fifoDataOut[1];
-		end
-		if (rstIRQ | /*issue.*/setIRQ) begin
-			GPU_REG_IRQSet				<= /*issue.*/setIRQ;
-		end
-		if (setDisp) begin
-			GPU_REG_DisplayDisabled		<= cpuDataIn[0];
-		end
-		if (setDmaDir) begin
-			GPU_REG_DMADirection		<= cpuDataIn[1:0];
-		end
-		if (setDispArea) begin
-			GPU_REG_DispAreaX			<= cpuDataIn[ 9: 0];
-			GPU_REG_DispAreaY			<= cpuDataIn[18:10];
-		end
-		if (setDispRangeX) begin
-			GPU_REG_RangeX0				<= cpuDataIn[11: 0];
-			GPU_REG_RangeX1				<= cpuDataIn[23:12];
-		end
-		if (setDispRangeY) begin
-			GPU_REG_RangeY0				<= cpuDataIn[ 9: 0];
-			GPU_REG_RangeY1				<= cpuDataIn[19:10];
-		end
-		if (setDisplayMode) begin
-			GPU_REG_IsInterlaced		<= cpuDataIn[5];
-			GPU_REG_BufferRGB888		<= cpuDataIn[4];
-			GPU_REG_VideoMode			<= cpuDataIn[3];
-			GPU_REG_VerticalResolution	<= cpuDataIn[2] & cpuDataIn[5];
-			GPU_REG_HorizResolution		<= cpuDataIn[1:0];
-			GPU_REG_HorizResolution368	<= cpuDataIn[6];
-			GPU_REG_ReverseFlag			<= cpuDataIn[7];
-		end
-	end
+        if (decClutCount) begin
+            rClutPacketCount = nextClutPacket; // Decrement -1.
+        end
 
-	//if (rstGPU) begin
-		//RegCommand <= '0;
-	//end else begin
-		if (/*issue.*/storeCommand) RegCommand <= command;
-	//end
-	FifoDataValid <= readFifo;
+        if (/*issue.*/loadClutPage) begin
+            if (newClutValue[15] == 1'b0 && (newClutValue != RegCLUT)) begin
+                // Loading only happens when :
+                // - Switch from invalid to valid CLUT ADR. (Reset or cache flush)
+                // - Switch from valid   do difference valid CLUT ADR.
+                //
+                // WARNING : rClutPacketCount the number of PACKET TO LOAD IS UPDATED WHEN LOADING THE TEXTURE FORMAT !!!! NOT WHEN CLUT FLAT IS SET !!!!
+                //
+                rClutLoading	= 1'b1;
+            end
+            // Load always the value, whatever the value is (valid or invalid)
+            RegCLUT		= newClutValue;
+        end
+
+        if (endClutLoading) begin
+            rClutLoading	= 1'b0;
+            rPalette4Bit	= (GPU_REG_TexFormat == PIX_4BIT);
+        end
+
+        if (/*issue.*/loadDrawAreaTL) begin
+            GPU_REG_DrawAreaX0 <= fifoDataOut[ 9: 0];
+            GPU_REG_DrawAreaY0 <= { 1'b0, fifoDataOut[18:10] }; // 19:10 on NEW GPU.
+        end
+        if (/*issue.*/loadDrawAreaBR) begin
+            GPU_REG_DrawAreaX1 <= fifoDataOut[ 9: 0];
+            GPU_REG_DrawAreaY1 <= { 1'b0, fifoDataOut[18:10] }; // 19:0 on NEW GPU.
+        end
+        if (/*issue.*/loadMaskSetting) begin
+            GPU_REG_ForcePixel15MaskSet <= fifoDataOut[0];
+            GPU_REG_CheckMaskBit		<= fifoDataOut[1];
+        end
+        if (rstIRQ | /*issue.*/setIRQ) begin
+            GPU_REG_IRQSet				<= /*issue.*/setIRQ;
+        end
+        if (setDisp) begin
+            GPU_REG_DisplayDisabled		<= cpuDataIn[0];
+        end
+        if (setDmaDir) begin
+            GPU_REG_DMADirection		<= cpuDataIn[1:0];
+        end
+        if (setDispArea) begin
+            GPU_REG_DispAreaX			<= cpuDataIn[ 9: 0];
+            GPU_REG_DispAreaY			<= cpuDataIn[18:10];
+        end
+        if (setDispRangeX) begin
+            GPU_REG_RangeX0				<= cpuDataIn[11: 0];
+            GPU_REG_RangeX1				<= cpuDataIn[23:12];
+        end
+        if (setDispRangeY) begin
+            GPU_REG_RangeY0				<= cpuDataIn[ 9: 0];
+            GPU_REG_RangeY1				<= cpuDataIn[19:10];
+        end
+        if (setDisplayMode) begin
+            GPU_REG_IsInterlaced		<= cpuDataIn[5];
+            GPU_REG_BufferRGB888		<= cpuDataIn[4];
+            GPU_REG_VideoMode			<= cpuDataIn[3];
+            GPU_REG_VerticalResolution	<= cpuDataIn[2] & cpuDataIn[5];
+            GPU_REG_HorizResolution		<= cpuDataIn[1:0];
+            GPU_REG_HorizResolution368	<= cpuDataIn[6];
+            GPU_REG_ReverseFlag			<= cpuDataIn[7];
+        end
+    end
+
+    //if (rstGPU) begin
+        //RegCommand <= '0;
+    //end else begin
+        if (/*issue.*/storeCommand) RegCommand <= command;
+    //end
+    FifoDataValid <= readFifo;
 end
 
 // [Command Type]
@@ -981,7 +995,7 @@ wire bIsMultiLineTerminator = (bIsLineCommand & bIsMultiLine & bIsTerminator);
 // [All attribute of commands]
 wire bIsRenderAttrib		= (bIsForECommand & (!command[4]) & (!command[3])) & (command[2:0]!=3'b000) & (command[2:0]!=3'b111); // E*, range 0..7 -> Select E1..E6 Only
 wire bIsNop         		= (bIsBase0x & (!(bIsBase01 | bIsBase02 | bIsBase1F)))	// Reject 01,02,1F
-							| (bIsForECommand & (!bIsRenderAttrib));				// Reject E1~E6
+                            | (bIsForECommand & (!bIsRenderAttrib));				// Reject E1~E6
 wire bIsPolyOrRect  		= (bIsPolyCommand | bIsRectCommand);
 
 // Line are not textured
@@ -1004,22 +1018,22 @@ wire rejectVertex			= 0;
 reg  rejectPrimitive;
 always @(posedge clk)
 begin
-	if (rejectVertex | resetReject) begin
-		rejectPrimitive = !resetReject;
-	end
+    if (rejectVertex | resetReject) begin
+        rejectPrimitive = !resetReject;
+    end
 end
 
 always @(posedge clk)
 begin
-	if (/*issue.*/resetVertexCounter /* | rstGPU | rstCmd : Done by STATE RESET. */) begin
-		vertCnt			= 2'b00;
-		isFirstVertex	= 1;
-	end else begin
-		vertCnt = vertCnt + /*issue.*/increaseVertexCounter;
-		if (/*issue.*/increaseVertexCounter) begin
-			isFirstVertex	= 0;
-		end
-	end
+    if (/*issue.*/resetVertexCounter /* | rstGPU | rstCmd : Done by STATE RESET. */) begin
+        vertCnt			= 2'b00;
+        isFirstVertex	= 1;
+    end else begin
+        vertCnt = vertCnt + /*issue.*/increaseVertexCounter;
+        if (/*issue.*/increaseVertexCounter) begin
+            isFirstVertex	= 0;
+        end
+    end
 end
 
 wire isPolyFinalVertex	= ((bIs4PointPoly & (vertCnt == 2'd3)) | (!bIs4PointPoly & (vertCnt == 2'd2)));
@@ -1045,7 +1059,8 @@ reg			incrementXCounter;
 
 // Increment when Dst < Src. : (V1-V0 < 0) => Diff Sign 1 |  Valid for ALL axis (X and Y)
 // Decrement when Dst > Src. : (V1-V0 > 0) => Diff Sign 0 |  Src = Vertex0, Dst = Vertex1 => V1-V0
-wire xCopyDirectionIncr			= isNegXAxis;
+
+assign xCopyDirectionIncr = isNegXAxis;
 
 wire  [9:0] OppRegSizeH			= OriginalRegSizeH - RegSizeH;
 
@@ -1064,34 +1079,34 @@ wire  [6:0] lengthBlockDstHM1	= fullSizeDst[10:4] + {7{dstDistExact16Pixel}};
 wire  [6:0] OppAdrXSrc			= lengthBlockSrcHM1 - counterXSrc;
 wire  [6:0] OppAdrXDst			= lengthBlockDstHM1 - counterXDst;
 
-wire  [5:0] adrXSrc				= xCopyDirectionIncr ? counterXSrc[5:0] : OppAdrXSrc[5:0];
-wire  [5:0] adrXDst				= xCopyDirectionIncr ? counterXDst[5:0] : OppAdrXDst[5:0];
+assign adrXSrc = xCopyDirectionIncr ? counterXSrc[5:0] : OppAdrXSrc[5:0];
+assign adrXDst = xCopyDirectionIncr ? counterXDst[5:0] : OppAdrXDst[5:0];
 
 // wire  [6:0] fullX				= (useDest           ? adrXDst : adrXSrc)          + { 1'b0, useDest ? RegX1[9:4] : RegX0[9:4] };
 
-reg	 [ 6:0] counterXDst;
+
 reg  [15:0] maskLeft;
 reg  [15:0] maskRight;
 always @(*)
 begin
-	case (RegX0[3:0])
-	4'h0: maskLeft = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
-	4'h1: maskLeft = 16'b1111_1111_1111_1110;
-	4'h2: maskLeft = 16'b1111_1111_1111_1100;
-	4'h3: maskLeft = 16'b1111_1111_1111_1000;
-	4'h4: maskLeft = 16'b1111_1111_1111_0000;
-	4'h5: maskLeft = 16'b1111_1111_1110_0000;
-	4'h6: maskLeft = 16'b1111_1111_1100_0000;
-	4'h7: maskLeft = 16'b1111_1111_1000_0000;
-	4'h8: maskLeft = 16'b1111_1111_0000_0000;
-	4'h9: maskLeft = 16'b1111_1110_0000_0000;
-	4'hA: maskLeft = 16'b1111_1100_0000_0000;
-	4'hB: maskLeft = 16'b1111_1000_0000_0000;
-	4'hC: maskLeft = 16'b1111_0000_0000_0000;
-	4'hD: maskLeft = 16'b1110_0000_0000_0000;
-	4'hE: maskLeft = 16'b1100_0000_0000_0000;
+    case (RegX0[3:0])
+    4'h0: maskLeft = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
+    4'h1: maskLeft = 16'b1111_1111_1111_1110;
+    4'h2: maskLeft = 16'b1111_1111_1111_1100;
+    4'h3: maskLeft = 16'b1111_1111_1111_1000;
+    4'h4: maskLeft = 16'b1111_1111_1111_0000;
+    4'h5: maskLeft = 16'b1111_1111_1110_0000;
+    4'h6: maskLeft = 16'b1111_1111_1100_0000;
+    4'h7: maskLeft = 16'b1111_1111_1000_0000;
+    4'h8: maskLeft = 16'b1111_1111_0000_0000;
+    4'h9: maskLeft = 16'b1111_1110_0000_0000;
+    4'hA: maskLeft = 16'b1111_1100_0000_0000;
+    4'hB: maskLeft = 16'b1111_1000_0000_0000;
+    4'hC: maskLeft = 16'b1111_0000_0000_0000;
+    4'hD: maskLeft = 16'b1110_0000_0000_0000;
+    4'hE: maskLeft = 16'b1100_0000_0000_0000;
  default: maskLeft = 16'b1000_0000_0000_0000;
-	endcase
+    endcase
 end
 
 wire [3:0] rightPos = RegX0[3:0] + RegSizeW[3:0];
@@ -1099,34 +1114,34 @@ wire [3:0] sxe16	= rightPos + 4'b1111;
 
 always @(*)
 begin
-	case (rightPos)
-	// Special case : lastSegment is actually the PREVIOUS segment. Empty segment never occurs because of computation.
-	// The END (EXCLUDED) pixel from the segment is the beginning of a new chunk that will be never loaded.
-	// See computation of 'lengthBlockSrcHM1'
-	4'h0: maskRight = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
-	// Normal cases...
-	4'h1: maskRight = 16'b0000_0000_0000_0001;
-	4'h2: maskRight = 16'b0000_0000_0000_0011;
-	4'h3: maskRight = 16'b0000_0000_0000_0111;
-	4'h4: maskRight = 16'b0000_0000_0000_1111;
-	4'h5: maskRight = 16'b0000_0000_0001_1111;
-	4'h6: maskRight = 16'b0000_0000_0011_1111;
-	4'h7: maskRight = 16'b0000_0000_0111_1111;
-	4'h8: maskRight = 16'b0000_0000_1111_1111;
-	4'h9: maskRight = 16'b0000_0001_1111_1111;
-	4'hA: maskRight = 16'b0000_0011_1111_1111;
-	4'hB: maskRight = 16'b0000_0111_1111_1111;
-	4'hC: maskRight = 16'b0000_1111_1111_1111;
-	4'hD: maskRight = 16'b0001_1111_1111_1111;
-	4'hE: maskRight = 16'b0011_1111_1111_1111;
+    case (rightPos)
+    // Special case : lastSegment is actually the PREVIOUS segment. Empty segment never occurs because of computation.
+    // The END (EXCLUDED) pixel from the segment is the beginning of a new chunk that will be never loaded.
+    // See computation of 'lengthBlockSrcHM1'
+    4'h0: maskRight = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
+    // Normal cases...
+    4'h1: maskRight = 16'b0000_0000_0000_0001;
+    4'h2: maskRight = 16'b0000_0000_0000_0011;
+    4'h3: maskRight = 16'b0000_0000_0000_0111;
+    4'h4: maskRight = 16'b0000_0000_0000_1111;
+    4'h5: maskRight = 16'b0000_0000_0001_1111;
+    4'h6: maskRight = 16'b0000_0000_0011_1111;
+    4'h7: maskRight = 16'b0000_0000_0111_1111;
+    4'h8: maskRight = 16'b0000_0000_1111_1111;
+    4'h9: maskRight = 16'b0000_0001_1111_1111;
+    4'hA: maskRight = 16'b0000_0011_1111_1111;
+    4'hB: maskRight = 16'b0000_0111_1111_1111;
+    4'hC: maskRight = 16'b0000_1111_1111_1111;
+    4'hD: maskRight = 16'b0001_1111_1111_1111;
+    4'hE: maskRight = 16'b0011_1111_1111_1111;
  default: maskRight = 16'b0111_1111_1111_1111;
-	endcase
+    endcase
 end
 
 always @(posedge clk)
 begin
-	counterXSrc = (resetXCounter) ? 7'd0 : counterXSrc + { 6'd0 ,incrementXCounter & (!useDest) };
-	counterXDst = (resetXCounter) ? 7'd0 : counterXDst + { 6'd0 ,incrementXCounter &   useDest  };
+    counterXSrc = (resetXCounter) ? 7'd0 : counterXSrc + { 6'd0 ,incrementXCounter & (!useDest) };
+    counterXDst = (resetXCounter) ? 7'd0 : counterXDst + { 6'd0 ,incrementXCounter &   useDest  };
 end
 
 reg  switchReadStoreBlock; // TODO this command will ALSO do loading the CACHE STENCIL locally (2x16 bit registers)
@@ -1142,14 +1157,16 @@ wire isLastSegmentMask 		= (adrXSrc    ==lengthBlockSrcHM1[5:0]);
 
 wire [15:0] maskSegmentRead	= (isFirstSegmentMask ? maskLeft  : 16'hFFFF)
                             & (isLastSegmentMask  ? maskRight : 16'hFFFF);
-							
+
 assign maskRead16			= maskSegmentRead;
 
 wire dblLoadL2R				= RegX1[3:0] < RegX0[3:0];
 // RegX0 - RegX1 + (dblLoadL2R ? 16 : 0)
-wire [4:0] tmpidx			= { dblLoadL2R , RegX0[3:0] } + { 1'b1, ~RegX1[3:0] } + 5'd1;
-wire [3:0] cpyIdx			= tmpidx[3:0];
-wire       performSwitch	= |cpyIdx; // If ZERO, NO SWITCH !
+
+assign  tmpidx = { dblLoadL2R , RegX0[3:0] } + { 1'b1, ~RegX1[3:0] } + 5'd1;
+assign  cpyIdx = tmpidx[3:0];
+
+assign   performSwitch	= |cpyIdx; // If ZERO, NO SWITCH !
 wire dblLoadR2L				= sxe16 < cpyIdx;
 wire isDoubleLoad			= xCopyDirectionIncr ? dblLoadL2R : dblLoadR2L;
 wire isLongLine				= RegSizeW[9] | RegSizeW[10]; // At least >= 512
@@ -1161,29 +1178,28 @@ reg memW0,memW1,memW2;
 wire 				extIX		= dir & changeX;
 always @(*)
 begin
-	case (selNextX)
-		X_TRI_NEXT:		nextPixelX	= pixelX + { {10{extIX}}, changeX, 1'b0 };	// -2,0,+2
-		X_LINE_START:	nextPixelX	= RegX0;
-		X_LINE_NEXT:	nextPixelX	= nextLineX; // Optimize and merge with case 0
-		X_TRI_BBLEFT:	nextPixelX	= { minTriDAX0[11:1], 1'b0 };
-		X_TRI_BBRIGHT:	nextPixelX	= { maxTriDAX1[11:1], 1'b0 };
-		X_CV_START:		nextPixelX	= { 2'b0, RegX0[9:1], 1'b0 };
-		default:		nextPixelX	= pixelX;
-	endcase
+    case (selNextX)
+        X_TRI_NEXT:		nextPixelX	= pixelX + { {10{extIX}}, changeX, 1'b0 };	// -2,0,+2
+        X_LINE_START:	nextPixelX	= RegX0;
+        X_LINE_NEXT:	nextPixelX	= nextLineX; // Optimize and merge with case 0
+        X_TRI_BBLEFT:	nextPixelX	= { minTriDAX0[11:1], 1'b0 };
+        X_TRI_BBRIGHT:	nextPixelX	= { maxTriDAX1[11:1], 1'b0 };
+        X_CV_START:		nextPixelX	= { 2'b0, RegX0[9:1], 1'b0 };
+        default:		nextPixelX	= pixelX;
+    endcase
 
-	case (selNextY)
-		Y_LINE_START:	nextPixelY	= RegY0;
-		Y_LINE_NEXT:	nextPixelY	= nextLineY;
-		Y_TRI_START:	nextPixelY	= minTriDAY0;
-		Y_TRI_NEXT:		nextPixelY	= pixelY + { 10'b0      , 1'b1 }; // +1
-		Y_TRI_PREV:		nextPixelY	= pixelY + { 11'b1111_1111_111 }; // -1
-		Y_CV_ZERO:		nextPixelY	= 12'd0;
-		default:		nextPixelY	= pixelY;
-	endcase
+    case (selNextY)
+        Y_LINE_START:	nextPixelY	= RegY0;
+        Y_LINE_NEXT:	nextPixelY	= nextLineY;
+        Y_TRI_START:	nextPixelY	= minTriDAY0;
+        Y_TRI_NEXT:		nextPixelY	= pixelY + { 10'b0      , 1'b1 }; // +1
+        Y_TRI_PREV:		nextPixelY	= pixelY + { 11'b1111_1111_111 }; // -1
+        Y_CV_ZERO:		nextPixelY	= 12'd0;
+        default:		nextPixelY	= pixelY;
+    endcase
 end
-	
-reg         cpyBank;
-reg			resetBank, switchBank;
+
+
 wire storeStencilRead = (memoryCommand == MEM_CMD_RDBURST);
 reg [31:0]	stencilReadCache;
 reg [31:0]  maskReadCache;
@@ -1218,21 +1234,21 @@ wire        differentBlock	 = (currVRAMAdrBlock != prevVRAMAdrBlock);	// Next Po
 assign		doBlockWork 	= (differentBlock | (flagIsNewBlock==IS_NEW_BLOCK_IN_PRIMITIVE)) & (writePixelL | writePixelR);
 
 always @(posedge clk) begin
-	if (writePixelL | writePixelR) begin
-		prevVRAMAdrBlock = currVRAMAdrBlock;
-	end
+    if (writePixelL | writePixelR) begin
+        prevVRAMAdrBlock = currVRAMAdrBlock;
+    end
 
-	// Give priority to SET over RESET, and ONLY when we write an EFFECTIVE PIXEL.
-	if (setFirstPixel) begin
-		flagIsNewBlock = IS_NEW_BLOCK_IN_PRIMITIVE;
-	end else begin
-		// [Inside the primitive, each time we emit a pixel]
-		if (doBlockWork) begin
-			if (flagIsNewBlock == IS_NEW_BLOCK_IN_PRIMITIVE) begin
-				flagIsNewBlock = IS_OTHER_BLOCK_IN_PRIMITIVE;
-			end
-		end
-	end
+    // Give priority to SET over RESET, and ONLY when we write an EFFECTIVE PIXEL.
+    if (setFirstPixel) begin
+        flagIsNewBlock = IS_NEW_BLOCK_IN_PRIMITIVE;
+    end else begin
+        // [Inside the primitive, each time we emit a pixel]
+        if (doBlockWork) begin
+            if (flagIsNewBlock == IS_NEW_BLOCK_IN_PRIMITIVE) begin
+                flagIsNewBlock = IS_OTHER_BLOCK_IN_PRIMITIVE;
+            end
+        end
+    end
 end
 // -----------------------------------------------------------------------
 
@@ -1240,77 +1256,77 @@ reg  signed [13:0]  DLine;
 
 always @(posedge clk)
 begin
-	if (loadNext) begin
-		pixelX = nextPixelX;
-		pixelY = nextPixelY;
-	end
-	if (resetDir) begin
-		dir    = 0; // Left to Right
-	end else begin
-		if (switchDir) begin
-			dir = !dir;
-		end
-	end
+    if (loadNext) begin
+        pixelX = nextPixelX;
+        pixelY = nextPixelY;
+    end
+    if (resetDir) begin
+        dir    = 0; // Left to Right
+    end else begin
+        if (switchDir) begin
+            dir = !dir;
+        end
+    end
 
-	if (currWorkState == LINE_START) begin
-		DLine = initialD;
-	end else begin
-		if (loadNext) begin
-			DLine = nextD;
-		end
-	end
+    if (currWorkState == LINE_START) begin
+        DLine = initialD;
+    end else begin
+        if (loadNext) begin
+            DLine = nextD;
+        end
+    end
 
-	if (resetPixelFound) begin
-		pixelFound = 0; // No pixel found.
-	end
-	if (setPixelFound) begin
-		pixelFound = 1;
-	end
-	if (resetEnteredTriangle) begin
-		enteredTriangle = 0;
-	end
-	if (setEnteredTriangle) begin
-		enteredTriangle = 1;
-	end
-	if (memorizeLineEqu) begin
-		// Backup the edge result for FIST PIXEL INSIDE BBOX.
-		memW0 = minTriDAX0[0] ? w0R[EQUMSB] : w0L[EQUMSB];
-		memW1 = minTriDAX0[0] ? w1R[EQUMSB] : w1L[EQUMSB];
-		memW2 = minTriDAX0[0] ? w2R[EQUMSB] : w2L[EQUMSB];
-	end
-	
-	// BEFORE cpyBank UPDATE !!!
-	if (storeStencilRead) begin
-		if (cpyBank) begin
-			stencilReadCache[31:16] = stencilReadValue16;
-			maskReadCache	[31:16] = maskSegmentRead;
-			if (clearOtherBank) begin
-				maskReadCache	[15:0] = 16'd0;
-			end
-		end else begin
-			stencilReadCache[15: 0] = stencilReadValue16;
-			maskReadCache	[15: 0] = maskSegmentRead;
-			if (clearOtherBank) begin
-				maskReadCache	[31:16] = 16'd0;
-			end
-		end
-	end
-	
-	if (clearBank0) begin // storeStencilRead is always False, no priority issues.
-		maskReadCache	[15: 0] = 16'd0;
-	end
-	
-	if (clearBank1) begin // storeStencilRead is always False, no priority issues.
-		maskReadCache	[31:16] = 16'd0;
-	end
+    if (resetPixelFound) begin
+        pixelFound = 0; // No pixel found.
+    end
+    if (setPixelFound) begin
+        pixelFound = 1;
+    end
+    if (resetEnteredTriangle) begin
+        enteredTriangle = 0;
+    end
+    if (setEnteredTriangle) begin
+        enteredTriangle = 1;
+    end
+    if (memorizeLineEqu) begin
+        // Backup the edge result for FIST PIXEL INSIDE BBOX.
+        memW0 = minTriDAX0[0] ? w0R[EQUMSB] : w0L[EQUMSB];
+        memW1 = minTriDAX0[0] ? w1R[EQUMSB] : w1L[EQUMSB];
+        memW2 = minTriDAX0[0] ? w2R[EQUMSB] : w2L[EQUMSB];
+    end
 
-	// AFTER cpyBank is used !!!!
-	if (resetBank) begin
-		cpyBank = 1'b0;
-	end else begin
-		cpyBank = cpyBank ^ switchBank;
-	end
-	
+    // BEFORE cpyBank UPDATE !!!
+    if (storeStencilRead) begin
+        if (cpyBank) begin
+            stencilReadCache[31:16] = stencilReadValue16;
+            maskReadCache	[31:16] = maskSegmentRead;
+            if (clearOtherBank) begin
+                maskReadCache	[15:0] = 16'd0;
+            end
+        end else begin
+            stencilReadCache[15: 0] = stencilReadValue16;
+            maskReadCache	[15: 0] = maskSegmentRead;
+            if (clearOtherBank) begin
+                maskReadCache	[31:16] = 16'd0;
+            end
+        end
+    end
+
+    if (clearBank0) begin // storeStencilRead is always False, no priority issues.
+        maskReadCache	[15: 0] = 16'd0;
+    end
+
+    if (clearBank1) begin // storeStencilRead is always False, no priority issues.
+        maskReadCache	[31:16] = 16'd0;
+    end
+
+    // AFTER cpyBank is used !!!!
+    if (resetBank) begin
+        cpyBank = 1'b0;
+    end else begin
+        cpyBank = cpyBank ^ switchBank;
+    end
+
 end
 
 reg  [15:0] stencilReadRemapped;
@@ -1319,41 +1335,41 @@ reg  [15:0] maskReadRemapped;
 
 always @(*)
 begin
-	// TODO : Replace with Logarithm shift stage. ( << 1, << 2, << 4, << 8, << 16 )
-	case ({writeBankOld,cpyIdx})
-	5'h00: begin stencilReadRemapped =  stencilReadCache[15: 0];                         maskReadRemapped =  maskReadCache[15: 0];                         end
-	5'h01: begin stencilReadRemapped =  stencilReadCache[16: 1];                         maskReadRemapped =  maskReadCache[16: 1];                         end
-	5'h02: begin stencilReadRemapped =  stencilReadCache[17: 2];                         maskReadRemapped =  maskReadCache[17: 2];                         end
-	5'h03: begin stencilReadRemapped =  stencilReadCache[18: 3];                         maskReadRemapped =  maskReadCache[18: 3];                         end
-	5'h04: begin stencilReadRemapped =  stencilReadCache[19: 4];                         maskReadRemapped =  maskReadCache[19: 4];                         end
-	5'h05: begin stencilReadRemapped =  stencilReadCache[20: 5];                         maskReadRemapped =  maskReadCache[20: 5];                         end
-	5'h06: begin stencilReadRemapped =  stencilReadCache[21: 6];                         maskReadRemapped =  maskReadCache[21: 6];                         end
-	5'h07: begin stencilReadRemapped =  stencilReadCache[22: 7];                         maskReadRemapped =  maskReadCache[22: 7];                         end
-	5'h08: begin stencilReadRemapped =  stencilReadCache[23: 8];                         maskReadRemapped =  maskReadCache[23: 8];                         end
-	5'h09: begin stencilReadRemapped =  stencilReadCache[24: 9];                         maskReadRemapped =  maskReadCache[24: 9];                         end
-	5'h0A: begin stencilReadRemapped =  stencilReadCache[25:10];                         maskReadRemapped =  maskReadCache[25:10];                         end
-	5'h0B: begin stencilReadRemapped =  stencilReadCache[26:11];                         maskReadRemapped =  maskReadCache[26:11];                         end
-	5'h0C: begin stencilReadRemapped =  stencilReadCache[27:12];                         maskReadRemapped =  maskReadCache[27:12];                         end
-	5'h0D: begin stencilReadRemapped =  stencilReadCache[28:13];                         maskReadRemapped =  maskReadCache[28:13];                         end
-	5'h0E: begin stencilReadRemapped =  stencilReadCache[29:14];                         maskReadRemapped =  maskReadCache[29:14];                         end
-	5'h0F: begin stencilReadRemapped =  stencilReadCache[30:15];                         maskReadRemapped =  maskReadCache[30:15];                         end
-	5'h10: begin stencilReadRemapped =  stencilReadCache[31:16];                         maskReadRemapped =  maskReadCache[31:16];                         end
-	5'h11: begin stencilReadRemapped = {stencilReadCache   [0],stencilReadCache[31:17]}; maskReadRemapped = {maskReadCache   [0],maskReadCache[31:17]}; end
-	5'h12: begin stencilReadRemapped = {stencilReadCache[ 1:0],stencilReadCache[31:18]}; maskReadRemapped = {maskReadCache[ 1:0],maskReadCache[31:18]}; end
-	5'h13: begin stencilReadRemapped = {stencilReadCache[ 2:0],stencilReadCache[31:19]}; maskReadRemapped = {maskReadCache[ 2:0],maskReadCache[31:19]}; end
-	5'h14: begin stencilReadRemapped = {stencilReadCache[ 3:0],stencilReadCache[31:20]}; maskReadRemapped = {maskReadCache[ 3:0],maskReadCache[31:20]}; end
-	5'h15: begin stencilReadRemapped = {stencilReadCache[ 4:0],stencilReadCache[31:21]}; maskReadRemapped = {maskReadCache[ 4:0],maskReadCache[31:21]}; end
-	5'h16: begin stencilReadRemapped = {stencilReadCache[ 5:0],stencilReadCache[31:22]}; maskReadRemapped = {maskReadCache[ 5:0],maskReadCache[31:22]}; end
-	5'h17: begin stencilReadRemapped = {stencilReadCache[ 6:0],stencilReadCache[31:23]}; maskReadRemapped = {maskReadCache[ 6:0],maskReadCache[31:23]}; end
-	5'h18: begin stencilReadRemapped = {stencilReadCache[ 7:0],stencilReadCache[31:24]}; maskReadRemapped = {maskReadCache[ 7:0],maskReadCache[31:24]}; end
-	5'h19: begin stencilReadRemapped = {stencilReadCache[ 8:0],stencilReadCache[31:25]}; maskReadRemapped = {maskReadCache[ 8:0],maskReadCache[31:25]}; end
-	5'h1A: begin stencilReadRemapped = {stencilReadCache[ 9:0],stencilReadCache[31:26]}; maskReadRemapped = {maskReadCache[ 9:0],maskReadCache[31:26]}; end
-	5'h1B: begin stencilReadRemapped = {stencilReadCache[10:0],stencilReadCache[31:27]}; maskReadRemapped = {maskReadCache[10:0],maskReadCache[31:27]}; end
-	5'h1C: begin stencilReadRemapped = {stencilReadCache[11:0],stencilReadCache[31:28]}; maskReadRemapped = {maskReadCache[11:0],maskReadCache[31:28]}; end
-	5'h1D: begin stencilReadRemapped = {stencilReadCache[12:0],stencilReadCache[31:29]}; maskReadRemapped = {maskReadCache[12:0],maskReadCache[31:29]}; end
-	5'h1E: begin stencilReadRemapped = {stencilReadCache[13:0],stencilReadCache[31:30]}; maskReadRemapped = {maskReadCache[13:0],maskReadCache[31:30]}; end
-	5'h1F: begin stencilReadRemapped = {stencilReadCache[14:0],stencilReadCache   [31]}; maskReadRemapped = {maskReadCache[14:0],maskReadCache   [31]}; end
-	endcase
+    // TODO : Replace with Logarithm shift stage. ( << 1, << 2, << 4, << 8, << 16 )
+    case ({writeBankOld,cpyIdx})
+    5'h00: begin stencilReadRemapped =  stencilReadCache[15: 0];                         maskReadRemapped =  maskReadCache[15: 0];                         end
+    5'h01: begin stencilReadRemapped =  stencilReadCache[16: 1];                         maskReadRemapped =  maskReadCache[16: 1];                         end
+    5'h02: begin stencilReadRemapped =  stencilReadCache[17: 2];                         maskReadRemapped =  maskReadCache[17: 2];                         end
+    5'h03: begin stencilReadRemapped =  stencilReadCache[18: 3];                         maskReadRemapped =  maskReadCache[18: 3];                         end
+    5'h04: begin stencilReadRemapped =  stencilReadCache[19: 4];                         maskReadRemapped =  maskReadCache[19: 4];                         end
+    5'h05: begin stencilReadRemapped =  stencilReadCache[20: 5];                         maskReadRemapped =  maskReadCache[20: 5];                         end
+    5'h06: begin stencilReadRemapped =  stencilReadCache[21: 6];                         maskReadRemapped =  maskReadCache[21: 6];                         end
+    5'h07: begin stencilReadRemapped =  stencilReadCache[22: 7];                         maskReadRemapped =  maskReadCache[22: 7];                         end
+    5'h08: begin stencilReadRemapped =  stencilReadCache[23: 8];                         maskReadRemapped =  maskReadCache[23: 8];                         end
+    5'h09: begin stencilReadRemapped =  stencilReadCache[24: 9];                         maskReadRemapped =  maskReadCache[24: 9];                         end
+    5'h0A: begin stencilReadRemapped =  stencilReadCache[25:10];                         maskReadRemapped =  maskReadCache[25:10];                         end
+    5'h0B: begin stencilReadRemapped =  stencilReadCache[26:11];                         maskReadRemapped =  maskReadCache[26:11];                         end
+    5'h0C: begin stencilReadRemapped =  stencilReadCache[27:12];                         maskReadRemapped =  maskReadCache[27:12];                         end
+    5'h0D: begin stencilReadRemapped =  stencilReadCache[28:13];                         maskReadRemapped =  maskReadCache[28:13];                         end
+    5'h0E: begin stencilReadRemapped =  stencilReadCache[29:14];                         maskReadRemapped =  maskReadCache[29:14];                         end
+    5'h0F: begin stencilReadRemapped =  stencilReadCache[30:15];                         maskReadRemapped =  maskReadCache[30:15];                         end
+    5'h10: begin stencilReadRemapped =  stencilReadCache[31:16];                         maskReadRemapped =  maskReadCache[31:16];                         end
+    5'h11: begin stencilReadRemapped = {stencilReadCache   [0],stencilReadCache[31:17]}; maskReadRemapped = {maskReadCache   [0],maskReadCache[31:17]}; end
+    5'h12: begin stencilReadRemapped = {stencilReadCache[ 1:0],stencilReadCache[31:18]}; maskReadRemapped = {maskReadCache[ 1:0],maskReadCache[31:18]}; end
+    5'h13: begin stencilReadRemapped = {stencilReadCache[ 2:0],stencilReadCache[31:19]}; maskReadRemapped = {maskReadCache[ 2:0],maskReadCache[31:19]}; end
+    5'h14: begin stencilReadRemapped = {stencilReadCache[ 3:0],stencilReadCache[31:20]}; maskReadRemapped = {maskReadCache[ 3:0],maskReadCache[31:20]}; end
+    5'h15: begin stencilReadRemapped = {stencilReadCache[ 4:0],stencilReadCache[31:21]}; maskReadRemapped = {maskReadCache[ 4:0],maskReadCache[31:21]}; end
+    5'h16: begin stencilReadRemapped = {stencilReadCache[ 5:0],stencilReadCache[31:22]}; maskReadRemapped = {maskReadCache[ 5:0],maskReadCache[31:22]}; end
+    5'h17: begin stencilReadRemapped = {stencilReadCache[ 6:0],stencilReadCache[31:23]}; maskReadRemapped = {maskReadCache[ 6:0],maskReadCache[31:23]}; end
+    5'h18: begin stencilReadRemapped = {stencilReadCache[ 7:0],stencilReadCache[31:24]}; maskReadRemapped = {maskReadCache[ 7:0],maskReadCache[31:24]}; end
+    5'h19: begin stencilReadRemapped = {stencilReadCache[ 8:0],stencilReadCache[31:25]}; maskReadRemapped = {maskReadCache[ 8:0],maskReadCache[31:25]}; end
+    5'h1A: begin stencilReadRemapped = {stencilReadCache[ 9:0],stencilReadCache[31:26]}; maskReadRemapped = {maskReadCache[ 9:0],maskReadCache[31:26]}; end
+    5'h1B: begin stencilReadRemapped = {stencilReadCache[10:0],stencilReadCache[31:27]}; maskReadRemapped = {maskReadCache[10:0],maskReadCache[31:27]}; end
+    5'h1C: begin stencilReadRemapped = {stencilReadCache[11:0],stencilReadCache[31:28]}; maskReadRemapped = {maskReadCache[11:0],maskReadCache[31:28]}; end
+    5'h1D: begin stencilReadRemapped = {stencilReadCache[12:0],stencilReadCache[31:29]}; maskReadRemapped = {maskReadCache[12:0],maskReadCache[31:29]}; end
+    5'h1E: begin stencilReadRemapped = {stencilReadCache[13:0],stencilReadCache[31:30]}; maskReadRemapped = {maskReadCache[13:0],maskReadCache[31:30]}; end
+    5'h1F: begin stencilReadRemapped = {stencilReadCache[14:0],stencilReadCache   [31]}; maskReadRemapped = {maskReadCache[14:0],maskReadCache   [31]}; end
+    endcase
 end
 
 wire tstRightEqu0 = maxTriDAX1[0] ? w0R[EQUMSB] : w0L[EQUMSB];
@@ -1365,13 +1381,13 @@ state_t nextState;
 
 always @(posedge clk)
 begin
-	if (rstGPU | rstCmd) begin
-		currState 		<= DEFAULT_STATE;
-		currWorkState	<= NOT_WORKING_DEFAULT_STATE;
-	end else begin
-		currState		<= nextState;
-		currWorkState	<= nextWorkState;
-	end
+    if (rstGPU | rstCmd) begin
+        currState 		<= DEFAULT_STATE;
+        currWorkState	<= NOT_WORKING_DEFAULT_STATE;
+    end else begin
+        currState		<= nextState;
+        currWorkState	<= nextWorkState;
+    end
 end
 
 // --------------------------------------------------------------------------------------------
@@ -1382,7 +1398,8 @@ end
 wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
 //                          X       + WIDTH              - [1 or 2]
 wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
-wire  [8:0]		scrDstY	= pixelY[8:0] + RegY1[8:0];
+
+assign srcDstY	= pixelY[8:0] + RegY1[8:0];
 wire  [9:0]  nextScrY	= nextPixelY[9:0] + RegY0[9:0];
 wire [11:0]	nextX		= pixelX + { 12'd2 };
 wire [ 9:0]	nextY		= pixelY[9:0] + { 10'd1 };
@@ -1405,24 +1422,24 @@ reg readM;
 
 always @(posedge clk)
 begin
-	if (setLastPair) begin
-		lastPair = 1'b1;
-	end
-	if (resetLastPair) begin
-		lastPair = 1'b0;
-	end
-	if (setSwap) begin
-		swap = RegX0[0];
-	end else begin
-		swap = swap ^ changeSwap;
-	end
-	if (readL | readM) begin
-		regSaveM = readM;
-		regSaveL = readL;
-	end
-	if (setStencilMode!=3'd0) begin
-		stencilMode = setStencilMode;
-	end
+    if (setLastPair) begin
+        lastPair = 1'b1;
+    end
+    if (resetLastPair) begin
+        lastPair = 1'b0;
+    end
+    if (setSwap) begin
+        swap = RegX0[0];
+    end else begin
+        swap = swap ^ changeSwap;
+    end
+    if (readL | readM) begin
+        regSaveM = readM;
+        regSaveL = readL;
+    end
+    if (setStencilMode!=3'd0) begin
+        stencilMode = setStencilMode;
+    end
 end
 wire isNewBlockPixel;
 
@@ -1446,1120 +1463,1120 @@ reg  requClutCacheUpdate;
 
 always @(*)
 begin
-	// -----------------------
-	// Default Value Section
-	// -----------------------
-	memoryCommand				= MEM_CMD_NONE;
-	nextWorkState				= currWorkState;
-	incrementXCounter			= 0;
-	resetXCounter				= 0;
-	switchReadStoreBlock		= 0;
-	useDest						= 0; // Source adr computation by default...
-	memorizeLineEqu				= 0;
-	loadNext					= 0;
-	setPixelFound				= 0;
-	resetPixelFound				= 0;
-	selNextX					= X_ASIS;
-	selNextY					= Y_ASIS;
-	switchDir					= 0;
-	resetDir					= 0;
-	compoID						= 0;
-	vecID						= 0;
-	writePixelL					= 0;
-	writePixelR					= 0;
+    // -----------------------
+    // Default Value Section
+    // -----------------------
+    memoryCommand				= MEM_CMD_NONE;
+    nextWorkState				= currWorkState;
+    incrementXCounter			= 0;
+    resetXCounter				= 0;
+    switchReadStoreBlock		= 0;
+    useDest						= 0; // Source adr computation by default...
+    memorizeLineEqu				= 0;
+    loadNext					= 0;
+    setPixelFound				= 0;
+    resetPixelFound				= 0;
+    selNextX					= X_ASIS;
+    selNextY					= Y_ASIS;
+    switchDir					= 0;
+    resetDir					= 0;
+    compoID						= 0;
+    vecID						= 0;
+    writePixelL					= 0;
+    writePixelR					= 0;
 //	readStencil					= 0;
 //	writeStencil2				= 2'b00;
-	changeX						= 0;
-	assignRectSetup				= 0;
-	setEnteredTriangle			= 0;
-	resetEnteredTriangle		= 0;
+    changeX						= 0;
+    assignRectSetup				= 0;
+    setEnteredTriangle			= 0;
+    resetEnteredTriangle		= 0;
 //	resetBlockChange			= 0;
-	setFirstPixel				= 0;
-	setStencilMode				= 3'd0;
-	writeStencil				= 0;
-	stencilReadSig				= 0;
-	stencilReadSigW				= 0;
-	copyCVMode					= 0;
-	
-	resetBank					= 0;
-	switchBank					= 0;
-	clearOtherBank				= 0;
-	clearBank0					= 0;
-	clearBank1					= 0;
-	
-	// -----------------------
-	//  CPU TO VRAM SIGNALS
-	// -----------------------
-	setLastPair = 0; resetLastPair = 0; setSwap = 0; changeSwap = 1'b0;
-	readL				= 0;
-	readM				= 0;
-	flush				= 0;
-	// -----------------------
+    setFirstPixel				= 0;
+    setStencilMode				= 3'd0;
+    writeStencil				= 0;
+    stencilReadSig				= 0;
+    stencilReadSigW				= 0;
+    copyCVMode					= 0;
 
-	endClutLoading		= 0;
-	decClutCount		= 0;
-	requClutCacheUpdate	= 0;
+    resetBank					= 0;
+    switchBank					= 0;
+    clearOtherBank				= 0;
+    clearBank0					= 0;
+    clearBank1					= 0;
+
+    // -----------------------
+    //  CPU TO VRAM SIGNALS
+    // -----------------------
+    setLastPair = 0; resetLastPair = 0; setSwap = 0; changeSwap = 1'b0;
+    readL				= 0;
+    readM				= 0;
+    flush				= 0;
+    // -----------------------
+
+    endClutLoading		= 0;
+    decClutCount		= 0;
+    requClutCacheUpdate	= 0;
 
 // TODOSTENCIL	stencilWriteBitSelect	= 16'h0000;
 // TODOSTENCIL	stencilWriteBitValue	= 16'h0000;
 // TODOSTENCIL	stencilWordAdr	= 15'd0;
 
-	case (currWorkState)
-	NOT_WORKING_DEFAULT_STATE:
-	begin
-		setFirstPixel			= 1;
-		assignRectSetup			= !bIsPerVtxCol;
-		resetEnteredTriangle	= 1;	// Put here, no worries about more specific cases.
-		resetDir				= 1;
+    case (currWorkState)
+    NOT_WORKING_DEFAULT_STATE:
+    begin
+        setFirstPixel			= 1;
+        assignRectSetup			= !bIsPerVtxCol;
+        resetEnteredTriangle	= 1;	// Put here, no worries about more specific cases.
+        resetDir				= 1;
 
-		case (/*issue.*/issuePrimitive)
-		ISSUE_TRIANGLE:
-		begin
-			setStencilMode		= 3'd1;
-			if (bIsPerVtxCol) begin
-				nextWorkState = SETUP_RX;
-			end else begin
-				nextWorkState = (bUseTexture) ? SETUP_UX : TRIANGLE_START;
-			end
-		end
-		ISSUE_RECT:
-		begin
-			setStencilMode		= 3'd1;
-			assignRectSetup	= 1;
-			nextWorkState	= validCLUTLoad ? WAIT_3 : RECT_START;
-		end
-		ISSUE_LINE:
-		begin
-			setStencilMode		= 3'd1;
-			if (bIsPerVtxCol) begin
-				nextWorkState = SETUP_RX;
-			end else begin
-				nextWorkState = /*(bUseTexture) ? SETUP_UX :*/ LINE_START;	// Impossible : bUseTexture always false with LINES.
-			end
-		end
-		ISSUE_FILL:
-		begin
-			setStencilMode		= 3'd2;
-			nextWorkState = FILL_START;
-		end
-		ISSUE_COPY:
-			if (bIsCopyVVCommand) begin
-				setStencilMode		= 3'd6;
-				nextWorkState		= COPY_INIT;
-			end else if (bIsCopyCVCommand) begin
-				setStencilMode		= 3'd3;
-				nextWorkState		= COPYCV_START;
-			end else begin
-				// bIsCopyVCCommandbegin obviously...
-				// STENCIL MODE NOT USED (no read, no write), BUT USED TO KNOW DIRECTION FOR CPU READ...
-				setStencilMode		= 3'd7;
-				nextWorkState		= COPYVC_START;
-			end
-		default:
-			nextWorkState = currWorkState;
-		endcase
-	end
-	// --------------------------------------------------------------------
-	//   FILL VRAM STATE MACHINE
-	// --------------------------------------------------------------------
-	FILL_START:	// Actually FILL LINE START.
-	begin
-		if (emptySurface) begin
-			nextWorkState = NOT_WORKING_DEFAULT_STATE;
-		end else begin
-			// Next Cycle H=H-1, and we can parse from H-1 to 0 for each line...
-			// Reset X Counter. + Now we fill from H-1 to ZERO... force decrement here.
-			loadNext		= 1;
-			selNextY		= Y_CV_ZERO;
-			resetXCounter	= 1;
-			nextWorkState	= FILL_LINE;
-		end
-	end
-	FILL_LINE:
-	begin
-		// Forced to decrement at each step in X
-		// [FILL COMMAND : [16 Bit 0BGR][16 bit empty][Adr 15 bit][4 bit empty][010]
-		if (commandFIFOaccept) begin // else it will wait...
-			memoryCommand		= MEM_CMD_FILL;
-			writeStencil		= 1;
-			if (isLastSegment) begin
-				loadNext      = 1;
-				selNextY      = Y_TRI_NEXT;
-				resetXCounter = 1;
-				nextWorkState = (endVertical) ? NOT_WORKING_DEFAULT_STATE : FILL_LINE;
-			end else begin
-				incrementXCounter	= 1;// SRC COUNTER
-			end
-		end
-	end
-	// --------------------------------------------------------------------
-	//   COPY VRAM STATE MACHINE
-	// --------------------------------------------------------------------
-	
-	COPY_INIT:
-	begin
-		nextWorkState		= COPY_START_LINE;
-		selNextY = Y_CV_ZERO; loadNext = 1;
-	end
-	
-	COPY_START_LINE:
-	begin
-		// [CPY_START] : Beginning of a line.
-		// Copy never have 'empty surfaces'
-		
-		// Do start current line...
-		nextWorkState		= CPY_RS1;
-		resetBank			= 1;
-		resetXCounter		= 1; // No load loadNext here.
-		
-		// TODO resetStencilTmp		= 1;
-	end
-	CPY_RS1: // Read Stencil.
-	begin
-		stencilReadSig	= 1; // Adr setup auto.
-		if (commandFIFOaccept) begin
-			nextWorkState = CPY_R1;
-		// else nextWorkState stay the same
-		end
-	end
+        case (/*issue.*/issuePrimitive)
+        ISSUE_TRIANGLE:
+        begin
+            setStencilMode		= 3'd1;
+            if (bIsPerVtxCol) begin
+                nextWorkState = SETUP_RX;
+            end else begin
+                nextWorkState = (bUseTexture) ? SETUP_UX : TRIANGLE_START;
+            end
+        end
+        ISSUE_RECT:
+        begin
+            setStencilMode		= 3'd1;
+            assignRectSetup	= 1;
+            nextWorkState	= validCLUTLoad ? WAIT_3 : RECT_START;
+        end
+        ISSUE_LINE:
+        begin
+            setStencilMode		= 3'd1;
+            if (bIsPerVtxCol) begin
+                nextWorkState = SETUP_RX;
+            end else begin
+                nextWorkState = /*(bUseTexture) ? SETUP_UX :*/ LINE_START;	// Impossible : bUseTexture always false with LINES.
+            end
+        end
+        ISSUE_FILL:
+        begin
+            setStencilMode		= 3'd2;
+            nextWorkState = FILL_START;
+        end
+        ISSUE_COPY:
+            if (bIsCopyVVCommand) begin
+                setStencilMode		= 3'd6;
+                nextWorkState		= COPY_INIT;
+            end else if (bIsCopyCVCommand) begin
+                setStencilMode		= 3'd3;
+                nextWorkState		= COPYCV_START;
+            end else begin
+                // bIsCopyVCCommandbegin obviously...
+                // STENCIL MODE NOT USED (no read, no write), BUT USED TO KNOW DIRECTION FOR CPU READ...
+                setStencilMode		= 3'd7;
+                nextWorkState		= COPYVC_START;
+            end
+        default:
+            nextWorkState = currWorkState;
+        endcase
+    end
+    // --------------------------------------------------------------------
+    //   FILL VRAM STATE MACHINE
+    // --------------------------------------------------------------------
+    FILL_START:	// Actually FILL LINE START.
+    begin
+        if (emptySurface) begin
+            nextWorkState = NOT_WORKING_DEFAULT_STATE;
+        end else begin
+            // Next Cycle H=H-1, and we can parse from H-1 to 0 for each line...
+            // Reset X Counter. + Now we fill from H-1 to ZERO... force decrement here.
+            loadNext		= 1;
+            selNextY		= Y_CV_ZERO;
+            resetXCounter	= 1;
+            nextWorkState	= FILL_LINE;
+        end
+    end
+    FILL_LINE:
+    begin
+        // Forced to decrement at each step in X
+        // [FILL COMMAND : [16 Bit 0BGR][16 bit empty][Adr 15 bit][4 bit empty][010]
+        if (commandFIFOaccept) begin // else it will wait...
+            memoryCommand		= MEM_CMD_FILL;
+            writeStencil		= 1;
+            if (isLastSegment) begin
+                loadNext      = 1;
+                selNextY      = Y_TRI_NEXT;
+                resetXCounter = 1;
+                nextWorkState = (endVertical) ? NOT_WORKING_DEFAULT_STATE : FILL_LINE;
+            end else begin
+                incrementXCounter	= 1;// SRC COUNTER
+            end
+        end
+    end
+    // --------------------------------------------------------------------
+    //   COPY VRAM STATE MACHINE
+    // --------------------------------------------------------------------
 
-	CPY_R1:
-	begin
-		// Here we know that commandFIFOaccept is 1 (Previous state)
-		// Store (Stencil & Mask) in temporary here
-		incrementXCounter	= 1; useDest = 0; // Increment Source.
-		// TODO storeStencilTmp		= 1;
-		// TODO switchBank			= 1;
-		clearOtherBank		= 1;
-		memoryCommand		= MEM_CMD_RDBURST;
+    COPY_INIT:
+    begin
+        nextWorkState		= COPY_START_LINE;
+        selNextY = Y_CV_ZERO; loadNext = 1;
+    end
 
-		if (allowNextRead) begin
-			if (isDoubleLoad) begin
-				nextWorkState	= CPY_RS2;
-			end else begin
-				nextWorkState	= CPY_LWS1;
-			end
-		end else begin
-			nextWorkState		= CPY_WS2;
-		end
+    COPY_START_LINE:
+    begin
+        // [CPY_START] : Beginning of a line.
+        // Copy never have 'empty surfaces'
 
-		if (isDoubleLoad) begin
-			if (allowNextRead) begin
-				switchBank		= performSwitch;
-			end else begin
-				switchBank		= !performSwitch;
-			end
-		end else begin
-			switchBank		= performSwitch;
-		end
-		
-		//-------------------
-		/* OLD BUGGY CODE
-		if (allowNextRead) begin
-			if (isDoubleLoad) begin
-				switchBank		= performSwitch;
-				nextWorkState	= CPY_RS2;
-			end else begin
-				// If PerformSwitch = 1 => Double bank switch -> No Switch !
-				// If PerformSwitch = 0 => Single bank switch -> 1  Switch !
-				switchBank		= !performSwitch;
-				nextWorkState	= CPY_LWS1;
-			end
-		end else begin
-			switchBank			= performSwitch;
-			nextWorkState		= CPY_WS2;
-		end
-		*/
-	end
-	CPY_RS2:
-	begin
-		stencilReadSig	= 1; // Adr setup auto.
-		if (commandFIFOaccept) begin
-			nextWorkState = CPY_R2;
-		// else nextWorkState stay the same
-		end
-	end
-	CPY_R2:
-	begin
-		incrementXCounter	= 1; useDest = 0; // Increment Source.
-		// TODO storeStencilTmp		= 1;
-		memoryCommand		= MEM_CMD_RDBURST;
-		switchBank			= performSwitch;
-		
-		if (allowNextRead) begin
-			nextWorkState	= CPY_LWS1;
-		end else begin
-			nextWorkState	= CPY_WS2;
-		end
-	end
-	
-	CPY_LWS1:
-	begin
-		stencilReadSigW		= 1;
-		
-		if (commandFIFOaccept) begin
-			nextWorkState	= CPY_LW1;
-		// else nextWorkState stay the same
-		end
-	end
-	CPY_LW1:
-	begin
-		incrementXCounter	= 1; useDest = 1;
-		memoryCommand		= MEM_CMD_WRBURST;
-		writeStencil		= 1;
-		nextWorkState		= CPY_LRS;
-	end
-	CPY_LRS:
-	begin
-		stencilReadSig	= 1; // Adr setup auto.
-		if (commandFIFOaccept) begin
-			nextWorkState	= CPY_LR;
-		// else nextWorkState stay the same
-		end
-	end
-	CPY_LR:
-	begin
-		incrementXCounter	= 1; useDest = 0; // Increment Source.
+        // Do start current line...
+        nextWorkState		= CPY_RS1;
+        resetBank			= 1;
+        resetXCounter		= 1; // No load loadNext here.
 
-		memoryCommand		= MEM_CMD_RDBURST;
-		switchBank			= performSwitch;
-	
-		if (!isLastSegment/* = allowNextRead, do NOT check isLongLine ! */) begin
-			nextWorkState	= CPY_LWS1;
-		end else begin
-			nextWorkState	= CPY_WS2;
-		end
-	end
-	
-	CPY_WS2:
-	begin
-		stencilReadSigW		= 1;
-		
-		if (commandFIFOaccept) begin
-			nextWorkState	= CPY_W2;
-		// else nextWorkState stay the same
-		end
-	end
-	CPY_W2:
-	begin
-		// Here : at this cycle we receive value from stencil READ.
-		// And do now a STENCIL WRITE.
-		incrementXCounter	= 1; useDest = 1;
-		memoryCommand		= MEM_CMD_WRBURST;
-		writeStencil		= 1;
-		
-		clearBank0			= !cpyBank;
-		clearBank1			= cpyBank;
-		switchBank			= performSwitch;
-		
-		if (!isLastSegmentDst) begin
-			nextWorkState	= CPY_WS3;
-		end else begin
-			nextWorkState	= CPY_ENDLINE;
-		end
-	end
-	CPY_WS3:
-	begin
-		stencilReadSigW		= 1;
-	
-		if (commandFIFOaccept) begin
-			nextWorkState	= CPY_W3;
-		// else nextWorkState stay the same
-		end
-	end
-	CPY_W3:
-	begin
-		memoryCommand		= MEM_CMD_WRBURST;
-		writeStencil		= 1;
-		nextWorkState		= CPY_ENDLINE;
-	end
-	CPY_ENDLINE:
-	begin
-		selNextY			= Y_TRI_NEXT; loadNext = 1;
-		
-		if (endVertical) begin
-			// End of copy primitive...
-			nextWorkState	= NOT_WORKING_DEFAULT_STATE;
-		end else begin
-			nextWorkState	= COPY_START_LINE;
-		end
-	end
-	
-	// --------------------------------------------------------------------
-	//   COPY CPU TO VRAM.
-	// --------------------------------------------------------------------
-	COPYCV_START:
-	begin
-		selNextX		= X_CV_START;
-		selNextY		= Y_CV_ZERO;
-		loadNext		= 1;
-		setSwap			= 1;
-		copyCVMode		= 1;
-		// Reset last pair by default, but if WIDTH == 1 -> different.
-		resetLastPair	= WidthNot1;
-		setLastPair		= !WidthNot1;
-		// We set first pair read here, flag not need to be set for next state !
-		// No Zero Size W/H Test -> IMPOSSIBLE By definition.
-		if (canRead) begin
-			// Read ALL DATA 1 item in advance -> Remove FIFO LATENCY /*issue.*/
-			readL = 1'b1;
-			readM = !RegX0[0] & (WidthNot1);
-			nextWorkState = COPYCV_COPY;
-			stencilReadSig	= 1;
-		end
-	end
-	COPYCV_COPY:
-	begin
+        // TODO resetStencilTmp		= 1;
+    end
+    CPY_RS1: // Read Stencil.
+    begin
+        stencilReadSig	= 1; // Adr setup auto.
+        if (commandFIFOaccept) begin
+            nextWorkState = CPY_R1;
+        // else nextWorkState stay the same
+        end
+    end
+
+    CPY_R1:
+    begin
+        // Here we know that commandFIFOaccept is 1 (Previous state)
+        // Store (Stencil & Mask) in temporary here
+        incrementXCounter	= 1; useDest = 0; // Increment Source.
+        // TODO storeStencilTmp		= 1;
+        // TODO switchBank			= 1;
+        clearOtherBank		= 1;
+        memoryCommand		= MEM_CMD_RDBURST;
+
+        if (allowNextRead) begin
+            if (isDoubleLoad) begin
+                nextWorkState	= CPY_RS2;
+            end else begin
+                nextWorkState	= CPY_LWS1;
+            end
+        end else begin
+            nextWorkState		= CPY_WS2;
+        end
+
+        if (isDoubleLoad) begin
+            if (allowNextRead) begin
+                switchBank		= performSwitch;
+            end else begin
+                switchBank		= !performSwitch;
+            end
+        end else begin
+            switchBank		= performSwitch;
+        end
+
+        //-------------------
+        /* OLD BUGGY CODE
+        if (allowNextRead) begin
+            if (isDoubleLoad) begin
+                switchBank		= performSwitch;
+                nextWorkState	= CPY_RS2;
+            end else begin
+                // If PerformSwitch = 1 => Double bank switch -> No Switch !
+                // If PerformSwitch = 0 => Single bank switch -> 1  Switch !
+                switchBank		= !performSwitch;
+                nextWorkState	= CPY_LWS1;
+            end
+        end else begin
+            switchBank			= performSwitch;
+            nextWorkState		= CPY_WS2;
+        end
+        */
+    end
+    CPY_RS2:
+    begin
+        stencilReadSig	= 1; // Adr setup auto.
+        if (commandFIFOaccept) begin
+            nextWorkState = CPY_R2;
+        // else nextWorkState stay the same
+        end
+    end
+    CPY_R2:
+    begin
+        incrementXCounter	= 1; useDest = 0; // Increment Source.
+        // TODO storeStencilTmp		= 1;
+        memoryCommand		= MEM_CMD_RDBURST;
+        switchBank			= performSwitch;
+
+        if (allowNextRead) begin
+            nextWorkState	= CPY_LWS1;
+        end else begin
+            nextWorkState	= CPY_WS2;
+        end
+    end
+
+    CPY_LWS1:
+    begin
+        stencilReadSigW		= 1;
+
+        if (commandFIFOaccept) begin
+            nextWorkState	= CPY_LW1;
+        // else nextWorkState stay the same
+        end
+    end
+    CPY_LW1:
+    begin
+        incrementXCounter	= 1; useDest = 1;
+        memoryCommand		= MEM_CMD_WRBURST;
+        writeStencil		= 1;
+        nextWorkState		= CPY_LRS;
+    end
+    CPY_LRS:
+    begin
+        stencilReadSig	= 1; // Adr setup auto.
+        if (commandFIFOaccept) begin
+            nextWorkState	= CPY_LR;
+        // else nextWorkState stay the same
+        end
+    end
+    CPY_LR:
+    begin
+        incrementXCounter	= 1; useDest = 0; // Increment Source.
+
+        memoryCommand		= MEM_CMD_RDBURST;
+        switchBank			= performSwitch;
+
+        if (!isLastSegment/* = allowNextRead, do NOT check isLongLine ! */) begin
+            nextWorkState	= CPY_LWS1;
+        end else begin
+            nextWorkState	= CPY_WS2;
+        end
+    end
+
+    CPY_WS2:
+    begin
+        stencilReadSigW		= 1;
+
+        if (commandFIFOaccept) begin
+            nextWorkState	= CPY_W2;
+        // else nextWorkState stay the same
+        end
+    end
+    CPY_W2:
+    begin
+        // Here : at this cycle we receive value from stencil READ.
+        // And do now a STENCIL WRITE.
+        incrementXCounter	= 1; useDest = 1;
+        memoryCommand		= MEM_CMD_WRBURST;
+        writeStencil		= 1;
+
+        clearBank0			= !cpyBank;
+        clearBank1			= cpyBank;
+        switchBank			= performSwitch;
+
+        if (!isLastSegmentDst) begin
+            nextWorkState	= CPY_WS3;
+        end else begin
+            nextWorkState	= CPY_ENDLINE;
+        end
+    end
+    CPY_WS3:
+    begin
+        stencilReadSigW		= 1;
+
+        if (commandFIFOaccept) begin
+            nextWorkState	= CPY_W3;
+        // else nextWorkState stay the same
+        end
+    end
+    CPY_W3:
+    begin
+        memoryCommand		= MEM_CMD_WRBURST;
+        writeStencil		= 1;
+        nextWorkState		= CPY_ENDLINE;
+    end
+    CPY_ENDLINE:
+    begin
+        selNextY			= Y_TRI_NEXT; loadNext = 1;
+
+        if (endVertical) begin
+            // End of copy primitive...
+            nextWorkState	= NOT_WORKING_DEFAULT_STATE;
+        end else begin
+            nextWorkState	= COPY_START_LINE;
+        end
+    end
+
+    // --------------------------------------------------------------------
+    //   COPY CPU TO VRAM.
+    // --------------------------------------------------------------------
+    COPYCV_START:
+    begin
+        selNextX		= X_CV_START;
+        selNextY		= Y_CV_ZERO;
+        loadNext		= 1;
+        setSwap			= 1;
+        copyCVMode		= 1;
+        // Reset last pair by default, but if WIDTH == 1 -> different.
+        resetLastPair	= WidthNot1;
+        setLastPair		= !WidthNot1;
+        // We set first pair read here, flag not need to be set for next state !
+        // No Zero Size W/H Test -> IMPOSSIBLE By definition.
+        if (canRead) begin
+            // Read ALL DATA 1 item in advance -> Remove FIFO LATENCY /*issue.*/
+            readL = 1'b1;
+            readM = !RegX0[0] & (WidthNot1);
+            nextWorkState = COPYCV_COPY;
+            stencilReadSig	= 1;
+        end
+    end
+    COPYCV_COPY:
+    begin
 //		stencilSourceAdr        = 0;
-		// TRICKY :
-		// -----------------------------
-		// At the current pixel X,Y we preload the FIFO for the NEXT X,Y coordinate.
-		// So setup of readL/readM are ONE PAIR in advance compare to the scanning...
-		// -----------------------------
-		stencilReadSig	= 1;
-		copyCVMode		= 1;
-		if (commandFIFOaccept & canRead) begin
-			memoryCommand = MEM_CMD_PIXEL2VRAM;
-			nextWorkState = COPYCV_COPY;
-			writeStencil  = 1;
-			loadNext	  = 1;
+        // TRICKY :
+        // -----------------------------
+        // At the current pixel X,Y we preload the FIFO for the NEXT X,Y coordinate.
+        // So setup of readL/readM are ONE PAIR in advance compare to the scanning...
+        // -----------------------------
+        stencilReadSig	= 1;
+        copyCVMode		= 1;
+        if (commandFIFOaccept & canRead) begin
+            memoryCommand = MEM_CMD_PIXEL2VRAM;
+            nextWorkState = COPYCV_COPY;
+            writeStencil  = 1;
+            loadNext	  = 1;
 
-			// [Last pair]
-			if (lastPair) begin
-				if (endVertical) begin
-					nextWorkState	= NOT_WORKING_DEFAULT_STATE;
-					// PURGE...
-					readL		= 1'b0;
-					readM		= RegSizeW[0] & RegSizeH[0]; // Pump out unused pixel in FIFO.
-					flush		= 1'b1;
-				end else begin
-					selNextY	= Y_TRI_NEXT;
-					if (WidthNot1) begin
-						// WIDTH != 1, standard case
-						/* FIRST SEGMENT PATTERN
-							W=0	W=0	W=1	W=1
-							X=0	X=1	X=0	X=1
-						L=	1	1	1	!currY[0]
-						M=	1	0	1	currY[0]
-						*/
-						case ({RegSizeW[0],RegX0[0]})
-						2'b00: begin
-							readL = 1'b1; readM = 1'b1;
-						end
-						2'b01: begin
-							readL = 1'b1; readM = 1'b0;
-						end
-						2'b10: begin
-							readL = 1'b1; readM = 1'b1;
-						end
-						2'b11: begin
-							readL = !nextPixelY[0]; readM = nextPixelY[0];
-						end
-						endcase
-						changeSwap  = RegSizeW[0] & WidthNot1; // If width=1, do NOT swap.
-					end else begin
-						// Only 1 pixel WIDTH pattern...
-						// Alternate ODD/EVEN lines...
-						readL		= !nextPixelY[0];
-						readM		=  nextPixelY[0];
-						changeSwap	= 1'b1;
-					end
-				end
-				selNextX		= X_CV_START;
-				resetLastPair	= WidthNot1;
-			end else begin
-				// [MIDDLE OR FIRST SEGMENT]
-				//    PRELOAD NEXT SEGMENT...
-				if (nextPixelX == XE) begin
-					/* LAST SEGMENT PATTERN
-						W=0	W=0	W=1		W=1
-						X=0	X=1	X=0		X=1
-					L = 1	0	!Y[0]	1
-					M = 1	1	Y[0]	1	*/
-					case ({RegSizeW[0],RegX0[0]})
-					2'b00: begin
-						readL = 1'b1; readM = 1'b1;
-					end
-					2'b01: begin
-						readL = 1'b0; readM = 1'b1;
-					end
-					2'b10: begin
-						// L on first line (even), M on second (odd)
-						readL = !pixelY[0]; readM = pixelY[0];
-					end
-					2'b11: begin
-						readL = 1'b1; readM = 1'b1;
-					end
-					endcase
+            // [Last pair]
+            if (lastPair) begin
+                if (endVertical) begin
+                    nextWorkState	= NOT_WORKING_DEFAULT_STATE;
+                    // PURGE...
+                    readL		= 1'b0;
+                    readM		= RegSizeW[0] & RegSizeH[0]; // Pump out unused pixel in FIFO.
+                    flush		= 1'b1;
+                end else begin
+                    selNextY	= Y_TRI_NEXT;
+                    if (WidthNot1) begin
+                        // WIDTH != 1, standard case
+                        /* FIRST SEGMENT PATTERN
+                            W=0	W=0	W=1	W=1
+                            X=0	X=1	X=0	X=1
+                        L=	1	1	1	!currY[0]
+                        M=	1	0	1	currY[0]
+                        */
+                        case ({RegSizeW[0],RegX0[0]})
+                        2'b00: begin
+                            readL = 1'b1; readM = 1'b1;
+                        end
+                        2'b01: begin
+                            readL = 1'b1; readM = 1'b0;
+                        end
+                        2'b10: begin
+                            readL = 1'b1; readM = 1'b1;
+                        end
+                        2'b11: begin
+                            readL = !nextPixelY[0]; readM = nextPixelY[0];
+                        end
+                        endcase
+                        changeSwap  = RegSizeW[0] & WidthNot1; // If width=1, do NOT swap.
+                    end else begin
+                        // Only 1 pixel WIDTH pattern...
+                        // Alternate ODD/EVEN lines...
+                        readL		= !nextPixelY[0];
+                        readM		=  nextPixelY[0];
+                        changeSwap	= 1'b1;
+                    end
+                end
+                selNextX		= X_CV_START;
+                resetLastPair	= WidthNot1;
+            end else begin
+                // [MIDDLE OR FIRST SEGMENT]
+                //    PRELOAD NEXT SEGMENT...
+                if (nextPixelX == XE) begin
+                    /* LAST SEGMENT PATTERN
+                        W=0	W=0	W=1		W=1
+                        X=0	X=1	X=0		X=1
+                    L = 1	0	!Y[0]	1
+                    M = 1	1	Y[0]	1	*/
+                    case ({RegSizeW[0],RegX0[0]})
+                    2'b00: begin
+                        readL = 1'b1; readM = 1'b1;
+                    end
+                    2'b01: begin
+                        readL = 1'b0; readM = 1'b1;
+                    end
+                    2'b10: begin
+                        // L on first line (even), M on second (odd)
+                        readL = !pixelY[0]; readM = pixelY[0];
+                    end
+                    2'b11: begin
+                        readL = 1'b1; readM = 1'b1;
+                    end
+                    endcase
 
-					setLastPair	= 1'b1; // TODO : Rename FirstPair into LastPair.
-				end else begin
-					readL = 1'b1;
-					readM = 1'b1;
-				end
-				changeX		= 1;
-				selNextX	= X_TRI_NEXT;
-			end
-		end
-	end
-	// --------------------------------------------------------------------
-	//   COPY VRAM TO CPU.
-	// --------------------------------------------------------------------
-	COPYVC_START:
-	begin
-		// [PREAD COMMAND: [100][Index 5 bit] -> Next cycle have 16 bit through special port.
-		// Use BSTORE Command for burst loading.
+                    setLastPair	= 1'b1; // TODO : Rename FirstPair into LastPair.
+                end else begin
+                    readL = 1'b1;
+                    readM = 1'b1;
+                end
+                changeX		= 1;
+                selNextX	= X_TRI_NEXT;
+            end
+        end
+    end
+    // --------------------------------------------------------------------
+    //   COPY VRAM TO CPU.
+    // --------------------------------------------------------------------
+    COPYVC_START:
+    begin
+        // [PREAD COMMAND: [100][Index 5 bit] -> Next cycle have 16 bit through special port.
+        // Use BSTORE Command for burst loading.
 //		stencilSourceAdr        = 0;
-		nextWorkState = TMP_2;
+        nextWorkState = TMP_2;
 
-		/*
-			Start : Request First Block. (X[3] is block ID (0/1))
-					If ((XLeft & 7)==7)
-						State = Start2
-					else
-						Wait
-			Start2:	Request 2nd block    (![X3])
-			Wait  : [Wait Command FIFO empty & Complete flag]
-					If ok -> Wait CPU
-			WaitCPU:
-					if ((NextXLeft & 7)==7 || ==0) {
-						State = ReadNext
-					else
+        /*
+            Start : Request First Block. (X[3] is block ID (0/1))
+                    If ((XLeft & 7)==7)
+                        State = Start2
+                    else
+                        Wait
+            Start2:	Request 2nd block    (![X3])
+            Wait  : [Wait Command FIFO empty & Complete flag]
+                    If ok -> Wait CPU
+            WaitCPU:
+                    if ((NextXLeft & 7)==7 || ==0) {
+                        State = ReadNext
+                    else
 
-					if (cpuReadValid) // Read GP0.
-						incX += 2;
-						Write pixel back.
-							State = Start2
-						} else {
-							State = AsIs;
-						}
-					else
-						wait cpu to read pixel...
-						State = AsIs;
-					end
-		 */
-	end
-	COPYVC_TOCPU:
-	begin
-		// Detect edge transition... waiting for data received...
-		// Data already present -> Read from both buffer possible.
-		// Set gpuReadySendToCPU
-	end
-	// --------------------------------------------------------------------
-	//   TRIANGLE STATE MACHINE
-	// --------------------------------------------------------------------
-	SETUP_RX:
-	begin
-		compoID	= 3'd1;	vecID = 1'b0;
-		nextWorkState = SETUP_RY;
-	end
-	SETUP_RY:
-	begin
-		compoID	= 3'd1;	vecID = 1'b1;
-		nextWorkState = SETUP_GX;
-	end
-	SETUP_GX:
-	begin
-		compoID	= 3'd2;	vecID = 1'b0;
-		nextWorkState = SETUP_GY;
-	end
-	SETUP_GY:
-	begin
-		compoID	= 3'd2;	vecID = 1'b1;
-		nextWorkState = SETUP_BX;
-	end
-	SETUP_BX:
-	begin
-		compoID	= 3'd3;	vecID = 1'b0;
-		nextWorkState = SETUP_BY;
-	end
-	SETUP_BY:
-	begin
-		compoID	= 3'd3;	vecID = 1'b1;
-		if (bUseTexture) begin
-			nextWorkState = SETUP_UX;
-		end else begin
-			// Wait 6 cycle now...
-			nextWorkState = WAIT_3;
-		end
-	end
-	SETUP_UX:
-	begin
-		compoID	= 3'd4;	vecID = 1'b0;
-		nextWorkState = SETUP_UY;
-	end
-	SETUP_UY:
-	begin
-		compoID	= 3'd4;	vecID = 1'b1;
-		nextWorkState = SETUP_VX;
-	end
-	SETUP_VX:
-	begin
-		compoID	= 3'd5;	vecID = 1'b0;
-		nextWorkState = SETUP_VY;
-	end
-	SETUP_VY:
-	begin
-		compoID	= 3'd5;	vecID = 1'b1;
-		nextWorkState = WAIT_3;
-	end
-	WAIT_3: // 4 cycles to wait
-	begin
-		// Use this state to wait for end previous memory transaction...
-		nextWorkState = (saveLoadOnGoing == 0) ? WAIT_2 : WAIT_3;
-	end
-	WAIT_2: // 3 cycles to wait
-	begin
-		if (validCLUTLoad || (isPalettePrimitive & rPalette4Bit & CLUTIs8BPP)) begin
-			// Not using signal updateClutCacheComplete but could... rely on transaction only.
-			if (saveLoadOnGoing == 0) begin // Wait for an on going memory transaction to complete.
-				if (rClutPacketCount != 5'd0) begin
-					// And request ours.
-					requClutCacheUpdate = 1;
-					decClutCount		= 1;
-					nextWorkState		= WAIT_2;
-				end else begin
-					nextWorkState		= WAIT_1;
-				end
-			end else begin
-				// Just do nothing
-				nextWorkState = WAIT_2;
-			end
-		end else begin
-			nextWorkState = WAIT_1;
-		end
-	end
-	WAIT_1: // 2 cycles to wait
-	begin
-		endClutLoading	= isPalettePrimitive;	// Reset flag, even if it was already reset. Force 0.
-												// Force also to cache the current primitive pixel format (was it 4 bpp ?)
-		nextWorkState = SELECT_PRIMITIVE;
-	end
-	SELECT_PRIMITIVE: 	// 1 Cycle to wait... send to primitive (with 1 cycle wait too...)
-	begin				// Need 4 more cycle after that.
-		if (bIsRectCommand) begin
-			nextWorkState = RECT_START;
-		end else begin
-			if (bIsPolyCommand) begin
-				nextWorkState = TRIANGLE_START;
-			end else begin
-				nextWorkState = LINE_START; /* RECT NEVER REACH HERE : No Division setup */
-			end
-		end
-	end
-	TRIANGLE_START:
-	begin
-		loadNext = 1;
-		if (earlyTriangleReject || (DET == 22'd0)) begin	// Bounding box and draw area do not intersect at all.
-			nextWorkState	= NOT_WORKING_DEFAULT_STATE;
-		end else begin
-			nextWorkState	= START_LINE_TEST_LEFT;
-			selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
-			selNextY	= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
-		end
+                    if (cpuReadValid) // Read GP0.
+                        incX += 2;
+                        Write pixel back.
+                            State = Start2
+                        } else {
+                            State = AsIs;
+                        }
+                    else
+                        wait cpu to read pixel...
+                        State = AsIs;
+                    end
+         */
+    end
+    COPYVC_TOCPU:
+    begin
+        // Detect edge transition... waiting for data received...
+        // Data already present -> Read from both buffer possible.
+        // Set gpuReadySendToCPU
+    end
+    // --------------------------------------------------------------------
+    //   TRIANGLE STATE MACHINE
+    // --------------------------------------------------------------------
+    SETUP_RX:
+    begin
+        compoID	= 3'd1;	vecID = 1'b0;
+        nextWorkState = SETUP_RY;
+    end
+    SETUP_RY:
+    begin
+        compoID	= 3'd1;	vecID = 1'b1;
+        nextWorkState = SETUP_GX;
+    end
+    SETUP_GX:
+    begin
+        compoID	= 3'd2;	vecID = 1'b0;
+        nextWorkState = SETUP_GY;
+    end
+    SETUP_GY:
+    begin
+        compoID	= 3'd2;	vecID = 1'b1;
+        nextWorkState = SETUP_BX;
+    end
+    SETUP_BX:
+    begin
+        compoID	= 3'd3;	vecID = 1'b0;
+        nextWorkState = SETUP_BY;
+    end
+    SETUP_BY:
+    begin
+        compoID	= 3'd3;	vecID = 1'b1;
+        if (bUseTexture) begin
+            nextWorkState = SETUP_UX;
+        end else begin
+            // Wait 6 cycle now...
+            nextWorkState = WAIT_3;
+        end
+    end
+    SETUP_UX:
+    begin
+        compoID	= 3'd4;	vecID = 1'b0;
+        nextWorkState = SETUP_UY;
+    end
+    SETUP_UY:
+    begin
+        compoID	= 3'd4;	vecID = 1'b1;
+        nextWorkState = SETUP_VX;
+    end
+    SETUP_VX:
+    begin
+        compoID	= 3'd5;	vecID = 1'b0;
+        nextWorkState = SETUP_VY;
+    end
+    SETUP_VY:
+    begin
+        compoID	= 3'd5;	vecID = 1'b1;
+        nextWorkState = WAIT_3;
+    end
+    WAIT_3: // 4 cycles to wait
+    begin
+        // Use this state to wait for end previous memory transaction...
+        nextWorkState = (saveLoadOnGoing == 0) ? WAIT_2 : WAIT_3;
+    end
+    WAIT_2: // 3 cycles to wait
+    begin
+        if (validCLUTLoad || (isPalettePrimitive & rPalette4Bit & CLUTIs8BPP)) begin
+            // Not using signal updateClutCacheComplete but could... rely on transaction only.
+            if (saveLoadOnGoing == 0) begin // Wait for an on going memory transaction to complete.
+                if (rClutPacketCount != 5'd0) begin
+                    // And request ours.
+                    requClutCacheUpdate = 1;
+                    decClutCount		= 1;
+                    nextWorkState		= WAIT_2;
+                end else begin
+                    nextWorkState		= WAIT_1;
+                end
+            end else begin
+                // Just do nothing
+                nextWorkState = WAIT_2;
+            end
+        end else begin
+            nextWorkState = WAIT_1;
+        end
+    end
+    WAIT_1: // 2 cycles to wait
+    begin
+        endClutLoading	= isPalettePrimitive;	// Reset flag, even if it was already reset. Force 0.
+                                                // Force also to cache the current primitive pixel format (was it 4 bpp ?)
+        nextWorkState = SELECT_PRIMITIVE;
+    end
+    SELECT_PRIMITIVE: 	// 1 Cycle to wait... send to primitive (with 1 cycle wait too...)
+    begin				// Need 4 more cycle after that.
+        if (bIsRectCommand) begin
+            nextWorkState = RECT_START;
+        end else begin
+            if (bIsPolyCommand) begin
+                nextWorkState = TRIANGLE_START;
+            end else begin
+                nextWorkState = LINE_START; /* RECT NEVER REACH HERE : No Division setup */
+            end
+        end
+    end
+    TRIANGLE_START:
+    begin
+        loadNext = 1;
+        if (earlyTriangleReject || (DET == 22'd0)) begin	// Bounding box and draw area do not intersect at all.
+            nextWorkState	= NOT_WORKING_DEFAULT_STATE;
+        end else begin
+            nextWorkState	= START_LINE_TEST_LEFT;
+            selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
+            selNextY	= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
+        end
 
-		// Triangle use PSTORE COMMAND. (2 pix per clock)
-		//              BWRITE
-		//
-		// [CLOAD COMMAND : [111][Adress 17 bit] (Texture)
-		// Use C(ache)LOAD to load a cache line for TEXTURE with 8 BYTE. This command will be upgraded if cache design changes...
-		// Clut CACHE uses BSTORE command.
-	end
-	START_LINE_TEST_LEFT:
-	begin
-		if (isValidPixelL | isValidPixelR) begin // Line equation.
-			nextWorkState = SCAN_LINE;
-			stencilReadSig	= 1;
-		end else begin
-			memorizeLineEqu = 1;
-			nextWorkState	= START_LINE_TEST_RIGHT;
-			loadNext 		= 1;
-			selNextX		= X_TRI_BBRIGHT;// Set next X = BBox RIGHT intersected with DrawArea.
-		end
-	end
-	START_LINE_TEST_RIGHT:
-	begin
-		loadNext 	= 1;
-		selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
-		// Test Bbox left (included) has SAME line equation result as right (excluded) result of line equation.
-		// If so, mean that we are at the same area defined by the equation.
-		// We also test that we are NOT a valid pixel inside the triangle.
-		// We use L/R result based on RIGHT edge coordinate (odd/even).
-		if ((memW0 == tstRightEqu0) && (memW1 == tstRightEqu1) && (memW2 == tstRightEqu2) 	// Check that TRIANGLE EDGE did not SWITCH between the LEFT and RIGHT side of the bounding box.
-		 && ((!maxTriDAX1[0] && !isValidPixelL) || (maxTriDAX1[0] && !isValidPixelR)))		// And that we are OUTSIDE OF THE TRIANGLE. (if odd/even pixel, select proper L/R validpixel.) (Could be also a clipped triangle with FULL LINE)
-		begin
-			selNextY		= Y_TRI_NEXT;
-			nextWorkState	= isValidHorizontalTriBbox ? START_LINE_TEST_LEFT : FLUSH_COMPLETE_STATE;
-		end else begin
-			resetPixelFound	= 1;
-			stencilReadSig	= 1;
-			nextWorkState	= SCAN_LINE;
-		end
-	end
-	SCAN_LINE:
-	begin
-		if (isBottomInsideBBox) begin
-			stencilReadSig	= 1;
-			//
-			// TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
-			//        Warning : Care of single pixel write logic + and non increment of X.
+        // Triangle use PSTORE COMMAND. (2 pix per clock)
+        //              BWRITE
+        //
+        // [CLOAD COMMAND : [111][Adress 17 bit] (Texture)
+        // Use C(ache)LOAD to load a cache line for TEXTURE with 8 BYTE. This command will be upgraded if cache design changes...
+        // Clut CACHE uses BSTORE command.
+    end
+    START_LINE_TEST_LEFT:
+    begin
+        if (isValidPixelL | isValidPixelR) begin // Line equation.
+            nextWorkState = SCAN_LINE;
+            stencilReadSig	= 1;
+        end else begin
+            memorizeLineEqu = 1;
+            nextWorkState	= START_LINE_TEST_RIGHT;
+            loadNext 		= 1;
+            selNextX		= X_TRI_BBRIGHT;// Set next X = BBox RIGHT intersected with DrawArea.
+        end
+    end
+    START_LINE_TEST_RIGHT:
+    begin
+        loadNext 	= 1;
+        selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
+        // Test Bbox left (included) has SAME line equation result as right (excluded) result of line equation.
+        // If so, mean that we are at the same area defined by the equation.
+        // We also test that we are NOT a valid pixel inside the triangle.
+        // We use L/R result based on RIGHT edge coordinate (odd/even).
+        if ((memW0 == tstRightEqu0) && (memW1 == tstRightEqu1) && (memW2 == tstRightEqu2) 	// Check that TRIANGLE EDGE did not SWITCH between the LEFT and RIGHT side of the bounding box.
+         && ((!maxTriDAX1[0] && !isValidPixelL) || (maxTriDAX1[0] && !isValidPixelR)))		// And that we are OUTSIDE OF THE TRIANGLE. (if odd/even pixel, select proper L/R validpixel.) (Could be also a clipped triangle with FULL LINE)
+        begin
+            selNextY		= Y_TRI_NEXT;
+            nextWorkState	= isValidHorizontalTriBbox ? START_LINE_TEST_LEFT : FLUSH_COMPLETE_STATE;
+        end else begin
+            resetPixelFound	= 1;
+            stencilReadSig	= 1;
+            nextWorkState	= SCAN_LINE;
+        end
+    end
+    SCAN_LINE:
+    begin
+        if (isBottomInsideBBox) begin
+            stencilReadSig	= 1;
+            //
+            // TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
+            //        Warning : Care of single pixel write logic + and non increment of X.
 
-			// TODO : Mask stuff here at IF level too.
-			if (isValidPixelL || isValidPixelR) begin // Line Equation.
-				setEnteredTriangle = 1;
+            // TODO : Mask stuff here at IF level too.
+            if (isValidPixelL || isValidPixelR) begin // Line Equation.
+                setEnteredTriangle = 1;
 
-				if (pixelFound == 0) begin
-					setPixelFound	= 1;
-				end
+                if (pixelFound == 0) begin
+                    setPixelFound	= 1;
+                end
 
-				// TODO Pixel writing logic
-				if (requestNextPixel) begin
+                // TODO Pixel writing logic
+                if (requestNextPixel) begin
 //					resetBlockChange = 1;
 
-					// Write only if pixel pair is valid...
+                    // Write only if pixel pair is valid...
 
-					writePixelL	= isValidPixelL  & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
-					writePixelR	= isValidPixelR  & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
+                    writePixelL	= isValidPixelL  & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
+                    writePixelR	= isValidPixelR  & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
 
-					// writeStencil2 = { writePixelR , writePixelL };
+                    // writeStencil2 = { writePixelR , writePixelL };
 
-					// Go to next pair whatever, as long as request is asking for new pair...
-					// normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
-					changeX		= 1;
-					loadNext	= 1;
-					selNextX	= X_TRI_NEXT;
-				end
-			end else begin
-				// Makes GPU slower but fixed part of a bug (only a part !)
-				// When GPU is busy with some memory (like fetching Texture, write back BG, read BG for blending)
-				// I stop the triangle scanning...
-				// Logically I should not.
-				if (requestNextPixel) begin
-					loadNext	= 1;
-					if (pixelFound == 1) begin // Pixel Found.
-						selNextY		= Y_TRI_NEXT;
-						nextWorkState	= SCAN_LINE_CATCH_END;
-					end else begin
-						// Continue to search for VALID PIXELS...
-						changeX			= 1;
-						selNextX		= X_TRI_NEXT;
-						selNextY		= reachEdgeTriScan ? Y_TRI_NEXT : Y_ASIS;
-						// Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
-						// -> Need to detect that we scan too far and met nobody and avoid out of bound search.
-						nextWorkState	= reachEdgeTriScan ? (enteredTriangle ? FLUSH_COMPLETE_STATE : SCAN_LINE_CATCH_END) : SCAN_LINE;
-					end
-				end // else do nothing.
-			end
-		end else begin
-			nextWorkState	= FLUSH_COMPLETE_STATE;
-		end
-	end
-	SCAN_LINE_CATCH_END:
-	begin
-		if (isValidPixelL || isValidPixelR) begin
-			changeX			= 1;
-			loadNext		= 1;
-			selNextX		= X_TRI_NEXT;
-		end else begin
-			switchDir		= 1;
-			resetPixelFound	= 1;
-			nextWorkState	= SCAN_LINE;
-		end
-	end
-	// --------------------------------------------------------------------
-	//   RECT STATE MACHINE
-	// --------------------------------------------------------------------
-	RECT_START:
-	begin
-		// Rect use PSTORE COMMAND. (2 pix per clock)
-		nextWorkState	= RECT_SCAN_LINE;
-		stencilReadSig	= 1;
-		if (earlyTriangleReject | isNegXAxis | preB[11]) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all, or NegativeSize => size = 0.
-			nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// Override state.
-		end else begin
-			loadNext		= 1;
-			selNextX		= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
-			selNextY		= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
-		end
-	end
-	RECT_SCAN_LINE:
-	begin
-		stencilReadSig	= 1;
-		if (isBottomInsideBBox) begin // Not Y end yet ?
-			if (isRightPLXmaxTri) begin // Work by pair. Is left side of pair is inside rendering area. ( < right border )
-				if (requestNextPixel) begin
-					// Write only if pixel pair is valid...
-					writePixelL   = isInsideBBoxTriRectL & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
-					writePixelR   = isInsideBBoxTriRectR & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
+                    // Go to next pair whatever, as long as request is asking for new pair...
+                    // normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
+                    changeX		= 1;
+                    loadNext	= 1;
+                    selNextX	= X_TRI_NEXT;
+                end
+            end else begin
+                // Makes GPU slower but fixed part of a bug (only a part !)
+                // When GPU is busy with some memory (like fetching Texture, write back BG, read BG for blending)
+                // I stop the triangle scanning...
+                // Logically I should not.
+                if (requestNextPixel) begin
+                    loadNext	= 1;
+                    if (pixelFound == 1) begin // Pixel Found.
+                        selNextY		= Y_TRI_NEXT;
+                        nextWorkState	= SCAN_LINE_CATCH_END;
+                    end else begin
+                        // Continue to search for VALID PIXELS...
+                        changeX			= 1;
+                        selNextX		= X_TRI_NEXT;
+                        selNextY		= reachEdgeTriScan ? Y_TRI_NEXT : Y_ASIS;
+                        // Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
+                        // -> Need to detect that we scan too far and met nobody and avoid out of bound search.
+                        nextWorkState	= reachEdgeTriScan ? (enteredTriangle ? FLUSH_COMPLETE_STATE : SCAN_LINE_CATCH_END) : SCAN_LINE;
+                    end
+                end // else do nothing.
+            end
+        end else begin
+            nextWorkState	= FLUSH_COMPLETE_STATE;
+        end
+    end
+    SCAN_LINE_CATCH_END:
+    begin
+        if (isValidPixelL || isValidPixelR) begin
+            changeX			= 1;
+            loadNext		= 1;
+            selNextX		= X_TRI_NEXT;
+        end else begin
+            switchDir		= 1;
+            resetPixelFound	= 1;
+            nextWorkState	= SCAN_LINE;
+        end
+    end
+    // --------------------------------------------------------------------
+    //   RECT STATE MACHINE
+    // --------------------------------------------------------------------
+    RECT_START:
+    begin
+        // Rect use PSTORE COMMAND. (2 pix per clock)
+        nextWorkState	= RECT_SCAN_LINE;
+        stencilReadSig	= 1;
+        if (earlyTriangleReject | isNegXAxis | preB[11]) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all, or NegativeSize => size = 0.
+            nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// Override state.
+        end else begin
+            loadNext		= 1;
+            selNextX		= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
+            selNextY		= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
+        end
+    end
+    RECT_SCAN_LINE:
+    begin
+        stencilReadSig	= 1;
+        if (isBottomInsideBBox) begin // Not Y end yet ?
+            if (isRightPLXmaxTri) begin // Work by pair. Is left side of pair is inside rendering area. ( < right border )
+                if (requestNextPixel) begin
+                    // Write only if pixel pair is valid...
+                    writePixelL   = isInsideBBoxTriRectL & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
+                    writePixelR   = isInsideBBoxTriRectR & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
 
-					// Go to next pair whatever, as long as request is asking for new pair...
-					// normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
-					changeX		= 1;
-					loadNext	= 1;
-					selNextX	= X_TRI_NEXT;
-				end
-			end else begin
-				loadNext	= 1;
-				selNextX	= X_TRI_BBLEFT;
-				selNextY	= Y_TRI_NEXT;
-				// No state change... Work on next line...
-			end
-			nextWorkState	= RECT_SCAN_LINE;
-		end else begin
-			nextWorkState	= FLUSH_COMPLETE_STATE;
-		end
-	end
+                    // Go to next pair whatever, as long as request is asking for new pair...
+                    // normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
+                    changeX		= 1;
+                    loadNext	= 1;
+                    selNextX	= X_TRI_NEXT;
+                end
+            end else begin
+                loadNext	= 1;
+                selNextX	= X_TRI_BBLEFT;
+                selNextY	= Y_TRI_NEXT;
+                // No state change... Work on next line...
+            end
+            nextWorkState	= RECT_SCAN_LINE;
+        end else begin
+            nextWorkState	= FLUSH_COMPLETE_STATE;
+        end
+    end
 
-	// --------------------------------------------------------------------
-	//   LINE STATE MACHINE
-	// --------------------------------------------------------------------
-	LINE_START:
-	begin
-		/* Line Setup, Triangle setup may be... */
-		loadNext	= 1;
-		stencilReadSig	= 1;
-		selNextX	= X_LINE_START;
-		selNextY	= Y_LINE_START;
-		nextWorkState = LINE_DRAW;
-	end
-	LINE_DRAW:
-	begin
-		if (requestNextPixel) begin
-			stencilReadSig	= 1;
-			selNextX	= X_LINE_NEXT;
-			selNextY	= Y_LINE_NEXT;
-			loadNext	= 1;
+    // --------------------------------------------------------------------
+    //   LINE STATE MACHINE
+    // --------------------------------------------------------------------
+    LINE_START:
+    begin
+        /* Line Setup, Triangle setup may be... */
+        loadNext	= 1;
+        stencilReadSig	= 1;
+        selNextX	= X_LINE_START;
+        selNextY	= Y_LINE_START;
+        nextWorkState = LINE_DRAW;
+    end
+    LINE_DRAW:
+    begin
+        if (requestNextPixel) begin
+            stencilReadSig	= 1;
+            selNextX	= X_LINE_NEXT;
+            selNextY	= Y_LINE_NEXT;
+            loadNext	= 1;
 
-			if ((pixelX == RegX1) && (pixelY == RegY1)) begin
-				nextWorkState	= FLUSH_COMPLETE_STATE; // Override nextWorkState from setup in this.
-			end
+            if ((pixelX == RegX1) && (pixelY == RegY1)) begin
+                nextWorkState	= FLUSH_COMPLETE_STATE; // Override nextWorkState from setup in this.
+            end
 
-			// If pixel is valid and (no mask checking | mask check with value = 0)
-			if (isLineInsideDrawArea && ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
-				writePixelL	 = isLineLeftPix;
-				writePixelR	 = isLineRightPix;
-			end
-		end
-	end
-	FLUSH_COMPLETE_STATE:
-	begin
-		// We stopped emitting pixels, now we have to check that :
-		// - No memory transaction is running anymore.
-		// - No pixel are in flight.
-		if (!saveLoadOnGoing && !pixelInFlight) begin
-			flush = 1'b1;
-			nextWorkState = NOT_WORKING_DEFAULT_STATE;
-		end
-	end
-	// --- TEMP DEBUG STUFF ---
-	TMP_2: begin nextWorkState = TMP_3; end
-	TMP_3: begin nextWorkState = TMP_4; end
-	TMP_4: begin nextWorkState = NOT_WORKING_DEFAULT_STATE; end
-	default:
-	begin
-		nextWorkState = NOT_WORKING_DEFAULT_STATE;
-	end
-	endcase
+            // If pixel is valid and (no mask checking | mask check with value = 0)
+            if (isLineInsideDrawArea && ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
+                writePixelL	 = isLineLeftPix;
+                writePixelR	 = isLineRightPix;
+            end
+        end
+    end
+    FLUSH_COMPLETE_STATE:
+    begin
+        // We stopped emitting pixels, now we have to check that :
+        // - No memory transaction is running anymore.
+        // - No pixel are in flight.
+        if (!saveLoadOnGoing && !pixelInFlight) begin
+            flush = 1'b1;
+            nextWorkState = NOT_WORKING_DEFAULT_STATE;
+        end
+    end
+    // --- TEMP DEBUG STUFF ---
+    TMP_2: begin nextWorkState = TMP_3; end
+    TMP_3: begin nextWorkState = TMP_4; end
+    TMP_4: begin nextWorkState = NOT_WORKING_DEFAULT_STATE; end
+    default:
+    begin
+        nextWorkState = NOT_WORKING_DEFAULT_STATE;
+    end
+    endcase
 end
 
 always @(*)
 begin
-	// Read FIFO when fifo is NOT empty or that we can decode the next item in the FIFO.
-	// TODO : Assume that FIFO always output the same value as the last read, even if read signal is FALSE ! Simplify state machine a LOT.
-	
-	// NOT SUPPORTED WELL --->>>> issue = 0/*'{default:1'b0}*/;
-	storeCommand  	= 0;
-	loadRGB         = 0;
-	loadAllRGB      = 0;
-	setIRQ			= 0;
-	rstTextureCache	= 0;
-	loadE5Offsets		    = 0;
-	loadTexPageE1		    = 0;
-	loadTexWindowSetting  	= 0;
-	loadDrawAreaTL			= 0;
-	loadDrawAreaBR			= 0;
-	loadMaskSetting			= 0;
+    // Read FIFO when fifo is NOT empty or that we can decode the next item in the FIFO.
+    // TODO : Assume that FIFO always output the same value as the last read, even if read signal is FALSE ! Simplify state machine a LOT.
+
+    // NOT SUPPORTED WELL --->>>> issue = 0/*'{default:1'b0}*/;
+    storeCommand  	= 0;
+    loadRGB         = 0;
+    loadAllRGB      = 0;
+    setIRQ			= 0;
+    rstTextureCache	= 0;
+    loadE5Offsets		    = 0;
+    loadTexPageE1		    = 0;
+    loadTexWindowSetting  	= 0;
+    loadDrawAreaTL			= 0;
+    loadDrawAreaBR			= 0;
+    loadMaskSetting			= 0;
     resetVertexCounter		= 0;
     increaseVertexCounter	= 0;
     loadUV					= 0;
-	loadVertices			= 0;
+    loadVertices			= 0;
     loadClutPage			= 0;
     loadTexPage				= 0;
     loadSize				= 0;
     loadCoord1				= 0;
-	loadCoord2				= 0;
+    loadCoord2				= 0;
     loadRectEdge			= 0;
-	loadSizeParam			= 2'd0;
-	issuePrimitive			= 5'd0;
-	
-	nextCondUseFIFO			= 0;
-	nextLogicalState		= DEFAULT_STATE;
+    loadSizeParam			= 2'd0;
+    issuePrimitive			= 5'd0;
 
-	case (currState)
-	DEFAULT_STATE:
-	begin
-		/*issue.*/resetVertexCounter = 1;
-		nextCondUseFIFO			= 1;
-		nextLogicalState		= LOAD_COMMAND; // Need FIFO
-	end
-	// Step 0A
-	LOAD_COMMAND:				// Here we do NOT check data validity : if we arrive in this state, we know the data is available from the FIFO, and GPU accepts commands.
-	begin
-		/*issue.*/storeCommand  	= 1;
-		/*issue.*/loadRGB           = 1; // Work for all command, just ignored.
-		/*issue.*/loadAllRGB        = (bIgnoreColor) ? 1'b1 : (!bIsPerVtxCol);
-		/*issue.*/setIRQ			= bIsBase0x & bIsBase1F;
-		/*issue.*/rstTextureCache	= bIsBase0x & bIsBase01;
-		/*issue.*/loadClutPage		= bIsBase0x & bIsBase01; // Reset CLUT adr, using rstTextureCache for MSB -> Invalid adr.
+    nextCondUseFIFO			= 0;
+    nextLogicalState		= DEFAULT_STATE;
 
-		 // TODO : Can optimize later by using LOAD_COMMAND instead and loop...
-		 // For now any command reading is MINIMUM EVERY 2 CYCLES.
-		// E1~E6
-		if (bIsRenderAttrib) begin
-			nextLogicalState	= DEFAULT_STATE;
-			nextCondUseFIFO		= 0;
+    case (currState)
+    DEFAULT_STATE:
+    begin
+        /*issue.*/resetVertexCounter = 1;
+        nextCondUseFIFO			= 1;
+        nextLogicalState		= LOAD_COMMAND; // Need FIFO
+    end
+    // Step 0A
+    LOAD_COMMAND:				// Here we do NOT check data validity : if we arrive in this state, we know the data is available from the FIFO, and GPU accepts commands.
+    begin
+        /*issue.*/storeCommand  	= 1;
+        /*issue.*/loadRGB           = 1; // Work for all command, just ignored.
+        /*issue.*/loadAllRGB        = (bIgnoreColor) ? 1'b1 : (!bIsPerVtxCol);
+        /*issue.*/setIRQ			= bIsBase0x & bIsBase1F;
+        /*issue.*/rstTextureCache	= bIsBase0x & bIsBase01;
+        /*issue.*/loadClutPage		= bIsBase0x & bIsBase01; // Reset CLUT adr, using rstTextureCache for MSB -> Invalid adr.
 
-			/*issue.*/loadE5Offsets		    = (command[2:0] == 3'd5);
-			/*issue.*/loadTexPageE1		    = (command[2:0] == 3'd1);
-			/*issue.*/loadTexWindowSetting  = (command[2:0] == 3'd2);
-			/*issue.*/loadDrawAreaTL		= (command[2:0] == 3'd3);
-			/*issue.*/loadDrawAreaBR		= (command[2:0] == 3'd4);
-			/*issue.*/loadMaskSetting		= (command[2:0] == 3'd6);
-		end else begin
-			// [02/8x~9X/Ax~Bx/Cx~Dx]
-			if (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand) begin
-				nextLogicalState	= LOAD_XY1;
-				nextCondUseFIFO		= 1;
-			end else begin
-				 // Case E0/E7/E8~EF
-				 // Case 00/03~1E/01 Handled.
-				if (bIsNop | bIsBase0x) begin
-					nextLogicalState	= DEFAULT_STATE;
-					nextCondUseFIFO		= 0;
-				end else begin
-				// 2x/3x/4x/5x/6x/7x
-					nextLogicalState	= VERTEX_LOAD;
-					nextCondUseFIFO		= 1;
-				end
-			end
-		end
-	end
-	LOAD_XY1:
-	begin
-		/*issue.*/loadCoord1 = 1; /*issue.*/loadCoord2	= 0;
-		// bIsCopyVVCommand		Top Left Corner   (YyyyXxxxh) then WIDTH_HEIGHT_STATE
-		// bIsCopyCVCommand		Source Coord      (YyyyXxxxh) then LOAD_X2
-		// bIsCopyVCCommand		Destination Coord (YyyyXxxxh) then WIDTH_HEIGHT_STATE
-		// bIsFillCommand		Top Left Corner   (YyyyXxxxh) then WIDTH_HEIGHT_STATE
-		nextCondUseFIFO			= 1;
-		nextLogicalState		= bIsCopyVVCommand ? LOAD_XY2 :  WIDTH_HEIGHT_STATE;
-	end
-	LOAD_XY2:
-	begin
-		/*issue.*/loadCoord1 = 0; /*issue.*/loadCoord2	= 1;
-		nextCondUseFIFO			= 1;
-		nextLogicalState		= WIDTH_HEIGHT_STATE;
-	end
-	// Step 0B
-	COLOR_LOAD:
-	begin
-		//
-		/*issue.*/loadRGB           = canIssueWork; // Reach the COLOR_LOAD state while a primitive is rendering... Forbid to LOAD COLOR.
-		// Special case to test TERMINATOR (comes instead of COLOR value !!!)
-		nextCondUseFIFO			= !(bIsLineCommand & bIsMultiLine & bIsTerminator);
-		nextLogicalState		=  (bIsLineCommand & bIsMultiLine & bIsTerminator) ? DEFAULT_STATE : VERTEX_LOAD;
-	end
-	COLOR_LOAD_GARAGE:
-	begin
-		// Special case to test TERMINATOR (comes instead of COLOR value !!!)
-		nextCondUseFIFO			= canIssueWork;
-		nextLogicalState		= canIssueWork ? COLOR_LOAD : COLOR_LOAD_GARAGE;
-	end
-	VERTEX_LOAD_GARAGE:
-	begin
-		// Special case to test TERMINATOR (comes instead of COLOR value !!!)
-		nextCondUseFIFO			= canIssueWork;
-		nextLogicalState		= canIssueWork ? VERTEX_LOAD : VERTEX_LOAD_GARAGE;
-	end
-	// Step 1
-	VERTEX_LOAD:
-	begin
-		if (bIsRectCommand) begin
-			// Command original 27-28 Rect Size   (0=Var, 1=1x1, 2=8x8, 3=16x16) (Rectangle only)
-			if (command[4:3]==2'd0) begin
-				nextCondUseFIFO		= 1;
-				nextLogicalState	= (bUseTexture) ? UV_LOAD : WIDTH_HEIGHT_STATE;
-			end else begin
-				if (bUseTexture) begin
-					nextCondUseFIFO		= 1;
-					nextLogicalState	= UV_LOAD;
-				end else begin
-					nextCondUseFIFO		= 0;
-					/*issue.*/loadSize      = 1; /*issue.*/loadSizeParam = command[4:3];
-					nextLogicalState	= WAIT_COMMAND_COMPLETE;
-					/*issue.*/issuePrimitive		= ISSUE_RECT;
-				end
-			end
-		end else begin
-			if (bUseTexture) begin
-				// Condition with 'FifoDataValid' necessary :
-				// => If not done, state machine skip the 4th vertex loading to load directly 4th texture without loading the coordinates. (fifo not valid as we waited for primitive to complete)
-				nextCondUseFIFO		= 1;
-				nextLogicalState	= FifoDataValid ? UV_LOAD : VERTEX_LOAD;
-			end else begin
-				// End command if it is a terminator line or 2 vertex line only
-				// Or a 4 point polygon or 3 point polygon.
+         // TODO : Can optimize later by using LOAD_COMMAND instead and loop...
+         // For now any command reading is MINIMUM EVERY 2 CYCLES.
+        // E1~E6
+        if (bIsRenderAttrib) begin
+            nextLogicalState	= DEFAULT_STATE;
+            nextCondUseFIFO		= 0;
 
-				// MUST check 'canIssueWork' because the following test check ONLY THE VERTEX COUNTERS related.
-				// and when entering the first emitted primitive, counter increments and VALIDATE the state change
-				// WHILE the command is still working... So we miss emitting the SECOND TRIANGLE OR MULTILINES remaining.
-				if ( canIssueWork & FifoDataValid &
-							((bIsLineCommand & ((bIsMultiLine & bIsTerminator)|(!bIsMultiLine & (vertCnt == 2'd1))))	// Polyline with FINAL VERTEX or Line with second vertex.
-							|(bIsPolyCommand & isPolyFinalVertex))
-					) begin
-					nextCondUseFIFO		= 0;	// Instead of FIFO state, it uses
-					nextLogicalState	= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
-					if (bIsPolyCommand) begin // Sure Polygon command
-						// Issue a triangle primitive.
-						/*issue.*/issuePrimitive	= ISSUE_TRIANGLE;
-					end else begin
-						// Line/Polyline
-						// If 5xxx5xxx do not issue a LINE.
-						/*issue.*/issuePrimitive	= (bIsMultiLine & bIsTerminator) ? NO_ISSUE : ISSUE_LINE;
-					end
-				end else begin
-					// No need to check for canIssueWork because we emit the FIRST TRIANGLE in this case, so we know that the canIssueWork = 1.
+            /*issue.*/loadE5Offsets		    = (command[2:0] == 3'd5);
+            /*issue.*/loadTexPageE1		    = (command[2:0] == 3'd1);
+            /*issue.*/loadTexWindowSetting  = (command[2:0] == 3'd2);
+            /*issue.*/loadDrawAreaTL		= (command[2:0] == 3'd3);
+            /*issue.*/loadDrawAreaBR		= (command[2:0] == 3'd4);
+            /*issue.*/loadMaskSetting		= (command[2:0] == 3'd6);
+        end else begin
+            // [02/8x~9X/Ax~Bx/Cx~Dx]
+            if (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand) begin
+                nextLogicalState	= LOAD_XY1;
+                nextCondUseFIFO		= 1;
+            end else begin
+                 // Case E0/E7/E8~EF
+                 // Case 00/03~1E/01 Handled.
+                if (bIsNop | bIsBase0x) begin
+                    nextLogicalState	= DEFAULT_STATE;
+                    nextCondUseFIFO		= 0;
+                end else begin
+                // 2x/3x/4x/5x/6x/7x
+                    nextLogicalState	= VERTEX_LOAD;
+                    nextCondUseFIFO		= 1;
+                end
+            end
+        end
+    end
+    LOAD_XY1:
+    begin
+        /*issue.*/loadCoord1 = 1; /*issue.*/loadCoord2	= 0;
+        // bIsCopyVVCommand		Top Left Corner   (YyyyXxxxh) then WIDTH_HEIGHT_STATE
+        // bIsCopyCVCommand		Source Coord      (YyyyXxxxh) then LOAD_X2
+        // bIsCopyVCCommand		Destination Coord (YyyyXxxxh) then WIDTH_HEIGHT_STATE
+        // bIsFillCommand		Top Left Corner   (YyyyXxxxh) then WIDTH_HEIGHT_STATE
+        nextCondUseFIFO			= 1;
+        nextLogicalState		= bIsCopyVVCommand ? LOAD_XY2 :  WIDTH_HEIGHT_STATE;
+    end
+    LOAD_XY2:
+    begin
+        /*issue.*/loadCoord1 = 0; /*issue.*/loadCoord2	= 1;
+        nextCondUseFIFO			= 1;
+        nextLogicalState		= WIDTH_HEIGHT_STATE;
+    end
+    // Step 0B
+    COLOR_LOAD:
+    begin
+        //
+        /*issue.*/loadRGB           = canIssueWork; // Reach the COLOR_LOAD state while a primitive is rendering... Forbid to LOAD COLOR.
+        // Special case to test TERMINATOR (comes instead of COLOR value !!!)
+        nextCondUseFIFO			= !(bIsLineCommand & bIsMultiLine & bIsTerminator);
+        nextLogicalState		=  (bIsLineCommand & bIsMultiLine & bIsTerminator) ? DEFAULT_STATE : VERTEX_LOAD;
+    end
+    COLOR_LOAD_GARAGE:
+    begin
+        // Special case to test TERMINATOR (comes instead of COLOR value !!!)
+        nextCondUseFIFO			= canIssueWork;
+        nextLogicalState		= canIssueWork ? COLOR_LOAD : COLOR_LOAD_GARAGE;
+    end
+    VERTEX_LOAD_GARAGE:
+    begin
+        // Special case to test TERMINATOR (comes instead of COLOR value !!!)
+        nextCondUseFIFO			= canIssueWork;
+        nextLogicalState		= canIssueWork ? VERTEX_LOAD : VERTEX_LOAD_GARAGE;
+    end
+    // Step 1
+    VERTEX_LOAD:
+    begin
+        if (bIsRectCommand) begin
+            // Command original 27-28 Rect Size   (0=Var, 1=1x1, 2=8x8, 3=16x16) (Rectangle only)
+            if (command[4:3]==2'd0) begin
+                nextCondUseFIFO		= 1;
+                nextLogicalState	= (bUseTexture) ? UV_LOAD : WIDTH_HEIGHT_STATE;
+            end else begin
+                if (bUseTexture) begin
+                    nextCondUseFIFO		= 1;
+                    nextLogicalState	= UV_LOAD;
+                end else begin
+                    nextCondUseFIFO		= 0;
+                    /*issue.*/loadSize      = 1; /*issue.*/loadSizeParam = command[4:3];
+                    nextLogicalState	= WAIT_COMMAND_COMPLETE;
+                    /*issue.*/issuePrimitive		= ISSUE_RECT;
+                end
+            end
+        end else begin
+            if (bUseTexture) begin
+                // Condition with 'FifoDataValid' necessary :
+                // => If not done, state machine skip the 4th vertex loading to load directly 4th texture without loading the coordinates. (fifo not valid as we waited for primitive to complete)
+                nextCondUseFIFO		= 1;
+                nextLogicalState	= FifoDataValid ? UV_LOAD : VERTEX_LOAD;
+            end else begin
+                // End command if it is a terminator line or 2 vertex line only
+                // Or a 4 point polygon or 3 point polygon.
 
-					// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
-					// Can not issue if data is not valid.
-					if (canIssueWork) begin
-						if (FifoDataValid & bIsPolyCommand & canEmitTriangle) begin
-							/*issue.*/issuePrimitive		= ISSUE_TRIANGLE;
-						end else begin
-							if (FifoDataValid & bIsLineCommand & bIsMultiLine & bNotFirstVert) begin // Remain the case of intermediate line ONLY (single 2 vertex line handled in upper logic)
-								/*issue.*/issuePrimitive	= ISSUE_LINE;
-							end
-						end
-					end
+                // MUST check 'canIssueWork' because the following test check ONLY THE VERTEX COUNTERS related.
+                // and when entering the first emitted primitive, counter increments and VALIDATE the state change
+                // WHILE the command is still working... So we miss emitting the SECOND TRIANGLE OR MULTILINES remaining.
+                if ( canIssueWork & FifoDataValid &
+                            ((bIsLineCommand & ((bIsMultiLine & bIsTerminator)|(!bIsMultiLine & (vertCnt == 2'd1))))	// Polyline with FINAL VERTEX or Line with second vertex.
+                            |(bIsPolyCommand & isPolyFinalVertex))
+                    ) begin
+                    nextCondUseFIFO		= 0;	// Instead of FIFO state, it uses
+                    nextLogicalState	= WAIT_COMMAND_COMPLETE;  // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+                    if (bIsPolyCommand) begin // Sure Polygon command
+                        // Issue a triangle primitive.
+                        /*issue.*/issuePrimitive	= ISSUE_TRIANGLE;
+                    end else begin
+                        // Line/Polyline
+                        // If 5xxx5xxx do not issue a LINE.
+                        /*issue.*/issuePrimitive	= (bIsMultiLine & bIsTerminator) ? NO_ISSUE : ISSUE_LINE;
+                    end
+                end else begin
+                    // No need to check for canIssueWork because we emit the FIRST TRIANGLE in this case, so we know that the canIssueWork = 1.
 
-					//
-					// The logic of this state machine is that when we reach the current state it is a VALID state.
-					// The problem we fix here is that multiple primitive command (Quad, Multiline) emit a rendering command and we reach the NEXT command parameter and executed it.
-					// As a result, next vertex/color can override the primitive we are just trying to draw...
-					// [This logic is also in the UV_LOAD]
-					//
-					nextCondUseFIFO		= (/*issue.*/issuePrimitive == NO_ISSUE); //	TODO ??? OLD COMMENT Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
-					if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-						nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
-					end else begin
-						nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
-					end
-				end
-			end
-		end
+                    // Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
+                    // Can not issue if data is not valid.
+                    if (canIssueWork) begin
+                        if (FifoDataValid & bIsPolyCommand & canEmitTriangle) begin
+                            /*issue.*/issuePrimitive		= ISSUE_TRIANGLE;
+                        end else begin
+                            if (FifoDataValid & bIsLineCommand & bIsMultiLine & bNotFirstVert) begin // Remain the case of intermediate line ONLY (single 2 vertex line handled in upper logic)
+                                /*issue.*/issuePrimitive	= ISSUE_LINE;
+                            end
+                        end
+                    end
 
-		//
-		// TRICKY DETAIL : When emitting multiple primitive, load the next vertex ONLY WHEN THE EMITTED COMMAND IS COMPLETED.
-		//                 So we check (issuePrimitive == NO_ISSUE) when requesting next vertex.
-		/*issue.*/increaseVertexCounter	= FifoDataValid & (!bUseTexture);	// go to next vertex if do not need UVs, don't care if invalid vertex... cause no issues. PUSH NEW VERTEX ONLY IF NOT BUSY RENDERING.
-		/*issue.*/loadVertices			= (!bIsMultiLineTerminator); // Check if not TERMINATOR + line + multiline, else vertices are valid.
-		/*issue.*/loadRectEdge			= bIsRectCommand;	// Force to load, dont care, override by UV if set with UV or SIZE if variable.
-	end
-	UV_LOAD:
-	begin
-		//
+                    //
+                    // The logic of this state machine is that when we reach the current state it is a VALID state.
+                    // The problem we fix here is that multiple primitive command (Quad, Multiline) emit a rendering command and we reach the NEXT command parameter and executed it.
+                    // As a result, next vertex/color can override the primitive we are just trying to draw...
+                    // [This logic is also in the UV_LOAD]
+                    //
+                    nextCondUseFIFO		= (/*issue.*/issuePrimitive == NO_ISSUE); //	TODO ??? OLD COMMENT Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
+                    if (/*issue.*/issuePrimitive != NO_ISSUE) begin
+                        nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
+                    end else begin
+                        nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
+                    end
+                end
+            end
+        end
 
-		/*issue.*/increaseVertexCounter	= FifoDataValid & canIssueWork & (!bIsRectCommand);	// Increase vertex counter only when in POLY MODE (LINE never reach here, RECT is the only other)
-		/*issue.*/loadUV				= canIssueWork;
-		/*issue.*/loadClutPage			= FifoDataValid & isV0 & (!isPolyFinalVertex); // First entry is Clut info, avoid reset when quad.
-		/*issue.*/loadTexPage			= isV1; // second entry is TexPage.
-		/*issue.*/loadRectEdge			= bIsRectCommand;
+        //
+        // TRICKY DETAIL : When emitting multiple primitive, load the next vertex ONLY WHEN THE EMITTED COMMAND IS COMPLETED.
+        //                 So we check (issuePrimitive == NO_ISSUE) when requesting next vertex.
+        /*issue.*/increaseVertexCounter	= FifoDataValid & (!bUseTexture);	// go to next vertex if do not need UVs, don't care if invalid vertex... cause no issues. PUSH NEW VERTEX ONLY IF NOT BUSY RENDERING.
+        /*issue.*/loadVertices			= (!bIsMultiLineTerminator); // Check if not TERMINATOR + line + multiline, else vertices are valid.
+        /*issue.*/loadRectEdge			= bIsRectCommand;	// Force to load, dont care, override by UV if set with UV or SIZE if variable.
+    end
+    UV_LOAD:
+    begin
+        //
 
-		// do not issue primitive if Rectangle or 1st/2nd vertex UV.
+        /*issue.*/increaseVertexCounter	= FifoDataValid & canIssueWork & (!bIsRectCommand);	// Increase vertex counter only when in POLY MODE (LINE never reach here, RECT is the only other)
+        /*issue.*/loadUV				= canIssueWork;
+        /*issue.*/loadClutPage			= FifoDataValid & isV0 & (!isPolyFinalVertex); // First entry is Clut info, avoid reset when quad.
+        /*issue.*/loadTexPage			= isV1; // second entry is TexPage.
+        /*issue.*/loadRectEdge			= bIsRectCommand;
 
-		if (bIsRectCommand) begin
-			// 27-28 Rect Size   (0=Var, 1=1x1, 2=8x8, 3=16x16) (Rectangle only)
-			/*issue.*/loadSizeParam			= command[4:3]; // Optimization, same as commented version.
-			/*issue.*/issuePrimitive			= (command[4:3]!=2'd0) ? ISSUE_RECT : NO_ISSUE;
-			if (command[4:3]==2'd0) begin
-				nextCondUseFIFO		= 1;
-				nextLogicalState	= WIDTH_HEIGHT_STATE;
-			end else begin
-				/*issue.*/loadSize			= 1; // loadSizeParam	<= command[4:3];
-				nextCondUseFIFO		= 0;
-				nextLogicalState	= WAIT_COMMAND_COMPLETE;
-			end
-		end else begin
-			// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
-			// Can not issue if data is not valid.
-			if (FifoDataValid & bIsPolyCommand & canEmitTriangle & canIssueWork) begin
-				/*issue.*/issuePrimitive	= ISSUE_TRIANGLE;
-			end
+        // do not issue primitive if Rectangle or 1st/2nd vertex UV.
 
-			if (isPolyFinalVertex) begin // Is it the final vertex of the command ? (3rd / 4th depending on command)
-				// Allow to complete UV LOAD of last vertex and go to COMPLETE
-				// only if we can push the triangle and that the incoming FIFO data is valid.
-				nextCondUseFIFO		= !(canIssueWork & FifoDataValid);	// Instead of FIFO state, it uses
-				nextLogicalState	=  (canIssueWork & FifoDataValid) ? WAIT_COMMAND_COMPLETE : UV_LOAD;	// For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
-			end else begin
+        if (bIsRectCommand) begin
+            // 27-28 Rect Size   (0=Var, 1=1x1, 2=8x8, 3=16x16) (Rectangle only)
+            /*issue.*/loadSizeParam			= command[4:3]; // Optimization, same as commented version.
+            /*issue.*/issuePrimitive			= (command[4:3]!=2'd0) ? ISSUE_RECT : NO_ISSUE;
+            if (command[4:3]==2'd0) begin
+                nextCondUseFIFO		= 1;
+                nextLogicalState	= WIDTH_HEIGHT_STATE;
+            end else begin
+                /*issue.*/loadSize			= 1; // loadSizeParam	<= command[4:3];
+                nextCondUseFIFO		= 0;
+                nextLogicalState	= WAIT_COMMAND_COMPLETE;
+            end
+        end else begin
+            // Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
+            // Can not issue if data is not valid.
+            if (FifoDataValid & bIsPolyCommand & canEmitTriangle & canIssueWork) begin
+                /*issue.*/issuePrimitive	= ISSUE_TRIANGLE;
+            end
 
-				//
-				// The logic of this state machine is that when we reach the current state it is a VALID state.
-				// The problem we fix here is that multiple primitive command (Quad, Multiline) emit a rendering command and we reach the NEXT command parameter and executed it.
-				// As a result, next vertex/color can override the primitive we are just trying to draw...
-				// [This logic is also in the UV_LOAD]
-				//
-				nextCondUseFIFO		= (/*issue.*/issuePrimitive == NO_ISSUE); //	TODO ??? OLD COMMENT Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
-				if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-					nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
-				end else begin
-					nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
-				end
+            if (isPolyFinalVertex) begin // Is it the final vertex of the command ? (3rd / 4th depending on command)
+                // Allow to complete UV LOAD of last vertex and go to COMPLETE
+                // only if we can push the triangle and that the incoming FIFO data is valid.
+                nextCondUseFIFO		= !(canIssueWork & FifoDataValid);	// Instead of FIFO state, it uses
+                nextLogicalState	=  (canIssueWork & FifoDataValid) ? WAIT_COMMAND_COMPLETE : UV_LOAD;	// For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+            end else begin
 
-				if (bIsPerVtxCol) begin
-					if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-						nextCondUseFIFO		= 0;
-						nextLogicalState	= COLOR_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
-					end else begin
-						nextCondUseFIFO		= 1;
-						nextLogicalState	= FifoDataValid ? COLOR_LOAD : UV_LOAD; // Next Vertex or stay current vertex until loaded.
-					end
-				end else begin
-					// Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
-					// Can not issue if data is not valid.
-					if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-						nextCondUseFIFO		= 0;
-						nextLogicalState	= VERTEX_LOAD_GARAGE;	// Next Vertex stuff...
-					end else begin
-						nextCondUseFIFO		= 1;
-						nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
-					end
-				end
-			end
-		end
-	end
-	WIDTH_HEIGHT_STATE:
-	begin
-		// No$PSX Doc says that two triangles are not generated.
-		// We can use 4 lines equation instead of 3.
-		// Visually difference can't be made. And pixel pipeline is nearly the same.
-		// TODO ?; // Loop to generate 4 vertices... Add w/h to Vertex and UV.
-		/*issue.*/loadSize			= 1; /*issue.*/loadSizeParam = SIZE_VAR;
+                //
+                // The logic of this state machine is that when we reach the current state it is a VALID state.
+                // The problem we fix here is that multiple primitive command (Quad, Multiline) emit a rendering command and we reach the NEXT command parameter and executed it.
+                // As a result, next vertex/color can override the primitive we are just trying to draw...
+                // [This logic is also in the UV_LOAD]
+                //
+                nextCondUseFIFO		= (/*issue.*/issuePrimitive == NO_ISSUE); //	TODO ??? OLD COMMENT Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
+                if (/*issue.*/issuePrimitive != NO_ISSUE) begin
+                    nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
+                end else begin
+                    nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
+                end
 
-		/*issue.*/loadRectEdge		= bIsRectCommand;
+                if (bIsPerVtxCol) begin
+                    if (/*issue.*/issuePrimitive != NO_ISSUE) begin
+                        nextCondUseFIFO		= 0;
+                        nextLogicalState	= COLOR_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
+                    end else begin
+                        nextCondUseFIFO		= 1;
+                        nextLogicalState	= FifoDataValid ? COLOR_LOAD : UV_LOAD; // Next Vertex or stay current vertex until loaded.
+                    end
+                end else begin
+                    // Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
+                    // Can not issue if data is not valid.
+                    if (/*issue.*/issuePrimitive != NO_ISSUE) begin
+                        nextCondUseFIFO		= 0;
+                        nextLogicalState	= VERTEX_LOAD_GARAGE;	// Next Vertex stuff...
+                    end else begin
+                        nextCondUseFIFO		= 1;
+                        nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
+                    end
+                end
+            end
+        end
+    end
+    WIDTH_HEIGHT_STATE:
+    begin
+        // No$PSX Doc says that two triangles are not generated.
+        // We can use 4 lines equation instead of 3.
+        // Visually difference can't be made. And pixel pipeline is nearly the same.
+        // TODO ?; // Loop to generate 4 vertices... Add w/h to Vertex and UV.
+        /*issue.*/loadSize			= 1; /*issue.*/loadSizeParam = SIZE_VAR;
 
-		/*issue.*/issuePrimitive	= (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand) ? ISSUE_COPY : (bIsRectCommand ? ISSUE_RECT : ISSUE_FILL);
-		nextCondUseFIFO			= 0;
-		nextLogicalState		= WAIT_COMMAND_COMPLETE;
-	end
-	WAIT_COMMAND_COMPLETE:
-	begin
-		// (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand)
-		nextCondUseFIFO			= 0;
-		nextLogicalState		=  canIssueWork ? DEFAULT_STATE : WAIT_COMMAND_COMPLETE;
-	end
-	default :; // null
-	endcase
+        /*issue.*/loadRectEdge		= bIsRectCommand;
+
+        /*issue.*/issuePrimitive	= (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand) ? ISSUE_COPY : (bIsRectCommand ? ISSUE_RECT : ISSUE_FILL);
+        nextCondUseFIFO			= 0;
+        nextLogicalState		= WAIT_COMMAND_COMPLETE;
+    end
+    WAIT_COMMAND_COMPLETE:
+    begin
+        // (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand)
+        nextCondUseFIFO			= 0;
+        nextLogicalState		=  canIssueWork ? DEFAULT_STATE : WAIT_COMMAND_COMPLETE;
+    end
+    default :; // null
+    endcase
 end
 
 // WE Read from the FIFO when FIFO has data, but also when the GPU is not busy rendering, else we stop loading commands...
@@ -2571,30 +2588,30 @@ assign issuePrimitiveReal	= canIssueWork ? /*issue.*/issuePrimitive : NO_ISSUE;
 
 
 StencilCache StencilCacheInstance(
-	.clk					(clk),
+    .clk					(clk),
 
-	.fullMode				(stencilFullMode),
-	.writeValue16			(stencilWriteValue16),
-	.writeMask16			(stencilWriteMask16),
-	.readValue16			(stencilReadValue16),
+    .fullMode				(stencilFullMode),
+    .writeValue16			(stencilWriteValue16),
+    .writeMask16			(stencilWriteMask16),
+    .readValue16			(stencilReadValue16),
 
-	// -------------------------------
-	//   Stencil Cache Write Back
-	// -------------------------------
-	.stencilWriteSig		(stencilWriteSigC),		// Write (use for FULL mode and PAIR MODE, in FULL mode Write=0 -> EQUAL READ)
-	.stencilWriteAdr		(stencilWriteAdrC),		// Where to write
-	.stencilWritePair		(stencilWritePairC),
-	.stencilWriteSelect		(stencilWriteSelectC),		// Where inside the pair
-	.stencilWriteValue		(stencilWriteValueC),		// Value to write
+    // -------------------------------
+    //   Stencil Cache Write Back
+    // -------------------------------
+    .stencilWriteSig		(stencilWriteSigC),		// Write (use for FULL mode and PAIR MODE, in FULL mode Write=0 -> EQUAL READ)
+    .stencilWriteAdr		(stencilWriteAdrC),		// Where to write
+    .stencilWritePair		(stencilWritePairC),
+    .stencilWriteSelect		(stencilWriteSelectC),		// Where inside the pair
+    .stencilWriteValue		(stencilWriteValueC),		// Value to write
 
-	// -------------------------------
-	//   Stencil Cache Read
-	// -------------------------------
-	.stencilReadSig			(stencilReadSig | stencilReadSigW),		// Write
-	.stencilReadAdr			(stencilReadAdr),		// Where to read
-	.stencilReadPair		(stencilReadPair),
-	.stencilReadSelect		(stencilReadSelect),
-	.stencilReadValue		(stencilReadValue)		// Value to write
+    // -------------------------------
+    //   Stencil Cache Read
+    // -------------------------------
+    .stencilReadSig			(stencilReadSig | stencilReadSigW),		// Write
+    .stencilReadAdr			(stencilReadAdr),		// Where to read
+    .stencilReadPair		(stencilReadPair),
+    .stencilReadSelect		(stencilReadSelect),
+    .stencilReadValue		(stencilReadValue)		// Value to write
 );
 
 wire	[15:0]	stencilWMaskCpy   = maskReadRemapped    & ({16{!GPU_REG_CheckMaskBit}} | (~stencilReadValue16));
@@ -2602,34 +2619,34 @@ wire	[15:0]	stencilWValueCpy  = stencilReadRemapped |  {16{GPU_REG_ForcePixel15M
 
 always @(*)
 begin
-	stencilWriteValue16	= stencilMode[2] ? stencilWValueCpy : 16'd0;	// For now... FILL ONLY.
-	stencilWriteMask16	= stencilMode[2] ? stencilWMaskCpy  : 16'hFFFF;	// For now... FILL ONLY.
+    stencilWriteValue16	= stencilMode[2] ? stencilWValueCpy : 16'd0;	// For now... FILL ONLY.
+    stencilWriteMask16	= stencilMode[2] ? stencilWMaskCpy  : 16'hFFFF;	// For now... FILL ONLY.
 
-	if (stencilMode[1:0] == 2'd2) begin
-		// Work for FILL command OR VRAM<->VRAM Command.
-		stencilFullMode		= 1;
-		stencilWriteSigC	= writeStencil;
-		stencilWriteAdrC	= { stencilMode[2] ? scrDstY[8:0] : scrY[8:0]
-  		                      , stencilMode[2] ?      scrDstX : scrSrcX   };
-	end else begin
-		// Work for Triangle/Line/Rect primtive
-		// CPU->VRAM
-		stencilFullMode		= 0;
-		stencilWriteSigC	= (stencilMode == 3'd3) ? writeStencil               : stencilWriteSig;
-		stencilWriteAdrC	= (stencilMode == 3'd3) ? { scrY[8:0], pixelX[9:4] } : stencilWriteAdr;
-	end
+    if (stencilMode[1:0] == 2'd2) begin
+        // Work for FILL command OR VRAM<->VRAM Command.
+        stencilFullMode		= 1;
+        stencilWriteSigC	= writeStencil;
+        stencilWriteAdrC	= { stencilMode[2] ? scrDstY[8:0] : scrY[8:0]
+                                , stencilMode[2] ?      scrDstX : scrSrcX   };
+    end else begin
+        // Work for Triangle/Line/Rect primtive
+        // CPU->VRAM
+        stencilFullMode		= 0;
+        stencilWriteSigC	= (stencilMode == 3'd3) ? writeStencil               : stencilWriteSig;
+        stencilWriteAdrC	= (stencilMode == 3'd3) ? { scrY[8:0], pixelX[9:4] } : stencilWriteAdr;
+    end
 
-	if (stencilMode == 3'd3) begin
-		// CPU->VRAM
-		stencilWritePairC	= pixelX[3:1];
-		stencilWriteSelectC	= { cmd1ValidR , cmd1ValidL };
-		stencilWriteValueC	= { WRPixelR15 , WRPixelL15 };
-	end else begin
-		// Triangle/Line/Rect (Ignored for FILL VRAM)
-		stencilWritePairC	= stencilWritePair;
-		stencilWriteSelectC	= stencilWriteSelect;
-		stencilWriteValueC	= stencilWriteValue;
-	end
+    if (stencilMode == 3'd3) begin
+        // CPU->VRAM
+        stencilWritePairC	= pixelX[3:1];
+        stencilWriteSelectC	= { cmd1ValidR , cmd1ValidL };
+        stencilWriteValueC	= { WRPixelR15 , WRPixelL15 };
+    end else begin
+        // Triangle/Line/Rect (Ignored for FILL VRAM)
+        stencilWritePairC	= stencilWritePair;
+        stencilWriteSelectC	= stencilWriteSelect;
+        stencilWriteValueC	= stencilWriteValue;
+    end
 end
 
 wire    [14:0]  VVReadAdrStencil = stencilReadSigW ? { scrDstY[8:0] , scrDstX } : { scrY[8:0] , scrSrcX };
@@ -2685,44 +2702,44 @@ reg        writeOrigHeight;
 
 always @(*)
 begin
-	writeOrigHeight = 0;
+    writeOrigHeight = 0;
 
-	case (/*issue.*/loadSizeParam)
-	SIZE_VAR:
-	begin
-		if (bIsFillCommand) begin
-			widthNext = { 1'b0, fifoDataOutWidth[9:4], 4'b0 } + { 6'd0, |fifoDataOutWidth[3:0], 4'b0 };
-		end else begin
-			if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
-				widthNext = { !(|fifoDataOutWidth[9:0]), fifoDataOutWidth }; // If value is 0, then 0x400
-			end else begin
-				widthNext = { 1'b0, fifoDataOutWidth };
-			end
-		end
+    case (/*issue.*/loadSizeParam)
+    SIZE_VAR:
+    begin
+        if (bIsFillCommand) begin
+            widthNext = { 1'b0, fifoDataOutWidth[9:4], 4'b0 } + { 6'd0, |fifoDataOutWidth[3:0], 4'b0 };
+        end else begin
+            if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
+                widthNext = { !(|fifoDataOutWidth[9:0]), fifoDataOutWidth }; // If value is 0, then 0x400
+            end else begin
+                widthNext = { 1'b0, fifoDataOutWidth };
+            end
+        end
 
-		writeOrigHeight = 1;
-		if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
-			heightNext			= copyHeight; // If value is 0, then 0x400
-		end else begin
-			heightNext			= { 1'b0, fifoDataOutHeight };
-		end
-	end
-	SIZE_1x1:
-	begin
-		widthNext	= 11'd1;
-		heightNext	= 10'd1;
-	end
-	SIZE_8x8:
-	begin
-		widthNext	= 11'd8;
-		heightNext	= 10'd8;
-	end
-	SIZE_16x16:
-	begin
-		widthNext	= 11'd16;
-		heightNext	= 10'd16;
-	end
-	endcase
+        writeOrigHeight = 1;
+        if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
+            heightNext			= copyHeight; // If value is 0, then 0x400
+        end else begin
+            heightNext			= { 1'b0, fifoDataOutHeight };
+        end
+    end
+    SIZE_1x1:
+    begin
+        widthNext	= 11'd1;
+        heightNext	= 10'd1;
+    end
+    SIZE_8x8:
+    begin
+        widthNext	= 11'd8;
+        heightNext	= 10'd8;
+    end
+    SIZE_16x16:
+    begin
+        widthNext	= 11'd16;
+        heightNext	= 10'd16;
+    end
+    endcase
 end
 wire signed [11:0] sizeWM1		  = { 1'b0, widthNext  } + { 12{1'b1}}; //  Width-1
 wire signed [11:0] sizeHM1		  = { 2'd0, heightNext } + { 12{1'b1}}; // Height-1
@@ -2733,64 +2750,64 @@ wire signed [11:0] bottomEdgeRect = (isVertexLoadState ? fifoDataOutY : RegY0) +
 
 always @(posedge clk)
 begin
-	bPipeIssueTrianglePrimitive <= (issuePrimitiveReal == ISSUE_TRIANGLE);
-	if (FifoDataValid) begin
-		if (isV0 & /*issue.*/loadVertices) RegX0 = fifoDataOutX;
-		if (isV0 & /*issue.*/loadVertices) RegY0 = fifoDataOutY;
-		if (isV0 & /*issue.*/loadUV	   ) RegU0 = fifoDataOutUR;
-		if (isV0 & /*issue.*/loadUV      ) RegV0 = fifoDataOutVG;
-		if ((isV0|/*issue.*/loadAllRGB) & /*issue.*/loadRGB) begin
-			RegR0 = loadComponentR;
-			RegG0 = loadComponentG;
-			RegB0 = loadComponentB;
-		end
+    bPipeIssueTrianglePrimitive <= (issuePrimitiveReal == ISSUE_TRIANGLE);
+    if (FifoDataValid) begin
+        if (isV0 & /*issue.*/loadVertices) RegX0 = fifoDataOutX;
+        if (isV0 & /*issue.*/loadVertices) RegY0 = fifoDataOutY;
+        if (isV0 & /*issue.*/loadUV	   ) RegU0 = fifoDataOutUR;
+        if (isV0 & /*issue.*/loadUV      ) RegV0 = fifoDataOutVG;
+        if ((isV0|/*issue.*/loadAllRGB) & /*issue.*/loadRGB) begin
+            RegR0 = loadComponentR;
+            RegG0 = loadComponentG;
+            RegB0 = loadComponentB;
+        end
 
-		if (isV1 & /*issue.*/loadVertices) RegX1 = fifoDataOutX;
-		if (isV1 & /*issue.*/loadVertices) RegY1 = fifoDataOutY;
-		if (/*issue.*/loadRectEdge) begin
-			RegX1 = rightEdgeRect;
-			RegY1 = RegY0;
-			RegX2 = RegX0;
-			RegY2 = bottomEdgeRect;
-		end
-		if (isV1 & /*issue.*/loadUV) RegU1 = fifoDataOutUR;
-		if (isV1 & /*issue.*/loadUV) RegV1 = fifoDataOutVG;
-		if ((isV1|/*issue.*/loadAllRGB) & /*issue.*/loadRGB) begin
-			RegR1 = loadComponentR;
-			RegG1 = loadComponentG;
-			RegB1 = loadComponentB;
-		end
+        if (isV1 & /*issue.*/loadVertices) RegX1 = fifoDataOutX;
+        if (isV1 & /*issue.*/loadVertices) RegY1 = fifoDataOutY;
+        if (/*issue.*/loadRectEdge) begin
+            RegX1 = rightEdgeRect;
+            RegY1 = RegY0;
+            RegX2 = RegX0;
+            RegY2 = bottomEdgeRect;
+        end
+        if (isV1 & /*issue.*/loadUV) RegU1 = fifoDataOutUR;
+        if (isV1 & /*issue.*/loadUV) RegV1 = fifoDataOutVG;
+        if ((isV1|/*issue.*/loadAllRGB) & /*issue.*/loadRGB) begin
+            RegR1 = loadComponentR;
+            RegG1 = loadComponentG;
+            RegB1 = loadComponentB;
+        end
 
-		if (isV2 & /*issue.*/loadVertices) RegX2 = fifoDataOutX;
-		if (isV2 & /*issue.*/loadVertices) RegY2 = fifoDataOutY;
-		if (isV2 & /*issue.*/loadUV      ) RegU2 = fifoDataOutUR;
-		if (isV2 & /*issue.*/loadUV      ) RegV2 = fifoDataOutVG;
-		if ((isV2|/*issue.*/loadAllRGB) & /*issue.*/loadRGB) begin
-			RegR2 = loadComponentR;
-			RegG2 = loadComponentG;
-			RegB2 = loadComponentB;
-		end
+        if (isV2 & /*issue.*/loadVertices) RegX2 = fifoDataOutX;
+        if (isV2 & /*issue.*/loadVertices) RegY2 = fifoDataOutY;
+        if (isV2 & /*issue.*/loadUV      ) RegU2 = fifoDataOutUR;
+        if (isV2 & /*issue.*/loadUV      ) RegV2 = fifoDataOutVG;
+        if ((isV2|/*issue.*/loadAllRGB) & /*issue.*/loadRGB) begin
+            RegR2 = loadComponentR;
+            RegG2 = loadComponentG;
+            RegB2 = loadComponentB;
+        end
 
 // [NOT USED FOR NOW : DIRECTLY MODIFY GLOBAL GPU STATE]
 //		if (loadTexPage)  RegTx = fifoDataOutTex;
 
-	//	Better load and add W to RegX0,RegY0,RegX1=RegX0+W ? Same for Y1.
-		if (/*issue.*/loadSize) begin
-			RegSizeW = widthNext;
-			RegSizeH = heightNext;
-			if (writeOrigHeight) begin
-				OriginalRegSizeH = heightNext;
-			end
-		end
-		if (/*issue.*/loadCoord1) begin
-			RegX0 = { 2'd0 , (bIsFillCommand) ? { fifoDataOutWidth[9:4], 4'b0} : fifoDataOutWidth};
-			RegY0 = { 3'd0 , fifoDataOutHeight };
-		end
-		if (/*issue.*/loadCoord2) begin
-			RegX1 = { 2'd0 , fifoDataOutWidth  };
-			RegY1 = { 3'd0 , fifoDataOutHeight };
-		end
-	end
+    //	Better load and add W to RegX0,RegY0,RegX1=RegX0+W ? Same for Y1.
+        if (/*issue.*/loadSize) begin
+            RegSizeW = widthNext;
+            RegSizeH = heightNext;
+            if (writeOrigHeight) begin
+                OriginalRegSizeH = heightNext;
+            end
+        end
+        if (/*issue.*/loadCoord1) begin
+            RegX0 = { 2'd0 , (bIsFillCommand) ? { fifoDataOutWidth[9:4], 4'b0} : fifoDataOutWidth};
+            RegY0 = { 3'd0 , fifoDataOutHeight };
+        end
+        if (/*issue.*/loadCoord2) begin
+            RegX1 = { 2'd0 , fifoDataOutWidth  };
+            RegY1 = { 3'd0 , fifoDataOutHeight };
+        end
+    end
 end
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -2955,34 +2972,34 @@ reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6;
 reg       vecID2,vecID3,vecID4,vecID5,vecID6;
 always @(posedge clk)
 begin
-	compoID6 = compoID5;
-	compoID5 = compoID4;
-	compoID4 = compoID3;
-	compoID3 = compoID2;
-	compoID2 = compoID;
+    compoID6 = compoID5;
+    compoID5 = compoID4;
+    compoID4 = compoID3;
+    compoID3 = compoID2;
+    compoID2 = compoID;
 
-	vecID6   = vecID5;
-	vecID5   = vecID4;
-	vecID4   = vecID3;
-	vecID3   = vecID2;
-	vecID2   = vecID;
+    vecID6   = vecID5;
+    vecID5   = vecID4;
+    vecID4   = vecID3;
+    vecID3   = vecID2;
+    vecID2   = vecID;
 end
 
 always @(*)
 begin
-	case (compoID)
-	default:	begin v0C = RegR0;           v1C = RegR1;           v2C = RegR2;           end
-	3'd2:		begin v0C = RegG0;           v1C = RegG1;           v2C = RegG2;           end
-	3'd3:		begin v0C = RegB0;           v1C = RegB1;           v2C = RegB2;           end
-	3'd4:		begin v0C = { 1'b0, RegU0 }; v1C = { 1'b0, RegU1 }; v2C = { 1'b0, RegU2 }; end
-	3'd5:		begin v0C = { 1'b0, RegV0 }; v1C = { 1'b0, RegV1 }; v2C = { 1'b0, RegV2 }; end
-	endcase
+    case (compoID)
+    default:	begin v0C = RegR0;           v1C = RegR1;           v2C = RegR2;           end
+    3'd2:		begin v0C = RegG0;           v1C = RegG1;           v2C = RegG2;           end
+    3'd3:		begin v0C = RegB0;           v1C = RegB1;           v2C = RegB2;           end
+    3'd4:		begin v0C = { 1'b0, RegU0 }; v1C = { 1'b0, RegU1 }; v2C = { 1'b0, RegU2 }; end
+    3'd5:		begin v0C = { 1'b0, RegV0 }; v1C = { 1'b0, RegV1 }; v2C = { 1'b0, RegV2 }; end
+    endcase
 
-	if (vecID) begin
-		mulFA = negc;	mulFB = a;
-	end else begin
-		mulFA = d;   	mulFB = negb;
-	end
+    if (vecID) begin
+        mulFA = negc;	mulFB = a;
+    end else begin
+        mulFA = d;   	mulFB = negb;
+    end
 end
 wire signed [9:0]   negv0c  = -{ 1'b0 ,v0C };
 wire signed [9:0]	C20i	= bIsLineCommand ? 10'd0 : ({ 1'b0 ,v2C } + negv0c);
@@ -2998,17 +3015,17 @@ wire signed [PREC+8:0] outputA;
 wire signed [PREC+8:0] outputB;
 
 dividerWrapper instDivisorA(
-	.clock			( clk ),
-	.numerator		( inputDivAShft),
-	.denominator	( DET ),
-	.output20		( outputA )
+    .clock			( clk ),
+    .numerator		( inputDivAShft),
+    .denominator	( DET ),
+    .output20		( outputA )
 );
 
 dividerWrapper instDivisorB(
-	.clock			( clk ),
-	.numerator 		( inputDivBShft ),
-	.denominator 	( DET ),
-	.output20 		( outputB )
+    .clock			( clk ),
+    .numerator 		( inputDivBShft ),
+    .denominator 	( DET ),
+    .output20 		( outputB )
 );
 
 // 11 bit prec + 9 bit = 20 bit.
@@ -3021,29 +3038,29 @@ reg signed [PREC+8:0] RSX,RSY,GSX,GSY,BSX,BSY,USX,USY,VSX,VSY; // 1..10 Write, 0
 
 wire /*reg*/ [3:0]	assignDivResult = { compoID6, vecID6 }; // 1..A, 0 none
 always @(posedge clk) begin
-	if (assignDivResult == 4'd2) begin RSX = perPixelComponentIncrement; end
-	if (assignDivResult == 4'd3) begin RSY = perPixelComponentIncrement; end
-	if (assignDivResult == 4'd4) begin GSX = perPixelComponentIncrement; end
-	if (assignDivResult == 4'd5) begin GSY = perPixelComponentIncrement; end
-	if (assignDivResult == 4'd6) begin BSX = perPixelComponentIncrement; end
-	if (assignDivResult == 4'd7) begin BSY = perPixelComponentIncrement; end
-	if (assignDivResult == 4'd8) begin USX = perPixelComponentIncrement; end
-	if (assignDivResult == 4'd9) begin USY = perPixelComponentIncrement; end
-	if (assignDivResult == 4'hA) begin VSX = perPixelComponentIncrement; end
-	if (assignDivResult == 4'hB) begin VSY = perPixelComponentIncrement; end
-	// Assign rasterization parameter for RECT mode.
-	if (assignRectSetup) begin
-		RSX = ZERO_PREC;
-		RSY = ZERO_PREC;
-		GSX = ZERO_PREC;
-		GSY = ZERO_PREC;
-		BSX = ZERO_PREC;
-		BSY = ZERO_PREC;
-		USX = ONE_PREC;
-		USY = ZERO_PREC;
-		VSX = ZERO_PREC;
-		VSY = ONE_PREC;
-	end
+    if (assignDivResult == 4'd2) begin RSX = perPixelComponentIncrement; end
+    if (assignDivResult == 4'd3) begin RSY = perPixelComponentIncrement; end
+    if (assignDivResult == 4'd4) begin GSX = perPixelComponentIncrement; end
+    if (assignDivResult == 4'd5) begin GSY = perPixelComponentIncrement; end
+    if (assignDivResult == 4'd6) begin BSX = perPixelComponentIncrement; end
+    if (assignDivResult == 4'd7) begin BSY = perPixelComponentIncrement; end
+    if (assignDivResult == 4'd8) begin USX = perPixelComponentIncrement; end
+    if (assignDivResult == 4'd9) begin USY = perPixelComponentIncrement; end
+    if (assignDivResult == 4'hA) begin VSX = perPixelComponentIncrement; end
+    if (assignDivResult == 4'hB) begin VSY = perPixelComponentIncrement; end
+    // Assign rasterization parameter for RECT mode.
+    if (assignRectSetup) begin
+        RSX = ZERO_PREC;
+        RSY = ZERO_PREC;
+        GSX = ZERO_PREC;
+        GSY = ZERO_PREC;
+        BSX = ZERO_PREC;
+        BSY = ZERO_PREC;
+        USX = ONE_PREC;
+        USY = ZERO_PREC;
+        VSX = ZERO_PREC;
+        VSY = ONE_PREC;
+    end
 end
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -3078,16 +3095,16 @@ assign w1R	= w1L + { {11{b[11]}}, b};
 assign w2R	= w2L + { {11{negd[11]}}, negd};
 
 /*
-	[Original Implementation in Avocado, based on the famous Ryg article about rasterization.]
-	if ((w0L | w1L | w2L) > 0) {    but Avocado always garantee CCW oriented polygon.
+    [Original Implementation in Avocado, based on the famous Ryg article about rasterization.]
+    if ((w0L | w1L | w2L) > 0) {    but Avocado always garantee CCW oriented polygon.
 
-	First, we can notice that the condition does not seems accurate :
-	By 'oring' we allow one or two line equation >= 0 if another is > 0.
+    First, we can notice that the condition does not seems accurate :
+    By 'oring' we allow one or two line equation >= 0 if another is > 0.
 
-	HW implementation of >= 0 is a LOT easier.
-	Did not change a simple pixel on basic triangle I tested.
+    HW implementation of >= 0 is a LOT easier.
+    Did not change a simple pixel on basic triangle I tested.
 
-	For opposite orientation, I use the opposite < 0.
+    For opposite orientation, I use the opposite < 0.
  */
 assign isCCWInsideL = !(w0L[EQUMSB] | w1L[EQUMSB] | w2L[EQUMSB]); // Same as : (w0 >= 0) && (w1 >= 0) && (w2 >= 0)
 assign isCWInsideL  =  (w0L[EQUMSB] & w1L[EQUMSB] & w2L[EQUMSB]); // Same as : (w0 <  0) && (w1  < 0) && (w2  < 0)
@@ -3125,16 +3142,16 @@ wire signed [7:0] pixVR = RegV0 + offVR[PREC+7:PREC];
 
 /*
 // Compute diff :
-	Y1-Y0
-	Y2-Y0
-	X2-X0
+    Y1-Y0
+    Y2-Y0
+    X2-X0
 
-	Primitive wide 1024 pixel max, height 512 pixel max.
+    Primitive wide 1024 pixel max, height 512 pixel max.
 
-	So, to support the worst case (0 at one edge, 1 at another edge), the smallest step we need 10 bit of sub precision (ie add 1/1024 at each step.
+    So, to support the worst case (0 at one edge, 1 at another edge), the smallest step we need 10 bit of sub precision (ie add 1/1024 at each step.
 
-	=> I will not bother about the Y and X direction like the original HW is probably doing.
-	=> I will keep the same precision for ALL attributes. Same computation unit, etc...
+    => I will not bother about the Y and X direction like the original HW is probably doing.
+    => I will keep the same precision for ALL attributes. Same computation unit, etc...
 
 
 */
@@ -3153,8 +3170,8 @@ reg lastSaveLoadOnGoing;
 reg lastMissTC;
 always @(posedge clk)
 begin
-	lastSaveLoadOnGoing = saveLoadOnGoing;
-	lastMissTC			= missTC;
+    lastSaveLoadOnGoing = saveLoadOnGoing;
+    lastMissTC			= missTC;
 end
 
 wire notMemoryBusyCurrCycle;
@@ -3163,44 +3180,44 @@ wire notMemoryBusyNextCycle;
 // [Cache Texture swizzling vary with Texture Format]
 wire textureFormatTrueColor = (GPU_REG_TexFormat[1]); // (10)2 or (11)3
 directCacheDoublePort directCacheDoublePortInst(
-	.i_clk								(clk),
-	.i_nrst								(i_nrst),
-	.i_clearCache						(/*issue.*/rstTextureCache),
+    .i_clk								(clk),
+    .i_nrst								(i_nrst),
+    .i_clearCache						(/*issue.*/rstTextureCache),
 
-	// [Can spy all write on the bus and maintain cache integrity]
-	.i_textureFormatTrueColor			(textureFormatTrueColor),
-	.i_write							(TexCacheWrite),
-	.i_adressIn							(adrTexCacheWrite),
-	.i_dataIn							(TexCacheData),
+    // [Can spy all write on the bus and maintain cache integrity]
+    .i_textureFormatTrueColor			(textureFormatTrueColor),
+    .i_write							(TexCacheWrite),
+    .i_adressIn							(adrTexCacheWrite),
+    .i_dataIn							(TexCacheData),
 
-	.i_requLookupA						(requDataTex_c0L),
-	.i_adressLookA						(adrTexReq_c0L),
-	.o_dataOutA							(dataTex_c1L),
-	.o_isHitA							(TexHit_c1L),
-	.o_isMissA							(TexMiss_c1L),
+    .i_requLookupA						(requDataTex_c0L),
+    .i_adressLookA						(adrTexReq_c0L),
+    .o_dataOutA							(dataTex_c1L),
+    .o_isHitA							(TexHit_c1L),
+    .o_isMissA							(TexMiss_c1L),
 
-	.i_requLookupB						(requDataTex_c0R),
-	.i_adressLookB						(adrTexReq_c0R),
-	.o_dataOutB							(dataTex_c1R),
-	.o_isHitB							(TexHit_c1R),
-	.o_isMissB							(TexMiss_c1R)
+    .i_requLookupB						(requDataTex_c0R),
+    .i_adressLookB						(adrTexReq_c0R),
+    .o_dataOutB							(dataTex_c1R),
+    .o_isHitB							(TexHit_c1R),
+    .o_isMissB							(TexMiss_c1R)
 );
 
 // ------------------------------------------------
 CLUT_Cache CLUT_CacheInst(
-	.i_clk								(clk),
-	.i_nrst								(i_nrst),
+    .i_clk								(clk),
+    .i_nrst								(i_nrst),
 
-	.i_write							(ClutCacheWrite),
-	.i_writeBlockIndex					(rClutPacketCount[3:0]),	
-	.i_writeIdxInBlk					(ClutWriteIndex),
-	.i_Colors							(ClutCacheData),
+    .i_write							(ClutCacheWrite),
+    .i_writeBlockIndex					(rClutPacketCount[3:0]),
+    .i_writeIdxInBlk					(ClutWriteIndex),
+    .i_Colors							(ClutCacheData),
 
-	.i_readIdxL							(indexPalL),
-	.o_colorEntryL						(dataClut_c2L),
+    .i_readIdxL							(indexPalL),
+    .o_colorEntryL						(dataClut_c2L),
 
-	.i_readIdxR							(indexPalR),
-	.o_colorEntryR						(dataClut_c2R)
+    .i_readIdxR							(indexPalR),
+    .o_colorEntryR						(dataClut_c2R)
 );
 
 // ------------------------------------------------
@@ -3212,215 +3229,215 @@ wire  [5:0]    XPosClut           = {1'b0,rClutPacketCount} + RegCLUT[5:0];
 wire  [14:0]   adrClutCacheUpdate = { RegCLUT[14:6] , XPosClut };
 
 MemoryArbitrator MemoryArbitratorInstance(
-	.gpuClk					(clk),
-	.i_nRst					(i_nrst),
+    .gpuClk					(clk),
+    .i_nRst					(i_nrst),
 
-	// ---TODO Describe all fifo command ---
-	.memoryWriteCommand		(memoryWriteCommand),
-	.fifoFull				(commandFifoFull),
-	.fifoComplete			(commandFifoComplete),
-	
-	.o_dataArrived			(dataArrived),
-	.o_dataValue			(readValue32),
-	.i_dataConsumed			(dataConsumed),
-	
-	// -----------------------------------
-	// [GPU BUS SIDE MODE]
-	// -----------------------------------
+    // ---TODO Describe all fifo command ---
+    .memoryWriteCommand		(memoryWriteCommand),
+    .fifoFull				(commandFifoFull),
+    .fifoComplete			(commandFifoComplete),
 
-	// -- TEX$ Stuff --
-	// TEX$ Cache miss from L Side
-	.requTexCacheUpdateL	(requTexCacheUpdateL_i),
-	.adrTexCacheUpdateL		(adrTexCacheUpdateL_i),
-	.updateTexCacheCompleteL(updateTexCacheCompleteL_o),
+    .o_dataArrived			(dataArrived),
+    .o_dataValue			(readValue32),
+    .i_dataConsumed			(dataConsumed),
 
-	// TEX$ Cache miss from R Side
-	.requTexCacheUpdateR	(requTexCacheUpdateR_i),
-	.adrTexCacheUpdateR		(adrTexCacheUpdateR_i),
-	.updateTexCacheCompleteR(updateTexCacheCompleteR_o),
+    // -----------------------------------
+    // [GPU BUS SIDE MODE]
+    // -----------------------------------
 
-	// TEX$ feed updated $ data to cache.
-	.TexCacheWrite			(TexCacheWrite),
-	.adrTexCacheWrite		(adrTexCacheWrite),
-	.TexCacheData			(TexCacheData),
+    // -- TEX$ Stuff --
+    // TEX$ Cache miss from L Side
+    .requTexCacheUpdateL	(requTexCacheUpdateL_i),
+    .adrTexCacheUpdateL		(adrTexCacheUpdateL_i),
+    .updateTexCacheCompleteL(updateTexCacheCompleteL_o),
 
-	// -- CLUT$ Stuff --
-	.requClutCacheUpdate	(requClutCacheUpdate),
-	.adrClutCacheUpdate		(adrClutCacheUpdate),
-	.updateClutCacheComplete(updateClutCacheComplete),
+    // TEX$ Cache miss from R Side
+    .requTexCacheUpdateR	(requTexCacheUpdateR_i),
+    .adrTexCacheUpdateR		(adrTexCacheUpdateR_i),
+    .updateTexCacheCompleteR(updateTexCacheCompleteR_o),
 
-	// CLUT$ feed updated $ data to cache.
-	.ClutCacheWrite			(ClutCacheWrite),
-	.ClutWriteIndex			(ClutWriteIndex),
-	.ClutCacheData			(ClutCacheData),
+    // TEX$ feed updated $ data to cache.
+    .TexCacheWrite			(TexCacheWrite),
+    .adrTexCacheWrite		(adrTexCacheWrite),
+    .TexCacheData			(TexCacheData),
 
-	// -- BG Read Stuff --
-	/*
-	.bgRequest				(bgRequest_i	),
-	.bgRequestAdr			(bgRequestAdr_i	),
-	.validbgPixel			(validbgPixel_o	),	// 0 Cycle Delay if data available in Cache.
-	.bgPixel				(bgPixel_o		),	// 0 Cycle Delay if data available in Cache.
+    // -- CLUT$ Stuff --
+    .requClutCacheUpdate	(requClutCacheUpdate),
+    .adrClutCacheUpdate		(adrClutCacheUpdate),
+    .updateClutCacheComplete(updateClutCacheComplete),
 
-	// -- BG Write Stuff --
-	.write32				(write32_i),
-	.bgWriteAdr				(bgWriteAdr_i),
-	.pixelValid				(pixelValid_i),
-	.flushBG				(flushBG_i),
-	.writePixelDone			(writePixelDone_o),
+    // CLUT$ feed updated $ data to cache.
+    .ClutCacheWrite			(ClutCacheWrite),
+    .ClutWriteIndex			(ClutWriteIndex),
+    .ClutCacheData			(ClutCacheData),
 
-	.notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
-	.notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
-	*/
-	.notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
-	.notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
+    // -- BG Read Stuff --
+    /*
+    .bgRequest				(bgRequest_i	),
+    .bgRequestAdr			(bgRequestAdr_i	),
+    .validbgPixel			(validbgPixel_o	),	// 0 Cycle Delay if data available in Cache.
+    .bgPixel				(bgPixel_o		),	// 0 Cycle Delay if data available in Cache.
 
-	// Ask to write/read BG
-	.isBlending							(bSemiTransp),
-	.saveAdr							(saveAdr),
-	.loadAdr							(loadAdr),
-	.saveBGBlock						(saveBGBlock | {flush , flush}),			// Stay 1 for long, should use 0->1 TRANSITION on user side.
-	.exportedBGBlock					(exportedBGBlock),
-	.exportedMSKBGBlock					(exportedMSKBGBlock),
-	.saveLoadOnGoing					(saveLoadOnGoing),
+    // -- BG Write Stuff --
+    .write32				(write32_i),
+    .bgWriteAdr				(bgWriteAdr_i),
+    .pixelValid				(pixelValid_i),
+    .flushBG				(flushBG_i),
+    .writePixelDone			(writePixelDone_o),
 
-	// BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
-	.importBGBlockSingleClock			(importBGBlockSingleClock),
-	.importedBGBlock					(importedBGBlock),
+    .notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
+    .notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
+    */
+    .notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
+    .notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
 
-	.resetPipelinePixelStateSpike		(resetPipelinePixelStateSpike),
-	.resetMask							(resetMask),
+    // Ask to write/read BG
+    .isBlending							(bSemiTransp),
+    .saveAdr							(saveAdr),
+    .loadAdr							(loadAdr),
+    .saveBGBlock						(saveBGBlock | {flush , flush}),			// Stay 1 for long, should use 0->1 TRANSITION on user side.
+    .exportedBGBlock					(exportedBGBlock),
+    .exportedMSKBGBlock					(exportedMSKBGBlock),
+    .saveLoadOnGoing					(saveLoadOnGoing),
 
-	// -----------------------------------
-	// [Fake Memory SIDE]
-	// -----------------------------------
+    // BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
+    .importBGBlockSingleClock			(importBGBlockSingleClock),
+    .importedBGBlock					(importedBGBlock),
 
-	.adr_o					(adr_o),   // ADR_O() address
-	.dat_i					(dat_i),   // DAT_I() data in
-	.dat_o					(dat_o),   // DAT_O() data out
-	.cnt_o					(cnt_o),
-	.sel_o					(sel_o),
-	.wrt_o					(wrt_o),
-	.req_o					(req_o),
-	.ack_i					(ack_i)
+    .resetPipelinePixelStateSpike		(resetPipelinePixelStateSpike),
+    .resetMask							(resetMask),
+
+    // -----------------------------------
+    // [Fake Memory SIDE]
+    // -----------------------------------
+
+    .adr_o					(adr_o),   // ADR_O() address
+    .dat_i					(dat_i),   // DAT_I() data in
+    .dat_o					(dat_o),   // DAT_O() data out
+    .cnt_o					(cnt_o),
+    .sel_o					(sel_o),
+    .wrt_o					(wrt_o),
+    .req_o					(req_o),
+    .ack_i					(ack_i)
 );
 
 GPUBackend GPUBackendInstance(
-	.clk								(clk),
-	.i_nrst								(i_nrst),
+    .clk								(clk),
+    .i_nrst								(i_nrst),
 
-	// -------------------------------
-	// Control line for state machine
-	// -------------------------------
-	.i_pausePipeline					(pausePipeline),			// Freeze the data in the pipeline. Values stay as is.
-	.o_missTC							(missTC),					// Any Cache miss, stop going next pixels.
-	// Management on BG Block
-	.o_writePixelOnNewBlock				(writePixelOnNewBlock),	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
-	.i_resetPipelinePixelStateSpike		(resetPipelinePixelStateSpike),	// 1/ Clear 'o_writePixelOnNewBlock' flag.
-	.i_resetPixelMask					(resetMask),					// 2/ Clear MASK for new block.
-	// -------------------------------
-	// GPU Setup
-	// -------------------------------
-	.GPU_REG_Transparency				(GPU_REG_Transparency			),
-	.GPU_REG_TexFormat					(GPU_REG_TexFormat				),
-	.noTexture							(!bUseTexture					),
-	.noblend							(bOpaque						),
-	.ditherActive						(bDither						),
-	.GPU_REG_TexBasePageX				(GPU_REG_TexBasePageX			),
-	.GPU_REG_TexBasePageY				(GPU_REG_TexBasePageY			),
-	.GPU_REG_TextureXFlip				(GPU_REG_TextureXFlip			),
-	.GPU_REG_TextureYFlip				(GPU_REG_TextureYFlip			),
-	.GPU_REG_WindowTextureMaskX			(GPU_REG_WindowTextureMaskX		),
-	.GPU_REG_WindowTextureMaskY			(GPU_REG_WindowTextureMaskY		),
-	.GPU_REG_WindowTextureOffsetX		(GPU_REG_WindowTextureOffsetX	),
-	.GPU_REG_WindowTextureOffsetY		(GPU_REG_WindowTextureOffsetY	),
+    // -------------------------------
+    // Control line for state machine
+    // -------------------------------
+    .i_pausePipeline					(pausePipeline),			// Freeze the data in the pipeline. Values stay as is.
+    .o_missTC							(missTC),					// Any Cache miss, stop going next pixels.
+    // Management on BG Block
+    .o_writePixelOnNewBlock				(writePixelOnNewBlock),	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
+    .i_resetPipelinePixelStateSpike		(resetPipelinePixelStateSpike),	// 1/ Clear 'o_writePixelOnNewBlock' flag.
+    .i_resetPixelMask					(resetMask),					// 2/ Clear MASK for new block.
+    // -------------------------------
+    // GPU Setup
+    // -------------------------------
+    .GPU_REG_Transparency				(GPU_REG_Transparency			),
+    .GPU_REG_TexFormat					(GPU_REG_TexFormat				),
+    .noTexture							(!bUseTexture					),
+    .noblend							(bOpaque						),
+    .ditherActive						(bDither						),
+    .GPU_REG_TexBasePageX				(GPU_REG_TexBasePageX			),
+    .GPU_REG_TexBasePageY				(GPU_REG_TexBasePageY			),
+    .GPU_REG_TextureXFlip				(GPU_REG_TextureXFlip			),
+    .GPU_REG_TextureYFlip				(GPU_REG_TextureYFlip			),
+    .GPU_REG_WindowTextureMaskX			(GPU_REG_WindowTextureMaskX		),
+    .GPU_REG_WindowTextureMaskY			(GPU_REG_WindowTextureMaskY		),
+    .GPU_REG_WindowTextureOffsetX		(GPU_REG_WindowTextureOffsetX	),
+    .GPU_REG_WindowTextureOffsetY		(GPU_REG_WindowTextureOffsetY	),
 
-	// -------------------------------
-	// Input Pixels from FrontEnd
-	// -------------------------------
-	.iPixelStateSpike					(pixelStateSpike), // Input Flag to the pipeline.
-	.iScrX_Mul2							(pixelX[9:0]),
-	.iScrY								(pixelY[8:0]),
+    // -------------------------------
+    // Input Pixels from FrontEnd
+    // -------------------------------
+    .iPixelStateSpike					(pixelStateSpike), // Input Flag to the pipeline.
+    .iScrX_Mul2							(pixelX[9:0]),
+    .iScrY								(pixelY[8:0]),
 
-	.iR_L								(pixRL),
-	.iG_L								(pixGL),
-	.iB_L								(pixBL),
-	.U_L 								(pixUL),
-	.V_L 								(pixVL),
-	.validPixel_L						(writePixelL),
-	.bgMSK_L							(stencilReadValue[0] | GPU_REG_ForcePixel15MaskSet),
+    .iR_L								(pixRL),
+    .iG_L								(pixGL),
+    .iB_L								(pixBL),
+    .U_L 								(pixUL),
+    .V_L 								(pixVL),
+    .validPixel_L						(writePixelL),
+    .bgMSK_L							(stencilReadValue[0] | GPU_REG_ForcePixel15MaskSet),
 
-	.iR_R								(pixRR),
-	.iG_R								(pixGR),
-	.iB_R								(pixBR),
-	.U_R 								(pixUR),
-	.V_R 								(pixVR),
-	.validPixel_R						(writePixelR),
-	.bgMSK_R							(stencilReadValue[1] | GPU_REG_ForcePixel15MaskSet),
+    .iR_R								(pixRR),
+    .iG_R								(pixGR),
+    .iB_R								(pixBR),
+    .U_R 								(pixUR),
+    .V_R 								(pixVR),
+    .validPixel_R						(writePixelR),
+    .bgMSK_R							(stencilReadValue[1] | GPU_REG_ForcePixel15MaskSet),
 
-	// -------------------------------
-	//  Request to Cache system ?
-	// -------------------------------
-	.requDataTex_c0L					(requDataTex_c0L),
-	.adrTexReq_c0L						(adrTexReq_c0L	),
-	.TexHit_c1L							(TexHit_c1L		),
-	.TexMiss_c1L						(TexMiss_c1L	),
-	.dataTex_c1L						(dataTex_c1L	),
+    // -------------------------------
+    //  Request to Cache system ?
+    // -------------------------------
+    .requDataTex_c0L					(requDataTex_c0L),
+    .adrTexReq_c0L						(adrTexReq_c0L	),
+    .TexHit_c1L							(TexHit_c1L		),
+    .TexMiss_c1L						(TexMiss_c1L	),
+    .dataTex_c1L						(dataTex_c1L	),
 
-	// Request Cache Fill
-	.requTexCacheUpdate_c1L				(requTexCacheUpdateL_i),
-	.adrTexCacheUpdate_c0L				(adrTexCacheUpdateL_i),
-	.updateTexCacheCompleteL			(updateTexCacheCompleteL_o),
+    // Request Cache Fill
+    .requTexCacheUpdate_c1L				(requTexCacheUpdateL_i),
+    .adrTexCacheUpdate_c0L				(adrTexCacheUpdateL_i),
+    .updateTexCacheCompleteL			(updateTexCacheCompleteL_o),
 
-	// Clut$ Side
-	.indexPalL							(indexPalL			),	// Temp
-	.dataClut_c2L						(dataClut_c2L		),
+    // Clut$ Side
+    .indexPalL							(indexPalL			),	// Temp
+    .dataClut_c2L						(dataClut_c2L		),
 
-	// --- Tex$ Side ---
-	.requDataTex_c0R					(requDataTex_c0R),
-	.adrTexReq_c0R						(adrTexReq_c0R	),
-	.TexHit_c1R							(TexHit_c1R		),
-	.TexMiss_c1R						(TexMiss_c1R	),
-	.dataTex_c1R						(dataTex_c1R	),
+    // --- Tex$ Side ---
+    .requDataTex_c0R					(requDataTex_c0R),
+    .adrTexReq_c0R						(adrTexReq_c0R	),
+    .TexHit_c1R							(TexHit_c1R		),
+    .TexMiss_c1R						(TexMiss_c1R	),
+    .dataTex_c1R						(dataTex_c1R	),
 
-	// Request Cache Fill
-	.requTexCacheUpdate_c1R				(requTexCacheUpdateR_i),
-	.adrTexCacheUpdate_c0R				(adrTexCacheUpdateR_i),
-	.updateTexCacheCompleteR			(updateTexCacheCompleteR_o),
+    // Request Cache Fill
+    .requTexCacheUpdate_c1R				(requTexCacheUpdateR_i),
+    .adrTexCacheUpdate_c0R				(adrTexCacheUpdateR_i),
+    .updateTexCacheCompleteR			(updateTexCacheCompleteR_o),
 
-	// Clut$ Side
-	.indexPalR							(indexPalR			),	// Temp
-	.dataClut_c2R						(dataClut_c2R		),
+    // Clut$ Side
+    .indexPalR							(indexPalR			),	// Temp
+    .dataClut_c2R						(dataClut_c2R		),
 
-	// -------------------------------
-	//   Stencil Cache Write Back
-	// -------------------------------
-	// Write
-	.stencilWriteSig					(stencilWriteSig	),
-	.stencilWriteAdr					(stencilWriteAdr	),
-	.stencilWritePair					(stencilWritePair	),
-	.stencilWriteSelect					(stencilWriteSelect	),
-	.stencilWriteValue					(stencilWriteValue	),
+    // -------------------------------
+    //   Stencil Cache Write Back
+    // -------------------------------
+    // Write
+    .stencilWriteSig					(stencilWriteSig	),
+    .stencilWriteAdr					(stencilWriteAdr	),
+    .stencilWritePair					(stencilWritePair	),
+    .stencilWriteSelect					(stencilWriteSelect	),
+    .stencilWriteValue					(stencilWriteValue	),
 
-	// -------------------------------
-	//   Flush until
-	// -------------------------------
-	.flushLastBlock						(flush),
-	.o_pixelInFlight					(pixelInFlight),
+    // -------------------------------
+    //   Flush until
+    // -------------------------------
+    .flushLastBlock						(flush),
+    .o_pixelInFlight					(pixelInFlight),
 
-	// -------------------------------
-	//   DDR
-	// -------------------------------
+    // -------------------------------
+    //   DDR
+    // -------------------------------
 
-	// Ask to write BG
-	.loadAdr							(loadAdr			),
-	.saveAdr							(saveAdr			),
-	.saveBGBlock						(saveBGBlock		),			// Stay 1 for long, should use 0->1 TRANSITION on user side.
-	.exportedBGBlock					(exportedBGBlock	),
-	.exportedMSKBGBlock					(exportedMSKBGBlock	),
+    // Ask to write BG
+    .loadAdr							(loadAdr			),
+    .saveAdr							(saveAdr			),
+    .saveBGBlock						(saveBGBlock		),			// Stay 1 for long, should use 0->1 TRANSITION on user side.
+    .exportedBGBlock					(exportedBGBlock	),
+    .exportedMSKBGBlock					(exportedMSKBGBlock	),
 
-	// BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
-	.importBGBlockSingleClock			(importBGBlockSingleClock),
-	.importedBGBlock					(importedBGBlock)
+    // BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
+    .importBGBlockSingleClock			(importBGBlockSingleClock),
+    .importedBGBlock					(importedBGBlock)
 );
 
 

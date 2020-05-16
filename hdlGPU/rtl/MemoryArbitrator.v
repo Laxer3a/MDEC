@@ -2,57 +2,57 @@
 	-------------------
 	[Memory Arbitrator]
 	-------------------
-	
+
 	1. This module will manage ALL read/write occur between the GPU and the DDR Memory.
-	
+
 	2. This module has TWO mode :
 		-> The FIFO mode, that queue command, and do NOT worry about the waiting the result of the previous command.
 		Well, actually it will have to execute the command in order (easy and logical with a FIFO anyway).
 		But it will not have to wait for other sync signal from the GPU.
-		
+
 		[TODO : Describe all the command from FIFO mode]
-		
+
 		-> The bus mode where different port will request different things. (TEX$,CLUT$,BG READ, BG WRITE BACK)
-		
+
 	3.	[A] Both mode WILL NEVER happen at the same time : the FIFO mode is mainly for VRAM FILL/VRAM COPY stuff.
-		The bus mode is for feeding various part of the GPU while 
-		
+		The bus mode is for feeding various part of the GPU while
+
 		[B] Bus mode (TEX$, CLUT$, BG Read, BG Write has fixed priorities)
 			Here are the priorities :
 			From highest to lowest = BG Read >> CLUT$ >> TEX$ >> BG Write. (Very important to have the pixel pipeline easier to implement)
-			
+
 			To simplify things, L side has priority over R side (TEX$ and CLUT$)
-			
+
 			Expect those buses to request at the same time most of the time.
-			
+
 	4.	For BG READ, one must maintain a BURST size cache (16 or 8 pixels), and when the bgRequestAdr is different from currently cached, load another one.
 
 	5.  TEX$
 		Adress is 17 bit because the complete VRAM memory space is 20 bit. (1 MegaBYTE) but cache entry are 8 BYTES.
 		So the requested cache line is the adress of a 8 byte chunk [xxxx.xxxx.xxxx.xxxx.x000]
-		
+
 		At the same time TexCacheWrite is set to HIGH with the 8 byte data (64 bit wide TexCacheData data bus),
 		one must also tell to the TEX$ L or R side (the one doing the request) that data is arrived.
 		(Something like updateTexCacheCompleteL = requTexCacheUpdateL & TexCacheWrite, same for R)
-		
+
 	6.	CLUT$
 		Same system as TEX$, except that :
 		- The blocks are multiple of 32 byte instead of 8 byte. So read will occur by chunk of 32 bytes and not 8.
-		
-		- Updating the CLUT$ cache is taking multiple cycle : the update BUS is 4 byte WIDE : 
+
+		- Updating the CLUT$ cache is taking multiple cycle : the update BUS is 4 byte WIDE :
 
 			 Adress in BYTE from request :
 			[xxxx.xxxx.xxxx.xxx0.0000] -> [abcd.efgh.ijkl.mno0.0000]
-			
+
 			Index when writing back is then :
 			ClutWriteIndex [6:0] is bit [lmnoIII] : lmno from request adress. III is index from 0 to 7 (8 block of 32 bit in order)
-			
+
 			It will take 8 cycle once data arrived (updateClutCacheComplete* can be set on the last write) to update the 32 byte block inside the cache.
-			
+
 			Fire updateClutCacheComplete* the same way on the LAST element feed.
-	
+
 	7. BG Read and BG Write
-	
+
 	[There will be a completly different module also competing for DDR access, it may even work on a different clock too, and is not part of this circuit.
 	 It is the system reading the VRAM for the CRT display...]
  */
@@ -60,16 +60,16 @@
 module MemoryArbitrator(
 	input			gpuClk,
 	input			i_nRst,
-	
+
 	// -----------------------------------
 	// [GPU FIFO COMMAND SIDE MODE]
 	// -----------------------------------
 
 	// ---TODO Describe all fifo command ---
 	input  [55:0]	memoryWriteCommand, // if [2:0] not ZERO -> Write to FIFO.
-	output          fifoFull,			// 
+	output          fifoFull,			//
 	output			fifoComplete,		// = Empty signal + all mem operation completed. Needed to know that primitive work is complete.
-	
+
 	output 			o_dataArrived,		// 1 when data is available.
 	output [31:0]	o_dataValue,		//
 	input			i_dataConsumed,		// Set to 1 AFTER 1 Cycle of o_dataArrived set, then 0.
@@ -91,18 +91,18 @@ module MemoryArbitrator(
 	output [16:0]   adrTexCacheWrite,
 	output          TexCacheWrite,
 	output [63:0]   TexCacheData,
-	
+
 	// -- CLUT$ Stuff --
 	// CLUT$ Load Request
 	input           requClutCacheUpdate,
 	input  [14:0]   adrClutCacheUpdate,
 	output          updateClutCacheComplete,
-	
+
 	// CLUT$ feed updated $ data to cache.
 	output          ClutCacheWrite,
 	output  [2:0]   ClutWriteIndex,
 	output [31:0]   ClutCacheData,
-	
+
 	input			isBlending,
 	input  [14:0]	saveAdr,
 	input	[1:0]	saveBGBlock,			// 00:Do nothing, 01:First Block, 10 : Second and further blocks.
@@ -110,23 +110,23 @@ module MemoryArbitrator(
 											// Second block does LOAD/SAVE or LOAD only based on state.
 	input [255:0]	exportedBGBlock,
 	input  [15:0]	exportedMSKBGBlock,
-	
+
 	// BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
 	input  [14:0]	loadAdr,
 	output			importBGBlockSingleClock,
 	output  [255:0]	importedBGBlock,
-	
+
 	output			saveLoadOnGoing,
-	
+
 	output			resetPipelinePixelStateSpike,
 	output			resetMask,				// Reset the list of used pixel inside the block for next block processing.
-	
+
 	output			notMemoryBusyCurrCycle,
 	output			notMemoryBusyNextCycle,
 	// -----------------------------------
 	// [DDR SIDE]
 	// -----------------------------------
-	
+
 	// Own clock ? -> http://www.asic.co.in/Index_files/digital_files/clock_domain_crossin.htm
 
 	// For now support slow Wishbone...
@@ -139,6 +139,29 @@ module MemoryArbitrator(
 	output 	 req_o,
     input    ack_i
 );
+parameter	DEFAULT_STATE	= 4'b0000,
+			READ_STATE		= 4'b0001,
+			WRITE_BG		= 4'b0010,
+			READ_BG			= 4'b0011,
+			READ_BG_START	= 4'b0100,
+			READ_BURST		= 4'b0101,
+			WRITE_PIXPAIR	= 4'b0110,
+//			READ_BURST_START= 4'd7, DEPRECATED
+
+			// TRICK : Bit [3] select between fill and WRITE -> If 1, Bit[0] select fill / write burst data.
+			FILL_BG			= 4'b1000,
+			WRITE_BURST		= 4'b1001;
+
+// TODO : Put those constant into single constant file...
+			parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
+			MEM_CMD_FILL		= 3'b010,
+			MEM_CMD_RDBURST		= 3'b011,
+			MEM_CMD_WRBURST		= 3'b100,
+			// Other command to come later...
+			MEM_CMD_NONE		= 3'b000;
+
+
+
 reg [255:0] cacheBGRead;
 reg			regSaveLoadOnGoing;
 reg 		s_importBGBlockSingleClock;
@@ -166,25 +189,17 @@ reg [15:0]	regPixColorR;
 reg  [1:0]	regValidPair;
 reg  [2:0]	regPairID;
 reg			s_resetMask;
-reg [19:0]	s_busAdr;	
+reg [19:0]	s_busAdr;
 reg  [2:0]  s_cnt;
-reg         s_busREQ;	
-reg  [1:0]  busWMSK;	
-reg [31:0]	busDataW;	
-reg			busWRT;		
-
-// TODO : Put those constant into single constant file...
-parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
-			MEM_CMD_FILL		= 3'b010,
-			MEM_CMD_RDBURST		= 3'b011,
-			MEM_CMD_WRBURST		= 3'b100,
-			// Other command to come later...
-			MEM_CMD_NONE		= 3'b000;
+reg         s_busREQ;
+reg  [1:0]  busWMSK;
+reg [31:0]	busDataW;
+reg			busWRT;
 
 
 assign importedBGBlock = cacheBGRead;
 assign saveLoadOnGoing = regSaveLoadOnGoing;
-assign importBGBlockSingleClock = s_importBGBlockSingleClock; 
+assign importBGBlockSingleClock = s_importBGBlockSingleClock;
 
 reg [511:0] vvReadCache;
 
@@ -202,7 +217,7 @@ assign ClutCacheData		= dat_i;
 assign TexCacheData[63:32]	= dat_i;
 assign TexCacheData[31: 0]  = regDatI;
 assign adrTexCacheWrite		= baseAdr[17:1];
-
+reg [3:0] pipeLoadIndex;
 assign ClutWriteIndex		= pipeLoadIndex[2:0];	// Pipelined CurrX
 
 assign TexCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd3);
@@ -210,6 +225,8 @@ assign TexCacheWrite		= s_writeGPU & (regReadMode[3:1] == 3'd3);
 // wire   s_validbgPixel		= bgIsInCache & bgRequest & (currState == DEFAULT_STATE); // Test State because we want to avoid TRUE while LOADING...
 // assign validbgPixel			= s_validbgPixel;
 // assign writePixelDone		= s_writePixelDone;
+reg	s_updateClutCacheComplete;
+
 assign updateTexCacheCompleteL	= s_updateTexCacheCompleteL;
 assign updateTexCacheCompleteR	= s_updateTexCacheCompleteR;
 assign updateClutCacheComplete	= s_updateClutCacheComplete;
@@ -222,15 +239,16 @@ assign resetPipelinePixelStateSpike	= s_resetPipelinePixelStateSpike;
 
 reg loadBank, loadVVBank;
 reg pipeLoadVVBank;
-reg [3:0] pipeLoadIndex;
+reg bankID;
+
 always @(posedge gpuClk)
 begin
 	if (i_nRst == 1'b0) begin
 		pipeLoadVVBank = 1'b0;
-		pipeLoadIndex  = 4'd0; 
+		pipeLoadIndex  = 4'd0;
 	end else begin
 		pipeLoadVVBank = loadVVBank;
-		pipeLoadIndex  = {bankID,currX[2:0]}; 
+		pipeLoadIndex  = {bankID,currX[2:0]};
 	end
 end
 
@@ -245,7 +263,6 @@ begin
 	end
 end
 
-reg bankID;
 reg [31:0] maskBank;
 
 reg loadVVIndexW;
@@ -271,7 +288,7 @@ begin
 		WStencil	= 16'd0;
 	end else begin
 		currState	= nextState;
-		
+
 		if (ReadMode[3:1] != 3'd0) begin
 			regReadMode = ReadMode;
 		end
@@ -293,7 +310,7 @@ begin
 		if (loadBank | loadVVIndexW) begin
 			bankID = memoryWriteCommand[3];
 		end
-		
+
 		// [Read BURST Command ONLY]
 		if (loadBank & !loadVVIndexW) begin
 			if (memoryWriteCommand[3]) begin
@@ -327,7 +344,7 @@ begin
 			VV_GPU_ChkMsk	= memoryWriteCommand[5];
 			VV_GPU_ForceMsk	= memoryWriteCommand[4];
 		end
-		
+
 		if (pipeLoadVVBank) begin
 			case (pipeLoadIndex)
 			// 16 pixels (2x8)
@@ -350,7 +367,7 @@ begin
 			4'hF: begin vvReadCache[511:480] = dat_i; end
 			endcase
 		end
-		
+
 		/*
 		if (writePixelInternal) begin
 			case (bgWriteAdr[2:0])
@@ -364,7 +381,7 @@ begin
 			3'd7: begin cacheBGRead[255:224] = write32; cacheBGMsk[15:14] = pixelValid; end
 			endcase
 		end
-		
+
 		if (resetMSK) begin
 			cacheBGMsk[ 1: 0] = 2'b00;
 			cacheBGMsk[ 3: 2] = 2'b00;
@@ -376,11 +393,11 @@ begin
 			cacheBGMsk[15:14] = 2'b00;
 		end
 		*/
-		
+
 		if (s_storeAdr) begin
 			baseAdr = s_busAdr[19:2];
 		end
-		
+
 		/*
 		if (s_storeCacheAdr) begin
 			cacheBGAdr = bgRequestAdr[17:3];
@@ -390,16 +407,16 @@ begin
 			regFillColor	= memoryWriteCommand[55:40];	// LPixel
 			regPixColorR	= (memoryWriteCommand[2:0] == MEM_CMD_FILL) ?	memoryWriteCommand[55:40]
 																		:	memoryWriteCommand[39:24];	// RPixel
-																		
+
 			regValidPair	= (memoryWriteCommand[2:0] == MEM_CMD_FILL) ?	2'b11 : memoryWriteCommand[23:22];
 			regPairID		=  memoryWriteCommand[6:4];
 			// FLUSH = memoryWriteCommand[0];
 		end
-		
+
 		if (s_store) begin
 			regDatI = dat_i;
 		end
-		
+
 		if (incrX) begin
 			currX = currX + 4'b0001;
 		end else begin
@@ -407,7 +424,7 @@ begin
 				currX = 0;
 			end
 		end
-		
+
 		if (s_setLoadOnGoing) begin
 			regSaveLoadOnGoing	= 1'b1;
 		end else begin
@@ -430,24 +447,11 @@ assign wrt_o = !readStuff;
 // Input
 wire busACK		= ack_i;
 
-reg	s_updateClutCacheComplete;
+
 
 wire isTexReq  		= requTexCacheUpdateL  | requTexCacheUpdateR;
 wire isFirstBlockBlending = ((saveBGBlock == 2'b01) & isBlending);
 // wire hasValidPixels = pixelValid[0] | pixelValid[1];
-parameter	DEFAULT_STATE	= 4'b0000, 
-			READ_STATE		= 4'b0001, 
-			WRITE_BG		= 4'b0010, 
-			READ_BG			= 4'b0011, 
-			READ_BG_START	= 4'b0100,
-			READ_BURST		= 4'b0101,
-			WRITE_PIXPAIR	= 4'b0110,
-//			READ_BURST_START= 4'd7, DEPRECATED
-
-			// TRICK : Bit [3] select between fill and WRITE -> If 1, Bit[0] select fill / write burst data.
-			FILL_BG			= 4'b1000,
-			WRITE_BURST		= 4'b1001;
-
 reg [31:0] currVVPixelW;
 reg  [1:0] currVVStencilPair;
 wire [3:0] rotationAmount	= {bankID,VVIndex[3:1]} + {1'b0,currX[2:0]};
@@ -475,7 +479,7 @@ begin
 	4'hE: begin currVVPixelW = rotatedPix[479:448]; currMaskPix = rotatedMsk[29:28]; end
 	4'hF: begin currVVPixelW = rotatedPix[511:480]; currMaskPix = rotatedMsk[31:30]; end
 	endcase
-	
+
 	case (currX[2:0])
 	3'd0: begin currVVStencilPair = WStencil[ 1: 0]; end
 	3'd1: begin currVVStencilPair = WStencil[ 3: 2]; end
@@ -489,7 +493,7 @@ begin
 end
 wire [31:0] currVVPixelWFinal		= { VV_GPU_ForceMsk | currVVPixelW[31],currVVPixelW[30:16],VV_GPU_ForceMsk | currVVPixelW[15], currVVPixelW[14:0] };
 wire  [1:0] currVVPixelWFinalSel	= ({2{!VV_GPU_ChkMsk}} | (~currVVStencilPair)) & currMaskPix;	// Write all pixels if VV_GPU_ChkMsk=0, else write Pixel when Stencil IS 0.
-			
+
 always @(*)
 begin
 	// Default
@@ -518,7 +522,7 @@ begin
 	loadVVBank			= 0;
 	loadVVIndexW		= 0;
 	clearBanksCheck		= 0;
-	
+
 //	resetMSK			= 1'b0;
 //	s_storeCacheAdr		= 1'b0;
 	loadBGInternal		= 1'b0;
@@ -540,7 +544,7 @@ begin
 		busDataW = currState[0] ? currVVPixelWFinal		: {regPixColorR,regFillColor};
 		busWMSK  = currState[0] ? currVVPixelWFinalSel	: regValidPair;
 	end
-	
+
 	case (currState)
 	default:
 	begin
@@ -558,8 +562,8 @@ begin
 				s_busREQ	= 1'b1;
 				s_storeAdr	= 1'b1;
 				s_busAdr	= { cacheBGAdr, 5'd0 };
-				
-				
+
+
 				nextState	= WRITE_BLOCK;
 			end else begin
 */
@@ -711,7 +715,7 @@ begin
 			s_resetMask	= 1;
 			s_busREQ  = 1'b0;
 			if (isBlending && saveBGBlock != 2'd3) begin // If it is the FLUSH mode, we do NOT perform the READ at the end.
-				nextState = READ_BG_START;	
+				nextState = READ_BG_START;
 			end else begin
 				s_resetLoadOnGoing = 1;
 				nextState = DEFAULT_STATE;
