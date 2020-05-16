@@ -346,7 +346,7 @@ wire			clutNeedLoading;
 
 wire [7:0]		indexPalL,indexPalR;
 wire [15:0]		dataClut_c2L,dataClut_c2R;
-wire 			CLUTIs8BPP	= (GPU_REG_TexFormat == 2'b01);
+wire 			CLUTIs8BPP	= (GPU_REG_TexFormat == PIX_8BIT);
 wire			busyCLUT;
 // ------------------------------------------------
 
@@ -802,7 +802,6 @@ reg			endClutLoading; // From state machine.
 reg			decClutCount;
 reg	 [4:0]	rClutPacketCount;
 reg         rPalette4Bit;
-wire		is8BitTex		= ((/*issue.*/loadTexPage ? fifoDataOut[24:23] : fifoDataOut[8:7]) == 2'd1);
 wire [4:0]	nextClutPacket	= rClutPacketCount + 5'h1F;
 
 always @(posedge clk)
@@ -866,8 +865,10 @@ begin
 			GPU_REG_TexBasePageY 	<= /*issue.*/loadTexPage ? fifoDataOut[20]    : fifoDataOut[4];
 			GPU_REG_Transparency 	<= /*issue.*/loadTexPage ? fifoDataOut[22:21] : fifoDataOut[6:5];
 			GPU_REG_TexFormat    	<= /*issue.*/loadTexPage ? fifoDataOut[24:23] : fifoDataOut[8:7];
-			rClutPacketCount		= { is8BitTex , 3'b0, !is8BitTex }; // Load 1 packet or 16
 			GPU_REG_TextureDisable	<= /*issue.*/loadTexPage ? fifoDataOut[27]    : fifoDataOut[11];
+		end
+		if (/*issue.*/issuePrimitive != NO_ISSUE) begin
+			rClutPacketCount		= { CLUTIs8BPP , 3'b0, !CLUTIs8BPP }; // Load 1 packet or 16
 		end
 		if (/*issue.*/loadTexPageE1) begin // Texture Attribute only changed by E1 Command.
 			GPU_REG_DitherOn     <= fifoDataOut[9];
@@ -1509,6 +1510,8 @@ begin
 		setFirstPixel			= 1;
 		assignRectSetup			= !bIsPerVtxCol;
 		resetEnteredTriangle	= 1;	// Put here, no worries about more specific cases.
+		resetDir				= 1;
+
 		case (/*issue.*/issuePrimitive)
 		ISSUE_TRIANGLE:
 		begin
@@ -1791,7 +1794,6 @@ begin
 		selNextY		= Y_CV_ZERO;
 		loadNext		= 1;
 		setSwap			= 1;
-		resetDir		= 1;
 		copyCVMode		= 1;
 		// Reset last pair by default, but if WIDTH == 1 -> different.
 		resetLastPair	= WidthNot1;
@@ -2003,35 +2005,34 @@ begin
 	end
 	WAIT_3: // 4 cycles to wait
 	begin
-		// Palette change and palette type
-		// Or palette unchanged but from 4 bit to 8 bit.
-		if (validCLUTLoad || (isPalettePrimitive & rPalette4Bit & (GPU_REG_TexFormat == PIX_8BIT))) begin
+		// Use this state to wait for end previous memory transaction...
+		nextWorkState = (saveLoadOnGoing == 0) ? WAIT_2 : WAIT_3;
+	end
+	WAIT_2: // 3 cycles to wait
+	begin
+		if (validCLUTLoad || (isPalettePrimitive & rPalette4Bit & CLUTIs8BPP)) begin
 			// Not using signal updateClutCacheComplete but could... rely on transaction only.
 			if (saveLoadOnGoing == 0) begin // Wait for an on going memory transaction to complete.
 				if (rClutPacketCount != 5'd0) begin
 					// And request ours.
 					requClutCacheUpdate = 1;
 					decClutCount		= 1;
-					nextWorkState		= WAIT_3;
-				end else begin
 					nextWorkState		= WAIT_2;
+				end else begin
+					nextWorkState		= WAIT_1;
 				end
 			end else begin
 				// Just do nothing
-				nextWorkState = WAIT_3;
+				nextWorkState = WAIT_2;
 			end
 		end else begin
-			nextWorkState = WAIT_2;
+			nextWorkState = WAIT_1;
 		end
-	end
-	WAIT_2: // 3 cycles to wait
-	begin
-		endClutLoading	= isPalettePrimitive;	// Reset flag, even if it was already reset. Force 0.
-												// Force also to cache the current primitive pixel format (was it 4 bpp ?)
-		nextWorkState	= WAIT_1;
 	end
 	WAIT_1: // 2 cycles to wait
 	begin
+		endClutLoading	= isPalettePrimitive;	// Reset flag, even if it was already reset. Force 0.
+												// Force also to cache the current primitive pixel format (was it 4 bpp ?)
 		nextWorkState = SELECT_PRIMITIVE;
 	end
 	SELECT_PRIMITIVE: 	// 1 Cycle to wait... send to primitive (with 1 cycle wait too...)
@@ -2049,8 +2050,7 @@ begin
 	TRIANGLE_START:
 	begin
 		loadNext = 1;
-		resetDir = 1; // dir = LEFT2RIGHT -> X=X+1 when changeX = 1, else X=X-1 when changeX = 1.
-		if (earlyTriangleReject) begin	// Bounding box and draw area do not intersect at all.
+		if (earlyTriangleReject || (DET == 22'd0)) begin	// Bounding box and draw area do not intersect at all.
 			nextWorkState	= NOT_WORKING_DEFAULT_STATE;
 		end else begin
 			nextWorkState	= START_LINE_TEST_LEFT;
@@ -2089,7 +2089,7 @@ begin
 		 && ((!maxTriDAX1[0] && !isValidPixelL) || (maxTriDAX1[0] && !isValidPixelR)))		// And that we are OUTSIDE OF THE TRIANGLE. (if odd/even pixel, select proper L/R validpixel.) (Could be also a clipped triangle with FULL LINE)
 		begin
 			selNextY		= Y_TRI_NEXT;
-			nextWorkState	= START_LINE_TEST_LEFT;
+			nextWorkState	= isValidHorizontalTriBbox ? START_LINE_TEST_LEFT : FLUSH_COMPLETE_STATE;
 		end else begin
 			resetPixelFound	= 1;
 			stencilReadSig	= 1;
@@ -2187,8 +2187,6 @@ begin
 		stencilReadSig	= 1;
 		if (isBottomInsideBBox) begin // Not Y end yet ?
 			if (isRightPLXmaxTri) begin // Work by pair. Is left side of pair is inside rendering area. ( < right border )
-				// TODO Pixel writing logic
-				// TODO Mask -> If both invalid, force next pair, without write.
 				if (requestNextPixel) begin
 					// Write only if pixel pair is valid...
 					writePixelL   = isInsideBBoxTriRectL & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));

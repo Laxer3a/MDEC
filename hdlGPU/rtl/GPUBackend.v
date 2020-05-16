@@ -304,6 +304,9 @@ module GPUBackend(
 		.dataClut_c2				(dataClut_c2R			)
 	);
 
+	wire finalValidL = (!oTransparentL) & oValidPixelL;
+	wire finalValidR = (!oTransparentR) & oValidPixelR;
+	
 	// ---------------------------------------------
 	// READ BACKGROUND PIXEL FOR BLENDING (Value ignored if not used)
 	// ---------------------------------------------
@@ -378,8 +381,8 @@ module GPUBackend(
 	end
 	wire validTextureL		= PTexHit_c1L;
 	wire validTextureR		= PTexHit_c1R;
-	wire writeSigL			= oValidPixelL & ((validTextureL & !noTexture) | noTexture);
-	wire writeSigR			= oValidPixelR & ((validTextureR & !noTexture) | noTexture);
+	wire writeSigL			= finalValidL & ((validTextureL & !noTexture) | noTexture);
+	wire writeSigR			= finalValidR & ((validTextureR & !noTexture) | noTexture);
 	
 	// MEMO BEFORE_TEXTURE : writeSig = (oValidPixelR | oValidPixelL);
 	reg PPausePipeline;
@@ -406,7 +409,7 @@ module GPUBackend(
 	begin
 		if (writeSig) begin
 			lastWriteAdrReg = writeAdr;
-			if (oValidPixelR) begin
+			if (finalValidR) begin
 				case (pairID)
 				3'd0: begin cacheBG[ 31: 16] = writeBack32[31:16]; cacheBGMsk[ 1] = selPair[1]; end
 				3'd1: begin cacheBG[ 63: 48] = writeBack32[31:16]; cacheBGMsk[ 3] = selPair[1]; end
@@ -419,7 +422,7 @@ module GPUBackend(
 				endcase
 			end
 
-			if (oValidPixelL) begin
+			if (finalValidL) begin
 				case (pairID)
 				3'd0: begin cacheBG[ 15:  0] = writeBack32[15: 0]; cacheBGMsk[ 0] = selPair[0]; end
 				3'd1: begin cacheBG[ 47: 32] = writeBack32[15: 0]; cacheBGMsk[ 2] = selPair[0]; end
