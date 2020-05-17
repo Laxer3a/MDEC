@@ -1398,8 +1398,6 @@ end
 wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
 //                          X       + WIDTH              - [1 or 2]
 wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
-
-assign srcDstY	= pixelY[8:0] + RegY1[8:0];
 wire  [9:0]  nextScrY	= nextPixelY[9:0] + RegY0[9:0];
 wire [11:0]	nextX		= pixelX + { 12'd2 };
 wire [ 9:0]	nextY		= pixelY[9:0] + { 10'd1 };
@@ -2163,7 +2161,9 @@ begin
                         selNextY		= reachEdgeTriScan ? Y_TRI_NEXT : Y_ASIS;
                         // Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
                         // -> Need to detect that we scan too far and met nobody and avoid out of bound search.
-                        nextWorkState	= reachEdgeTriScan ? (enteredTriangle ? FLUSH_COMPLETE_STATE : SCAN_LINE_CATCH_END) : SCAN_LINE;
+						// COMMENTED OUT enteredTriangle test : some triangle do write pixels sparsely when very thin !!!!
+						// No choice except scanning until Bbox edge, no early skip...
+                        nextWorkState	= reachEdgeTriScan ? (/*REMOVE : enteredTriangle ? FLUSH_COMPLETE_STATE : */ SCAN_LINE_CATCH_END) : SCAN_LINE;
                     end
                 end // else do nothing.
             end
