@@ -167,7 +167,6 @@ module GPUPipeCtrl2(
 			PPisPaletteTex		= PisPaletteTex;
 			PPdataTex_c2		= PisTrueColor_c1 ? dataTex_c1 : {8'b0, index_c1};
 			PPdataIndex         = index_c1;
-//			PPdataTex_c2		= dataTex_c1;
 
 			PisTrueColor_c1		= isTrueColor;
 			PpixelStateSpike_c1	= (i_nrst==0) ? 2'b00 : iPixelStateSpike; // Beginning of a new primitive.
@@ -189,20 +188,9 @@ module GPUPipeCtrl2(
 	// [Lookup palette using selector.]
 	assign	indexPal			= !pause ? index_c1 : PPdataIndex;
 	// ----------------------------------------------------------------
-	
-	reg [15:0] storeClut;
-	always @ (posedge clk)
-	begin
-		if (!pause) begin
-			storeClut = dataClut_c2;
-		end
-	end
-	
-	// ----------------------------------------------------------
 	//   Texture Color Value out
 	// ----------------------------------------------------------
-	wire [15:0] selPalette  = /*pause ? storeClut : */dataClut_c2;
-	wire [15:0] selPix      = PPisTrueColor_c2     ? PPdataTex_c2 : selPalette;
+	wire [15:0] selPix      = PPisTrueColor_c2     ? PPdataTex_c2 : dataClut_c2;
 	wire [15:0] pixelOut    = PPisTexturedPixel_c2 ?       selPix :   16'h7FFF;
 	
 	assign pixelInFlight	= PPValidPixel_c2 | PValidPixel_c1;
