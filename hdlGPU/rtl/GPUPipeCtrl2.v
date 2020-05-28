@@ -84,7 +84,6 @@ module GPUPipeCtrl2(
 	wire isTrueColor			= GPU_REG_TexFormat[1];// Not == 2'd2.  2 and 3 considered both as TRUE COLOR.
 	// VALID PIXEL AND TEXTURED.
 	wire isTexturedPixel_c0 	= validPixel_c0 & !GPU_TEX_DISABLE;
-	wire isPaletteTex			= isTexturedPixel_c0 & !isTrueColor;
 
 	// REQUEST TO TEX$ : VALID PIXEL TEXTURED
 	assign	requDataTex_c0		= (isTexturedPixel_c0 | missT_c1);
@@ -94,7 +93,6 @@ module GPUPipeCtrl2(
 	// ---        Stage C1
 	// -------------------------------------------------------------
 	reg			PisTexturedPixel_c1;
-	reg			PisPaletteTex;
 	reg 		PisTrueColor_c1;
 	reg	[1:0]	PpixelStateSpike_c1;
 	reg [9:0] 	PiScrX_c1;
@@ -136,7 +134,6 @@ module GPUPipeCtrl2(
 	reg [8:0]	PPiB_c2;
 	reg			PPiBGMSK;
 	reg			PPValidPixel_c2;
-	reg			PPisPaletteTex;
 	reg [15:0]	PPdataTex_c2;
 	reg  [7:0]  PPdataIndex;
 	
@@ -164,7 +161,6 @@ module GPUPipeCtrl2(
 			PPiB_c2				= PiB_c1;
 			PPiBGMSK			= PiBGMSK;
 			PPValidPixel_c2		= (i_nrst==0) ? 1'b0 : PValidPixel_c1;
-			PPisPaletteTex		= PisPaletteTex;
 			PPdataTex_c2		= PisTrueColor_c1 ? dataTex_c1 : {8'b0, index_c1};
 			PPdataIndex         = index_c1;
 
@@ -179,7 +175,6 @@ module GPUPipeCtrl2(
 			PValidPixel_c1		= (i_nrst==0) ? 1'b0 : validPixel_c0;
 			PUCoordLSB_c1		= UCoordLSB;
 			PisTexturedPixel_c1	= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
-			PisPaletteTex		= isPaletteTex;
 			PtexelAdress_c1		= texelAdress_c0;
 		end
 	end
