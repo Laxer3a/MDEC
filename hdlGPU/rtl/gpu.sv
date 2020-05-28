@@ -2665,8 +2665,8 @@ assign selectPixelWriteMaskLine = (!pixelX[0] & stencilReadValue[0]) | (pixelX[0
 
 // TODO OPTIMIZE : can probably compute nextCondUseFIFO outside with : (nextLogicalState != WAIT_COMMAND_COMPLETE) & (nextLogicalState != DEFAULT_STATE)
 
-assign isV0 = ((!bIsLineCommand) & (vertCnt == 2'd0) | (vertCnt == 2'd3)) | (bIsLineCommand & !vertCnt[0]); // Vertex 4 primitive load in zero for second triangle.
-assign isV1 = ((!bIsLineCommand) & (vertCnt == 2'd1)                    ) | (bIsLineCommand &  vertCnt[0]);
+assign isV0 = ((!bIsLineCommand) &((vertCnt == 2'd0) | (vertCnt == 2'd3))) | (bIsLineCommand & !vertCnt[0]); // Vertex 4 primitive load in zero for second triangle.
+assign isV1 = ((!bIsLineCommand) & (vertCnt == 2'd1)                    )  | (bIsLineCommand &  vertCnt[0]);
 assign isV2 =  (!bIsLineCommand) & (vertCnt == 2'd2);
 
 // Load all 3 component at the same time, save cycles in state machine

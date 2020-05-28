@@ -75,7 +75,6 @@ module GPUPipeCtrl2(
 	output [7:0]	indexPal,	// Temp
 	input  [15:0]	dataClut_c2
 );
-	wire selPauseTex 	= pause;
 	reg [18:0] 	PtexelAdress_c1;
 	
 	// -------------------------------------------------------------
@@ -85,15 +84,17 @@ module GPUPipeCtrl2(
 	wire isTrueColor			= GPU_REG_TexFormat[1];// Not == 2'd2.  2 and 3 considered both as TRUE COLOR.
 	// VALID PIXEL AND TEXTURED.
 	wire isTexturedPixel_c0 	= validPixel_c0 & !GPU_TEX_DISABLE;
+	wire isPaletteTex			= isTexturedPixel_c0 & !isTrueColor;
 
 	// REQUEST TO TEX$ : VALID PIXEL TEXTURED
 	assign	requDataTex_c0		= (isTexturedPixel_c0 | missT_c1);
-	assign	adrTexReq_c0		= selPauseTex ? PtexelAdress_c1 : texelAdress_c0;
+	assign	adrTexReq_c0		= pause ? PtexelAdress_c1 : texelAdress_c0;
 	
 	// -------------------------------------------------------------
 	// ---        Stage C1
 	// -------------------------------------------------------------
 	reg			PisTexturedPixel_c1;
+	reg			PisPaletteTex;
 	reg 		PisTrueColor_c1;
 	reg	[1:0]	PpixelStateSpike_c1;
 	reg [9:0] 	PiScrX_c1;
@@ -116,11 +117,6 @@ module GPUPipeCtrl2(
 		.indexLookup		(index_c1)
 	);
 	
-	// ----------------------------------------------------------------
-	// [Lookup palette using selector.]
-	assign	indexPal			= index_c1;
-	// ----------------------------------------------------------------
-	
 	// Assign to user control outside
 	assign	missT_c1		= TexMiss_c1;
 	
@@ -140,7 +136,10 @@ module GPUPipeCtrl2(
 	reg [8:0]	PPiB_c2;
 	reg			PPiBGMSK;
 	reg			PPValidPixel_c2;
+	reg			PPisPaletteTex;
 	reg [15:0]	PPdataTex_c2;
+	reg  [7:0]  PPdataIndex;
+	
 	always @ (posedge clk)
 	begin
 		// FUCK VERILOG FOR ORDERING !!!!
@@ -165,7 +164,10 @@ module GPUPipeCtrl2(
 			PPiB_c2				= PiB_c1;
 			PPiBGMSK			= PiBGMSK;
 			PPValidPixel_c2		= (i_nrst==0) ? 1'b0 : PValidPixel_c1;
-			PPdataTex_c2		= dataTex_c1;
+			PPisPaletteTex		= PisPaletteTex;
+			PPdataTex_c2		= PisTrueColor_c1 ? dataTex_c1 : {8'b0, index_c1};
+			PPdataIndex         = index_c1;
+//			PPdataTex_c2		= dataTex_c1;
 
 			PisTrueColor_c1		= isTrueColor;
 			PpixelStateSpike_c1	= (i_nrst==0) ? 2'b00 : iPixelStateSpike; // Beginning of a new primitive.
@@ -178,26 +180,31 @@ module GPUPipeCtrl2(
 			PValidPixel_c1		= (i_nrst==0) ? 1'b0 : validPixel_c0;
 			PUCoordLSB_c1		= UCoordLSB;
 			PisTexturedPixel_c1	= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
+			PisPaletteTex		= isPaletteTex;
 			PtexelAdress_c1		= texelAdress_c0;
+		end
+	end
+	
+	// ----------------------------------------------------------------
+	// [Lookup palette using selector.]
+	assign	indexPal			= !pause ? index_c1 : PPdataIndex;
+	// ----------------------------------------------------------------
+	
+	reg [15:0] storeClut;
+	always @ (posedge clk)
+	begin
+		if (!pause) begin
+			storeClut = dataClut_c2;
 		end
 	end
 	
 	// ----------------------------------------------------------
 	//   Texture Color Value out
 	// ----------------------------------------------------------
-	reg [15:0] pixelOut;
-	always @(*) begin
-		if (PPisTexturedPixel_c2) begin
-			if (PPisTrueColor_c2) begin
-				pixelOut = PPdataTex_c2;
-			end else begin
-				pixelOut = dataClut_c2;
-			end
-		end else begin
-			pixelOut = 16'h7FFF;
-		end
-	end
-
+	wire [15:0] selPalette  = /*pause ? storeClut : */dataClut_c2;
+	wire [15:0] selPix      = PPisTrueColor_c2     ? PPdataTex_c2 : selPalette;
+	wire [15:0] pixelOut    = PPisTexturedPixel_c2 ?       selPix :   16'h7FFF;
+	
 	assign pixelInFlight	= PPValidPixel_c2 | PValidPixel_c1;
 	assign oPixelStateSpike	= PPpixelStateSpike_c2;
 	assign oTransparent		= (!(|pixelOut[14:0])) & (!GPU_TEX_DISABLE); // If all ZERO, then 1., SET TO 0 if TEXTURE DISABLED.
