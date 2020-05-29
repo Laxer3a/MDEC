@@ -190,7 +190,7 @@ module GPUPipeCtrl2(
 	
 	assign pixelInFlight	= PPValidPixel_c2 | PValidPixel_c1;
 	assign oPixelStateSpike	= PPpixelStateSpike_c2;
-	assign oTransparent		= (!(|pixelOut[14:0])) & (!GPU_TEX_DISABLE); // If all ZERO, then 1., SET TO 0 if TEXTURE DISABLED.
+	assign oTransparent		= (!(|pixelOut[15:0])) & (!GPU_TEX_DISABLE); // If all ZERO, then 1., SET TO 0 if TEXTURE DISABLED.
 	assign oTexel			= pixelOut;
 	assign oValidPixel		= PPValidPixel_c2;
 	assign oScrx			= PPiScrX_c2;
