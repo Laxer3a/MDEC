@@ -2864,8 +2864,8 @@ assign				isBottomInsideBBox	= pixelY  <= maxTriDAY1; // PIXEL IS INCLUSIVE
 
 wire				isLeftPLXInside	= LPixelX >= extDAX0;
 wire				isLeftPRXInside	= RPixelX >= extDAX0;
-wire				isRightPLXInside= LPixelX  < extDAX1; // PIXEL IS EXCLUSIVE
-wire				isRightPRXInside= RPixelX  < extDAX1; // PIXEL IS EXCLUSIVE
+wire				isRightPLXInside= LPixelX <= extDAX1; // PIXEL IS INCLUSIVE
+wire				isRightPRXInside= RPixelX <= extDAX1; // PIXEL IS INCLUSIVE
 // [NEEDED FOR TRIANGLE AND RECTANGLE] : Intersection of draw area AND bounding box.
 wire				isLeftPLXminTri = LPixelX >= minTriDAX0;
 wire				isLeftPRXminTri = RPixelX >= minTriDAX0;
@@ -2909,8 +2909,8 @@ wire rejectTriSize = invalidX1X0 | invalidX2X0 | invalidY1Y0 | invalidY2Y0; // 1
 // [Setup]
 wire				earlyTriRejectLeft   = maxXTri  < extDAX0;
 wire				earlyTriRejectTop    = maxYTri  < extDAY0;
-wire				earlyTriRejectRight  = minXTri >= extDAX1;
-wire				earlyTriRejectBottom = minYTri >= extDAY1;
+wire				earlyTriRejectRight  = minXTri  > extDAX1; // PIXEL IS INCLUSIVE, so reject must test AFTER last pixel in X DRAW AREA.
+wire				earlyTriRejectBottom = minYTri  > extDAY1; // PIXEL IS INCLUSIVE, so reject must test AFTER last pixel in Y DRAW AREA.
 assign				earlyTriangleReject  = earlyTriRejectLeft | earlyTriRejectRight | earlyTriRejectTop | earlyTriRejectBottom | rejectTriSize;
 /* PERFORMANCE OPTIMIZATION
 wire				earlyLineReject      = invalidX1X0 | invalidY1Y0; // | earlyLineRejectLeft | earlyLineRejectTop | earlyLineRejectRight | earlyLineRejectBottom;
@@ -2923,10 +2923,10 @@ wire				earlyLineRejectBottom= minY0Y1 >= extDAY1;
 // Thanks to earlyTriangleReject, we know the box are intersecting.
 // We know that Box is properly oriented (Min < Max), we assume that DrawArea X0 < X1 too.
 // [Setup]
-assign				minTriDAX0 = minXTri  < extDAX0 ?  extDAX0    : minXTri;
-assign				maxTriDAX1 = maxXTri >= extDAX1 ? (extDAX1 + {12'hFFF}) : maxXTri; // TODO : Do X1-1/Y1-1 at register setup, and change all test for X1/Y1
-assign				minTriDAY0 = minYTri  < extDAY0 ?  extDAY0    : minYTri;
-assign				maxTriDAY1 = maxYTri >= extDAY1 ? (extDAY1 + {12'hFFF}) : maxYTri;
+assign				minTriDAX0 = minXTri  < extDAX0 ? extDAX0 : minXTri;
+assign				maxTriDAX1 = maxXTri >= extDAX1 ? extDAX1 : maxXTri;
+assign				minTriDAY0 = minYTri  < extDAY0 ? extDAY0 : minYTri;
+assign				maxTriDAY1 = maxYTri >= extDAY1 ? extDAY1 : maxYTri;
 
 // --- For Lines
 // [Setup] Line
