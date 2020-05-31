@@ -1541,7 +1541,7 @@ begin
         begin
             setStencilMode		= 3'd1;
             assignRectSetup	= 1;
-            nextWorkState	= validCLUTLoad ? WAIT_3 : RECT_START;
+            nextWorkState	= WAIT_3; // Force checking palette fully.
         end
         ISSUE_LINE:
         begin
@@ -2025,6 +2025,8 @@ begin
     end
     WAIT_2: // 3 cycles to wait
     begin
+		// [TODO] That test could be put outside and checked EARLY --> RECT could skip to RECT_START 3 cycle earlier. Safe for now.
+		//        Did that before but did not checked whole condition --> FF7 Station failed some tiles.
         if (validCLUTLoad || (isPalettePrimitive & rPalette4Bit & CLUTIs8BPP)) begin
             // Not using signal updateClutCacheComplete but could... rely on transaction only.
             if (saveLoadOnGoing == 0) begin // Wait for an on going memory transaction to complete.
