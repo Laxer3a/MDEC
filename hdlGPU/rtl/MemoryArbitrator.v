@@ -70,9 +70,9 @@ module MemoryArbitrator(
 	output          fifoFull,			//
 	output			fifoComplete,		// = Empty signal + all mem operation completed. Needed to know that primitive work is complete.
 
-	output 			o_dataArrived,		// 1 when data is available.
-	output [31:0]	o_dataValue,		//
-	input			i_dataConsumed,		// Set to 1 AFTER 1 Cycle of o_dataArrived set, then 0.
+//	output 			o_dataArrived,		// 1 when data is available.
+//	output [31:0]	o_dataValue,		//
+//	input			i_dataConsumed,		// Set to 1 AFTER 1 Cycle of o_dataArrived set, then 0.
 
 	// -----------------------------------
 	// [GPU BUS SIDE MODE]
@@ -121,8 +121,8 @@ module MemoryArbitrator(
 	output			resetPipelinePixelStateSpike,
 	output			resetMask,				// Reset the list of used pixel inside the block for next block processing.
 
-	output			notMemoryBusyCurrCycle,
-	output			notMemoryBusyNextCycle,
+//	output			notMemoryBusyCurrCycle,
+//	output			notMemoryBusyNextCycle,
 	// -----------------------------------
 	// [DDR SIDE]
 	// -----------------------------------

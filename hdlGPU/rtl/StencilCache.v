@@ -143,16 +143,16 @@ module StencilCache(
 	//
 	reg   [2:0] PReadPair;
 	reg         PBankA;
-	reg	[19:0]	debugOutAdr;
-	reg		[3:0]	debugOutPixel;
+//	reg	[19:0]	debugOutAdr;
+//	reg		[3:0]	debugOutPixel;
 	always @ (posedge clk)
 	begin
 		PReadPair 			= stencilReadPair;
 		PBankA    			= stencilReadAdr[6];
 		
-		// TODO : VCD Debug purpose, never used outside, remove when ST$ support complete.
-		debugOutAdr		= { stencilReadAdr , 5'b0 };
-		debugOutPixel	= { stencilReadPair, 1'b0 };
+// VCD Debug purpose, never used outside.
+//		debugOutAdr		= { stencilReadAdr , 5'b0 };
+//		debugOutPixel	= { stencilReadPair, 1'b0 };
 	end
 	
 	wire [15:0] outValue = PBankA ? outValueA : outValueB;

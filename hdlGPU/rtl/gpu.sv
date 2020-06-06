@@ -28,7 +28,7 @@ module gpu
 //	output	[7:0]	blue,
 //	output          owritePixelL,
 //	output          owritePixelR,
-    output	[31:0]	mydebugCnt,
+// output	[31:0]	mydebugCnt,
 
     //
     // Temporary Memory Interface
@@ -443,8 +443,8 @@ reg				assignRectSetup;
 // Manage the adress of 16 pixel buffer cache for the BG (read/write) inside the Memory Manager
 // Need to be outside because controlled by main state machine.
 reg	[14:0]		PixelBGAdr;
-reg				isLoaded; ///////////// TODO : MANAGE THAT TOMORROW ////////////////
-reg				isWritten; // USE notMemoryBusyCurrCycle in state machine.
+// reg isLoaded;
+// reg isWritten; // USE notMemoryBusyCurrCycle in state machine.
 reg	[2:0]		setStencilMode;
 reg 			writeStencil;
 reg				copyCVMode;
@@ -519,6 +519,7 @@ reg	 [ 6:0] counterXDst;
 
 
 // ------------------ Debug Stuff --------------
+/*
 reg [31:0] rdebugCnt;
 always @(posedge clk)
 begin
@@ -529,6 +530,7 @@ begin
     end
 end
 assign mydebugCnt =rdebugCnt;
+*/
 // ---------------------------------------------
 
 wire writeFifo		= !gpuAdrA2 & gpuSel & write;
@@ -1205,8 +1207,8 @@ reg [31:0]	stencilReadCache;
 reg [31:0]  maskReadCache;
 
 reg pixelFound;
-reg enteredTriangle; reg setEnteredTriangle, resetEnteredTriangle;
-
+// reg enteredTriangle;  								EARLY OPTIMIZATION REMOVED FOR NOW.
+// reg setEnteredTriangle, resetEnteredTriangle;		Same related
 
 reg			writePixelL,writePixelR;
 
@@ -1282,12 +1284,14 @@ begin
     if (setPixelFound) begin
         pixelFound = 1;
     end
+	/* Early optimization removed.
     if (resetEnteredTriangle) begin
         enteredTriangle = 0;
     end
     if (setEnteredTriangle) begin
         enteredTriangle = 1;
     end
+	*/
     if (memorizeLineEqu) begin
         // Backup the edge result for FIST PIXEL INSIDE BBOX.
         memW0 = minTriDAX0[0] ? w0R[EQUMSB] : w0L[EQUMSB];
@@ -1399,7 +1403,6 @@ wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
 //                          X       + WIDTH              - [1 or 2]
 wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
 wire  [9:0]  nextScrY	= nextPixelY[9:0] + RegY0[9:0];
-wire [11:0]	nextX		= pixelX + { 12'd2 };
 wire [ 9:0]	nextY		= pixelY[9:0] + { 10'd1 };
 wire		WidthNot1	= |RegSizeW[10:1];
 assign		endVertical	= (nextY == RegSizeH);
@@ -1486,8 +1489,10 @@ begin
 //	writeStencil2				= 2'b00;
     changeX						= 0;
     assignRectSetup				= 0;
-    setEnteredTriangle			= 0;
-    resetEnteredTriangle		= 0;
+
+//  setEnteredTriangle			= 0; // Disabled due to optimization.
+//  resetEnteredTriangle		= 0;
+
 //	resetBlockChange			= 0;
     setFirstPixel				= 0;
     setStencilMode				= 3'd0;
@@ -1524,7 +1529,7 @@ begin
     begin
         setFirstPixel			= 1;
         assignRectSetup			= !bIsPerVtxCol;
-        resetEnteredTriangle	= 1;	// Put here, no worries about more specific cases.
+        // resetEnteredTriangle	= 1;	// Put here, no worries about more specific cases. // Removed due to optimization enteredTriangle flag not used anymore.
         resetDir				= 1;
 
         case (/*issue.*/issuePrimitive)
@@ -2123,7 +2128,7 @@ begin
 
             // TODO : Mask stuff here at IF level too.
             if (isValidPixelL || isValidPixelR) begin // Line Equation.
-                setEnteredTriangle = 1;
+                // setEnteredTriangle = 1;  REMOVED, Optimization testing enteredTriangle not necessary anymore.
 
                 if (pixelFound == 0) begin
                     setPixelFound	= 1;
@@ -3176,8 +3181,8 @@ begin
     lastMissTC			= missTC;
 end
 
-wire notMemoryBusyCurrCycle;
-wire notMemoryBusyNextCycle;
+// wire notMemoryBusyCurrCycle;
+// wire notMemoryBusyNextCycle;
 
 // [Cache Texture swizzling vary with Texture Format]
 wire textureFormatTrueColor = (GPU_REG_TexFormat[1]); // (10)2 or (11)3
@@ -3223,9 +3228,9 @@ CLUT_Cache CLUT_CacheInst(
 );
 
 // ------------------------------------------------
-wire [31:0]		readValue32;
-wire            dataArrived;
-wire			dataConsumed;
+// wire [31:0]		readValue32;
+// wire            dataArrived;
+// wire			dataConsumed;
 
 wire  [5:0]    XPosClut           = {1'b0,rClutPacketCount} + RegCLUT[5:0];
 wire  [14:0]   adrClutCacheUpdate = { RegCLUT[14:6] , XPosClut };
@@ -3239,9 +3244,9 @@ MemoryArbitrator MemoryArbitratorInstance(
     .fifoFull				(commandFifoFull),
     .fifoComplete			(commandFifoComplete),
 
-    .o_dataArrived			(dataArrived),
-    .o_dataValue			(readValue32),
-    .i_dataConsumed			(dataConsumed),
+//    .o_dataArrived			(dataArrived),
+//    .o_dataValue			(readValue32),
+//    .i_dataConsumed			(dataConsumed),
 
     // -----------------------------------
     // [GPU BUS SIDE MODE]
@@ -3290,8 +3295,8 @@ MemoryArbitrator MemoryArbitratorInstance(
     .notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
     .notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
     */
-    .notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
-    .notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
+//    .notMemoryBusyCurrCycle	(notMemoryBusyCurrCycle),
+//    .notMemoryBusyNextCycle	(notMemoryBusyNextCycle),
 
     // Ask to write/read BG
     .isBlending							(bSemiTransp),
