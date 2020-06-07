@@ -58,5 +58,4 @@ module dither(
 	assign r = rclamp[7:3];
 	assign g = gclamp[7:3];
 	assign b = bclamp[7:3];
-	
 endmodule

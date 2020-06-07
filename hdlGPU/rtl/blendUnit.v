@@ -2,9 +2,9 @@
 
  */
 module blendUnit(
-	input	[7:0]	bg_r,
-	input	[7:0]	bg_g,
-	input	[7:0]	bg_b,
+	input	[4:0]	bg_r,
+	input	[4:0]	bg_g,
+	input	[4:0]	bg_b,
 
 	input	[7:0]	px_r,
 	input	[7:0]	px_g,
@@ -36,7 +36,7 @@ module blendUnit(
 	reg tblTransp;
 	always @(*)
 	begin
-		case ({px_transparent,px_STP,noblend})
+		case ({px_transparent,px_STP,!noblend})
 		3'd0: tblTransp = OPAQUE;				// x,x,x | STP 0 | Transparency OFF
 		3'd1: tblTransp = OPAQUE;				// x,x,x | STP 0 | Transparency ON
 		3'd2: tblTransp = OPAQUE;				// x,x,x | STP 1 | Transparency OFF
@@ -59,14 +59,14 @@ module blendUnit(
 		
 		if (modeGPU==2'b00) begin
 			// 0.5
-			ra = {1'b0, bg_r};
-			ga = {1'b0, bg_g};
-			ba = {1'b0, bg_b};
+			ra = {1'b0, bg_r, bg_r[4:2]};
+			ga = {1'b0, bg_g, bg_g[4:2]};
+			ba = {1'b0, bg_b, bg_b[4:2]};
 		end else begin
 			// 1.0
-			ra = {bg_r, 1'b0};
-			ga = {bg_g, 1'b0};
-			ba = {bg_b, 1'b0};
+			ra = {bg_r,bg_r[4:2],1'b0};
+			ga = {bg_g,bg_g[4:2],1'b0};
+			ba = {bg_b,bg_b[4:2],1'b0};
 		end
 		
 		case (modeGPU)

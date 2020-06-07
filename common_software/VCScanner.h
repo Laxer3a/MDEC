@@ -53,7 +53,7 @@
 
 enum VCFORMAT {
 	HEXA,
-	UINT,
+	UINTVC,
 	SINT,
 	BIN,
 	NON_APPLICABLE,

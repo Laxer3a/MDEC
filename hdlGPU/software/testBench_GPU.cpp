@@ -4,8 +4,10 @@
 // Test for dither on/off
 // Total 2^29 tests.
 //----------------------------------------------------------------------------
+#if 0
 #include <stdio.h>
 #include "../rtl/obj_dir/Vgpu.h"
+#include "../rtl/obj_dir/VdividerWrapper.h"
 
 #define VCSCANNER_IMPL
 #include "../../common_software/VCScanner.h"
@@ -19,6 +21,8 @@ void errorPipeline() {
 
 VCScanner*	pScan;
 Vgpu*		mod;
+VdividerWrapper* divUnit;
+
 int resetSig;
 
 int clockCnt = 0;
@@ -35,8 +39,6 @@ void clock() {
 
 	mod->clk    = 1;
 	mod->eval();
-
-	mod->eval(); // Propagate signal from CacheLoading / PushPixels along (combinatorial)
 	pScan->eval(clockCnt++);
 }
 
@@ -140,7 +142,22 @@ command commandArray[] = {
 	{ 1,	0x08000000 | (1<<3) | (1<<4) | (1<<6) | (1<<7) },
 	{ 1,	0x08000000  },
 	*/
-	
+
+	/*
+	GP0(A0h) - Copy Rectangle (CPU to VRAM)
+		1st  Command           (Cc000000h)
+		2nd  Destination Coord (YyyyXxxxh)  ;Xpos counted in halfwords
+		3rd  Width+Height      (YsizXsizh)  ;Xsiz counted in halfwords	
+	*/
+
+	{ 0,	0xA0000000 },
+		{ 0,	0x00000000 },	// X=0, Y=0
+		{ 0,	0x00020002 },	// W=4, H=2
+		{ 0,	0x000A000B },	// Line 0
+		{ 0,	0x000C000D },
+		{ 0,	0x000F000E },	// Line 1
+		{ 0,	0x00110010 },
+
 	//
 	// Test 00..1F [Done]
 	// Test 20..2F
@@ -196,12 +213,23 @@ command commandArray[] = {
 		L = Load coLors.
 		* = Emit Primitive
 	*/
-#if 0
+	{0, 0x40080808},	// 40/41/42/43/44/45/46/47
+		{0, 0x00000000},
+		{0, 0x00080003},
+
+	{ 0,    0x30AABBCC },		// Polygon, 3 pts, opaque
+		{ 0,    0x00080008 },
+		{ 0,    0xFFA2B1C0 },	// L
+		{ 0,    0x000F0008 },
+		{ 0,    0xFEA5B4C3 },	// L
+		{ 0,    0x0008000F },
+
 	// CVVV*
+#if 0
 	{ 0,    0x20AABBCC },		// Polygon, 3 pts, opaque
-		{ 0,    0x00110001 },
-		{ 0,    0x00320022 },
-		{ 0,    0x00530043 },
+		{ 0,    0x00080008 },
+		{ 0,    0x000F0008 },
+		{ 0,    0x0008000F },
 	{ 0,    0x21AABBCC },		// Polygon, 3 pts, opaque ( texture-blending disabled over non textured...)
 		{ 0,    0x00110001 },
 		{ 0,    0x00320022 },
@@ -449,14 +477,82 @@ command commandArray[] = {
 		{ 0,    0x00740064 },	// V
 		{ 0,    0xFFFCFBFA },	// T
 #endif
+/*
 	{0,	0x02AABBCC},		// FILL RECT
-		{ 0, 0xAAAACCCC },
-		{ 0, 0x11112222 },
+		{ 0, 0x00000000 },
+		{ 0, 0x00030011 },
 
-	{0, 0x80AABBCC},		// VRAM to VRAM
-		{ 0, 0xAAAACCCC },
-		{ 0, 0x11112222 },
-		{ 0, 0x33334444 },
+	{0,	0x02AABBCC},		// FILL RECT
+		{ 0, 0x00000000 },
+		{ 0, 0x00030000 },
+
+	{0,	0x02AABBCC},		// FILL RECT
+		{ 0, 0x00000000 },
+		{ 0, 0x00000001 },
+
+	{0,	0x02AABBCC},		// FILL RECT
+		{ 0, 0x00000000 },
+		{ 0, 0x00020010 },
+*/
+	/*
+	AAAA BBBB CCCC
+	****            	<--- case 1
+	***             	<--- case 2
+	**** **           	<--- case 3
+	  **           		<--- case 4
+	  *            		<--- case 5
+	  ** **				<--- case 6
+	  ** **** 			<--- case 7
+	  ** **** **		<--- case 8
+	*/
+#if 0
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 1
+		{ 0, 0x00000003 },
+		{ 0, 0x00030080 },
+		{ 0, 0x0002000E },
+
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 1
+		{ 0, 0x00000003 },
+		{ 0, 0x00030080 },
+		{ 0, 0x0002000C },
+#endif
+#if 0
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 1
+		{ 0, 0x00000003 },
+		{ 0, 0x00030080 },
+		{ 0, 0x0002002A },
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 2
+		{ 0, 0x00000000 },
+		{ 0, 0x00030080 },
+		{ 0, 0x0001000A },
+#endif
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 3
+		{ 0, 0x00000000 },
+		{ 0, 0x00030080 },
+		{ 0, 0x00010015 },
+
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 4
+		{ 0, 0x00000003 },
+		{ 0, 0x00030080 },
+		{ 0, 0x0001000D },
+
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 5
+		{ 0, 0x00000003 },
+		{ 0, 0x00030080 },
+		{ 0, 0x0001000B },
+
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 6
+		{ 0, 0x00000003 },
+		{ 0, 0x00030080 },
+		{ 0, 0x0001001D },
+
+	{0, 0x80AABBCC},		// VRAM to VRAM Case 7
+		{ 0, 0x00000003 },
+		{ 0, 0x00030080 },
+		{ 0, 0x00010020 },
+
+
+/*
 	{0, 0xA0AABBCC},		// CPU to VRAM
 		{ 0, 0xAAAACCCC },
 		{ 0, 0x00010002 },
@@ -470,7 +566,7 @@ command commandArray[] = {
 	{0, 0x80AABBCC},
 		{ 0, 0xAAAACCCC },
 		{ 0, 0x11112222 },
-
+*/
 
 	/*
 	// CVV*
@@ -714,7 +810,7 @@ command commandArray[] = {
 	{0, 0xE6000000},
 #endif
 
-
+#if 0
 	{ 0,    0x0000FFFF },
 	{ 0,    0x0000FFFF },
 	{ 0,    0x0000FFFF },
@@ -747,6 +843,7 @@ command commandArray[] = {
 	{ 0,    0x07000000 },
 	{ 0,    0x07000000 },
 	{ 0,    0x07000000 },
+#endif
 
 };
 
@@ -793,11 +890,21 @@ enum STATE {
 enum WORK_STATE {
 	NOT_WORKING_DEFAULT_STATE = 0,
 	LINE_START = 1,
-	// LINE_DRAW = 4'd2, LINE_END = 4'd3,
-	RECT_START = 4,
-	FILL_START = 5,
-	COPY_START = 6,
-	TRIANGLE_START = 7,
+	// LINE_DRAW = 4'd2,
+	RECT_START = 3,
+	FILL_START = 4,
+	COPY_START = 5,
+	TRIANGLE_START = 6,
+	FILL_LINE = 7,
+
+	COPYCV_START 	= 8,
+	COPYVC_START 	= 9,
+	CPY_LINE_START_UNALIGNED	= 10,
+	CPY_LINE_BLOCK				= 11,
+	CPY_WUN_BLOCK				= 12,
+	CPY_WR_BLOCK				= 13,
+
+
 	/*
 	TMP_1 = 4'd8,
 	TMP_2 = 4'd9,
@@ -807,6 +914,51 @@ enum WORK_STATE {
 };
 
 void checkGPUState() {
+	static const char* statesName[] = {
+		"NOT_WORKING_DEFAULT_STATE ",
+		"LINE_START				",
+		"LINE_DRAW				",
+		"RECT_START				",
+		"FILL_START				",
+		"COPY_START				",
+		"TRIANGLE_START			",
+		"FILL_LINE  				",
+		"COPYCV_START 			",
+		"COPYVC_START 			",
+		"CPY_LINE_START_UNALIGNED",
+		"CPY_LINE_BLOCK			",
+		"CPY_WUN_BLOCK			",
+		"CPY_WR_BLOCK			",
+		"START_LINE_TEST_LEFT	",
+		"START_LINE_TEST_RIGHT	",
+		"SCAN_LINE				",
+		"SCAN_LINE_CATCH_END		",
+		"LINE_READ_MASK			",
+		"TMP_2 					",
+		"TMP_3 					",
+		"TMP_4 					",
+		"SETUP_RX				",
+		"SETUP_RY				",
+		"SETUP_GX				",
+		"SETUP_GY				",
+		"SETUP_BX				",
+		"SETUP_BY				",
+		"SETUP_UX				",
+		"SETUP_UY				",
+		"SETUP_VX				",
+		"SETUP_VY				",
+		"WAIT_3					",
+		"WAIT_2					",
+		"WAIT_1					",
+		"SELECT_PRIMITIVE		",
+		"UNDEF",
+		"UNDEF",
+		"UNDEF",
+		"UNDEF",
+		"UNDEF",
+		"UNDEF",
+	};
+
 	static int cycleCount = 0;
 	printf("@%i ", cycleCount++);
 	switch ((STATE)mod->gpu__DOT__currState) {
@@ -818,19 +970,23 @@ void checkGPUState() {
 								break;
 	case UV_LOAD:				if (mod->gpu__DOT__loadUV) { printf("  UV_LOAD (L:%i Value:%x) ",mod->gpu__DOT__loadUV,mod->gpu__DOT__fifoDataOut);  } else { printf("  (UV LOAD WAIT COMPLETE) "); } break;
 	case WIDTH_HEIGHT_STATE:	printf("  WIDTH_HEIGHT_STATE (L:%i Value:%x) ",mod->gpu__DOT__loadSize,mod->gpu__DOT__fifoDataOut); break;
-	case LOAD_XY1:				printf("  LOAD_XY1 "); break;
-	case LOAD_XY2:				printf("  LOAD_XY2 "); break;
+	case LOAD_XY1:				printf("  LOAD_XY1 [X=%i][Y=%i] ",mod->gpu__DOT__RegX0,mod->gpu__DOT__RegY0); break;
+	case LOAD_XY2:				printf("  LOAD_XY2 [X=%i][Y=%i] ",mod->gpu__DOT__RegX1,mod->gpu__DOT__RegY1); break;
 	case WAIT_COMMAND_COMPLETE:	printf("  WAIT_COMMAND_COMPLETE "); break;
 	}
 
 	switch ((WORK_STATE)mod->gpu__DOT__currWorkState) {
-	case LINE_START: printf("LINE START "); break;
-	case RECT_START: printf("RECT START "); break;
-	case FILL_START: printf("FILL START "); break;
-	case COPY_START: printf("COPY START "); break;
-	case TRIANGLE_START: printf("TRIANGLE START "); break;
-	case NOT_WORKING_DEFAULT_STATE: break;
-	default: printf("(FAKE) PRIMITIVE RENDER... "); break;
+	case FILL_LINE : 
+//		printf("FILL LINE READ 16 PIX @%x",mod->gpu__DOT__adrWord); 
+		break;
+	case COPYCV_START: printf("COPYCV START "); break;
+	case COPYVC_START: printf("COPYVC START "); break;
+//	case CPY_LINE_START_UNALIGNED: printf("CPY_LINE_START_UNALIGNED READ 16 PIX @%x [MSK:%x] ",mod->gpu__DOT__adrWord, mod->gpu__DOT__maskSegmentRead); break;
+//	case CPY_LINE_BLOCK: printf("CPY_LINE_BLOCK READ 16 PIX @%x [MSK:%x] ",mod->gpu__DOT__adrWord, mod->gpu__DOT__maskSegmentRead); break;
+//	case CPY_WUN_BLOCK: printf("CPY_WUN_BLOCK WRITE 16 PIX @%x",mod->gpu__DOT__adrWord); break;
+//	case CPY_WR_BLOCK: printf("CPY_WR_BLOCK WRITE 16 PIX @%x",mod->gpu__DOT__adrWord); break;
+	default: 
+		printf("%s ", statesName[mod->gpu__DOT__currWorkState]); break;
 	}
 	printf("\n");
 }
@@ -843,6 +999,20 @@ int testGPU() {
 	pScan->init(500); // TODO : MUST TURN API ATOMIC.
 
 	mod = new Vgpu();
+	/*
+	divUnit = new VdividerWrapper();
+
+	int n = 3;
+	divUnit->denominator = 3;
+	while (true) {
+		n++;
+		divUnit->numerator = n; 
+		divUnit->clock = 1;
+		divUnit->eval();
+		divUnit->clock = 0;
+		divUnit->eval();
+	}
+	*/
 
 	#define MODULE mod
 	#define SCAN   pScan
@@ -957,7 +1127,7 @@ int testGPU() {
 		VL_SIG8(gpu__DOT__bIsTerminator,0,0);
 //		VL_SIG8(gpu__DOT__bEndLine,0,0);
 //		VL_SIG8(gpu__DOT__bIsValidVertex,0,0);
-		VL_SIG8(gpu__DOT__bIsPrimitiveLoaded,0,0);
+//		VL_SIG8(gpu__DOT__bIsPrimitiveLoaded,0,0);
 		VL_SIG8(gpu__DOT__bIsRenderAttrib,0,0);
 		VL_SIG8(gpu__DOT__bIsNop,0,0);
 		VL_SIG8(gpu__DOT__bIsPolyOrRect,0,0);
@@ -1014,20 +1184,7 @@ int testGPU() {
 		VL_SIG8(gpu__DOT__isV0,0,0);
 		VL_SIG8(gpu__DOT__isV1,0,0);
 		VL_SIG8(gpu__DOT__isV2,0,0);
-//		VL_SIG8(gpu__DOT__bPipeIssuePrimitive,0,0);
-		VL_SIG8(gpu__DOT__min01ID,0,0);
-		VL_SIG8(gpu__DOT__TopID,1,0);
-		VL_SIG8(gpu__DOT__cmp02,0,0);
-		VL_SIG8(gpu__DOT__cmp12,0,0);
-		VL_SIG8(gpu__DOT__BottomID,1,0);
-		VL_SIG8(gpu__DOT__MiddleID,1,0);
-		VL_SIG8(gpu__DOT__VtxU0,7,0);
-		VL_SIG8(gpu__DOT__VtxU1,7,0);
-		VL_SIG8(gpu__DOT__VtxU2,7,0);
-		VL_SIG8(gpu__DOT__VtxV0,7,0);
-		VL_SIG8(gpu__DOT__VtxV1,7,0);
-		VL_SIG8(gpu__DOT__VtxV2,7,0);
-//		VL_SIG8(gpu__DOT__bCanPushPrimitive,0,0);
+		/*
 		VL_SIG8(gpu__DOT__Fifo_inst__DOT__clk,0,0);
 		VL_SIG8(gpu__DOT__Fifo_inst__DOT__rst,0,0);
 		VL_SIG8(gpu__DOT__Fifo_inst__DOT__wr_en_i,0,0);
@@ -1041,6 +1198,7 @@ int testGPU() {
 		VL_SIG8(gpu__DOT__Fifo_inst__DOT__raddr,3,0);
 		VL_SIG8(gpu__DOT__Fifo_inst__DOT__pRaddr,3,0);
 		VL_SIG8(gpu__DOT__Fifo_inst__DOT__pRd_en_i,0,0);
+		*/
 		VL_SIG16(gpu__DOT__GPU_REG_OFFSETX,10,0);
 		VL_SIG16(gpu__DOT__GPU_REG_OFFSETY,10,0);
 		VL_SIG16(gpu__DOT__GPU_REG_DrawAreaX0,9,0);
@@ -1055,10 +1213,8 @@ int testGPU() {
 		VL_SIG16(gpu__DOT__GPU_REG_RangeY1,9,0);
 		VL_SIG16(gpu__DOT__fifoDataOutY,12,0);
 		VL_SIG16(gpu__DOT__fifoDataOutX,12,0);
-		VL_SIG16(gpu__DOT__fifoDataOutW,10,0);
-		VL_SIG16(gpu__DOT__fifoDataOutH,9,0);
 		VL_SIG16(gpu__DOT__fifoDataOutClut,14,0);
-		VL_SIG16(gpu__DOT__fifoDataOutTex,9,0);
+//		VL_SIG16(gpu__DOT__fifoDataOutTex,9,0);
 		VL_SIG16(gpu__DOT__fifoDataOutWidth,9,0);
 		VL_SIG16(gpu__DOT__fifoDataOutHeight,8,0);
 		VL_SIG16(gpu__DOT__RegX0,12,0);
@@ -1077,13 +1233,9 @@ int testGPU() {
 		VL_SIG16(gpu__DOT__RegG2,8,0);
 		VL_SIG16(gpu__DOT__RegB2,8,0);
 		VL_SIG16(gpu__DOT__RegC,14,0);
-		VL_SIG16(gpu__DOT__RegTx,9,0);
+//		VL_SIG16(gpu__DOT__RegTx,9,0);
 		VL_SIG16(gpu__DOT__RegSizeW,9,0);
-		VL_SIG16(gpu__DOT__RegSX0,9,0);
-		VL_SIG16(gpu__DOT__RegSX1,9,0);
 		VL_SIG16(gpu__DOT__RegSizeH,8,0);
-		VL_SIG16(gpu__DOT__RegSY0,8,0);
-		VL_SIG16(gpu__DOT__RegSY1,8,0);
 		VL_SIG16(gpu__DOT__componentFuncR,8,0);
 		VL_SIG16(gpu__DOT__componentFuncG,8,0);
 		VL_SIG16(gpu__DOT__componentFuncB,8,0);
@@ -1093,24 +1245,6 @@ int testGPU() {
 		VL_SIG16(gpu__DOT__loadComponentR,8,0);
 		VL_SIG16(gpu__DOT__loadComponentG,8,0);
 		VL_SIG16(gpu__DOT__loadComponentB,8,0);
-		VL_SIG16(gpu__DOT__min01V,12,0);
-		VL_SIG16(gpu__DOT__VtxX0,12,0);
-		VL_SIG16(gpu__DOT__VtxX1,12,0);
-		VL_SIG16(gpu__DOT__VtxX2,12,0);
-		VL_SIG16(gpu__DOT__VtxY0,12,0);
-		VL_SIG16(gpu__DOT__VtxY1,12,0);
-		VL_SIG16(gpu__DOT__VtxY2,12,0);
-		VL_SIG16(gpu__DOT__VtxR0,8,0);
-		VL_SIG16(gpu__DOT__VtxR1,8,0);
-		VL_SIG16(gpu__DOT__VtxR2,8,0);
-		VL_SIG16(gpu__DOT__VtxG0,8,0);
-		VL_SIG16(gpu__DOT__VtxG1,8,0);
-		VL_SIG16(gpu__DOT__VtxG2,8,0);
-		VL_SIG16(gpu__DOT__VtxB0,8,0);
-		VL_SIG16(gpu__DOT__VtxB1,8,0);
-		VL_SIG16(gpu__DOT__VtxB2,8,0);
-		VL_SIG16(gpu__DOT__PrimClut,14,0);
-		VL_SIG16(gpu__DOT__PrimTx,9,0);
 		VL_SIG(gpu__DOT__cpuDataIn,31,0);
 		VL_SIG(gpu__DOT__cpuDataOut,31,0);
 		VL_SIG(gpu__DOT__fifoDataOut,31,0);
@@ -1166,6 +1300,17 @@ int testGPU() {
 	return 1;
 }
 
+#endif
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 int main() {
-	testGPU();
+#ifdef _WIN32
+	HWND consoleWindow = GetConsoleWindow();
+	SetWindowPos( consoleWindow, 0, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER );
+#endif
+
+	//testGPU();
 }

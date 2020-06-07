@@ -1,7 +1,6 @@
 /* For a SINGLE Texture, 
    Need two instance of those units for dual pixel. */
 module TEXToIndex(
-	input			clk,
 	// Texture input
 	input	[1:0]	GPU_REG_TexFormat,
 	input	[15:0]	dataIn,
