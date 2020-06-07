@@ -83,13 +83,15 @@ IMPORTANT NOTE :	I do not know HOW we cut in the 768 cycle pattern.
 					The only order that matters is :
 					1/ Write of channel 1 and 3 must obviously occurs after the channel
 					has been computed.
-					2/ Most likely reverb does work after all channels are done ?
+					2/ Most likely reverb does work after all channels are done.
 						So it is probably the 24 channels
 						Then writes for CD and Channel 1/3
 						Then reverb.
 						
 	Please look at the end for the remaining questions :
 
+We also analyzed the voice 1..4 used during boot, and by knowing the VOICE Sample rate for each voice,
+we can look at how the ADPCM decoder is changing of adress (less change = slow play speed, high change = fast play speed)
 	
 Format :
 @4666 LOAD COL 119 => Adr 000b19 READ ADPCM
@@ -98,60 +100,19 @@ Format :
   |     |       +------------------------- 	9 bit value
   |     +---------------------------------  LOAD COLUMN : After ROW adress of 9 bit is setup,
   |                                         adress of 9 bit for COLUMN create a full adress.
-  +---------------------------------------  Cycle number in the sample.
+  +---------------------------------------  Cycle number in the sample log.
+
+Our log start at cycle 4850 from the Logic Analyzer data
   
 ====================================
     44.100 Khz Sample (768 clocks).
 ====================================
-====================================
-    22.050 Khz REVERB SPEED.(44.1 Khz Left, then Right)
-====================================
 
-// 1  <=== Most likely 13 actually....
-@4610 LOAD COL 118 => Adr 000b18 READ ADPCM 
-@4618 LOAD COL 119 => Adr 000b19 READ ADPCM +  8 Cycle
-@4626 LOAD COL 30 => Adr 005c30 READ ADPCM  + 16 Cycle
-// 2
-@4634 LOAD COL 118 => Adr 000b18 READ ADPCM + 24 Cycle
-@4642 LOAD COL 119 => Adr 000b19 READ ADPCM + 32 Cycle
-@4650 LOAD COL 30 => Adr 005c30 READ ADPCM  ...
-// 3
-@4658 LOAD COL 118 => Adr 000b18 READ ADPCM Read 16 bit...
-@4666 LOAD COL 119 => Adr 000b19 READ ADPCM Then next 16 bit...
-@4674 LOAD COL 30 => Adr 005c30 READ ADPCM
-// 4
-@4682 LOAD COL 118 => Adr 000b18 READ ADPCM
-@4690 LOAD COL 119 => Adr 000b19 READ ADPCM
-@4698 LOAD COL 30 => Adr 005c30 READ ADPCM
-// 5
-@4706 LOAD COL 118 => Adr 000b18 READ ADPCM
-@4714 LOAD COL 119 => Adr 000b19 READ ADPCM
-@4722 LOAD COL 30 => Adr 005c30 READ ADPCM
-// 6
-@4730 LOAD COL 118 => Adr 000b18 READ ADPCM
-@4738 LOAD COL 119 => Adr 000b19 READ ADPCM
-@4746 LOAD COL 30 => Adr 005c30 READ ADPCM
-// 7
-@4754 LOAD COL 118 => Adr 000b18 READ ADPCM
-@4762 LOAD COL 119 => Adr 000b19 READ ADPCM
-@4770 LOAD COL 30 => Adr 005c30 READ ADPCM
-// 8
-@4778 LOAD COL 118 => Adr 000b18 READ ADPCM
-@4786 LOAD COL 119 => Adr 000b19 READ ADPCM
-@4794 LOAD COL 30 => Adr 005c30 READ ADPCM
-
-// 9			
-@4802 LOAD COL 118 => Adr 000b18 READ ADPCM
-@4810 LOAD COL 119 => Adr 000b19 READ ADPCM
-@4818 LOAD COL 30 => Adr 005c30 READ ADPCM
-// 10
-@4826 LOAD COL 118 => Adr 000b18 READ ADPCM
-@4834 LOAD COL 119 => Adr 000b19 READ ADPCM
-@4842 LOAD COL 30 => Adr 005c30 READ ADPCM
-// 11  <=== Most likely 23 actually...
-@4850 LOAD COL 120 => Adr 005b20 READ ADPCM Read 16 bit...
-@4858 LOAD COL 125 => Adr 005b25 READ ADPCM Then +10 byte next read. (5 half word)
-@4866 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 1
+@4850 LOAD COL 120 => Adr 005b20 READ ADPCM Read 16 bit...							<-- HEADER OF ADPCM BLOCK USED
+	We notice that the first line in each block of 3 is ALWAYS a multiple of 16 ! ADPCM BLOCK HEADER.
+@4858 LOAD COL 125 => Adr 005b25 READ ADPCM Then +10 byte next read. (5 half word)	<-- 16 bit Block 0..6 of ADPCM block to get sample from. 
+@4866 LOAD COL 30  => Adr 005c30 XXXX DATA											<-- Use for Data XFer (UNUSED READ if no transfer, READ for FIFO out, WRITE for FIFO in)
 
 // Special stuff -----------------------------------
 @4874 LOAD COL b3 => Adr 0000b3 WRITE [CD LEFT]
@@ -160,104 +121,135 @@ Format :
 @4898 LOAD COL b3 => Adr 0006b3 WRITE [VOICE 3]
 //--------------------------------------------------
 
+====================================
+    22.050 Khz REVERB SPEED.(44.1 Khz Left, then Right)
+====================================
 // Reverb Stuff-------------------------------------
-@4906 LOAD COL 9b  => Adr 03d09b READ REVERB
-@4914 LOAD COL 12a => Adr 03e32a READ REVERB
-@4922 LOAD COL 157 => Adr 039357 READ REVERB
-@4930 LOAD COL 12b => Adr 03e32b WRITE REVERB
-@4938 LOAD COL 18a => Adr 03bf8a READ REVERB
-@4946 LOAD COL 23  => Adr 03dc23 READ REVERB
-@4954 LOAD COL 18b => Adr 03bf8b WRITE REVERB
-@4962 LOAD COL db  => Adr 03d6db READ REVERB
-@4970 LOAD COL a3  => Adr 03b4a3 READ REVERB
-@4978 LOAD COL 1ab => Adr 03afab READ REVERB
-@4986 LOAD COL 5f  => Adr 03865f READ REVERB
-@4994 LOAD COL 1ff => Adr 03ebff READ REVERB
-@5002 LOAD COL 153 => Adr 039353 WRITE REVERB
-@5010 LOAD COL c3  => Adr 03f4c3 WRITE REVERB
+Lower Limit is 384A0
+High  Limit is 40000
+A => 2nd read and 1st write is ADR-1 and ADR : mLSAME or mRSAME.
+B => mLSAME-mLDIFF = 0x4740 byte. (Know from BIOS register setup)
+	 mRSAME-mRDIFF = 0x4EE0 byte.
+   
+	 (m*Same - m*Diff) in word *2 = 0x4740
+	 Conclusion we are on the [LEFT SIDE]
+C => Compute offset (Reverb increment buffer)
+	 Write mLSAME 03e32b(word) 
+		= mLSAME(0x0000f6b0 in byte = 7B58 word from BIOS setup) + Counter word + Base (384A0 word)
+		= 0x3FFF8 (mLSAME + Base) + Counter Word
+		= 8 count to 0x40000 + 0x5E8B (0x3E32B-0x384A0)
+	Offset = 0x5E93 over a range of [0..7B5F]
+D => Now that we know the offset and the BIOS setup, remapping back all the read/write to registers
+	 And find out the original state machine order using No$ reverb computations.
+
+@clock                                          Found Reverb Setup Read/Write
+												[Left Side]		[Right Side]
+@4906 LOAD COL 9b  = > Adr 03d09b READ REVERB   dLSame			dRSame
+@4914 LOAD COL 12a = > Adr 03e32a READ REVERB   mLSame-1 		mRSame-1
+@4922 LOAD COL 157 = > Adr 039357 READ REVERB   dRDiff			dLDiff
+@4930 LOAD COL 12b = > Adr 03e32b XXXX REVERB   mLSame			mRSame          <-- WRITE becomes READ if REVERB DISABLED.
+@4938 LOAD COL 18a = > Adr 03bf8a READ REVERB   mLDiff-1		mRDiff-1
+@4946 LOAD COL 23  = > Adr 03dc23 READ REVERB   mLComb1			mRComb1
+@4954 LOAD COL 18b = > Adr 03bf8b XXXX REVERB   mLDiff			mRDiff          <-- WRITE becomes READ if REVERB DISABLED.
+@4962 LOAD COL db  = > Adr 03d6db READ REVERB	mLComb2			mRComb2
+@4970 LOAD COL a3  = > Adr 03b4a3 READ REVERB	mLComb3			mRComb3
+@4978 LOAD COL 1ab = > Adr 03afab READ REVERB	mLComb4			mRComb4
+@4986 LOAD COL 5f  = > Adr 03865f READ REVERB	mLAPF1 - dAPF1	mRAPF1 - dAPF1
+@4994 LOAD COL 1ff = > Adr 03ebff READ REVERB   mLAPF2 - dAPF2	mRAPF2 - dAPF2
+@5002 LOAD COL 153 = > Adr 039353 XXXX REVERB   mLAPF1			mRAPF1          <-- WRITE becomes READ if REVERB DISABLED.
+@5010 LOAD COL c3  = > Adr 03f4c3 XXXX REVERB   mLAPF2			mRAPF2          <-- WRITE becomes READ if REVERB DISABLED.
 //--------------------------------------------------
 
-// 12	<=== Most likely Channel 1 here instead ?
-@5066 LOAD COL 138 => Adr 005538 READ ADPCM
-@5074 LOAD COL 13a => Adr 00553a READ ADPCM
-@5082 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 2
+@5066 LOAD COL 138 => See Voice 1
+@5074 LOAD COL 13a => See Voice 1
+@5082 LOAD COL 30  => See Voice 1
 
-// 13
-@5090 LOAD COL 8 => Adr 005808 READ ADPCM
-@5098 LOAD COL 9 => Adr 005809 READ ADPCM
-@5106 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 3
+@5090 LOAD COL 8   => See Voice 1
+@5098 LOAD COL 9   => See Voice 1
+@5106 LOAD COL 30  => See Voice 1
 
-// 14
-@5114 LOAD COL 150 => Adr 005550 READ ADPCM
-@5122 LOAD COL 152 => Adr 005552 READ ADPCM
-@5130 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 4
+@5114 LOAD COL 150 => See Voice 1
+@5122 LOAD COL 152 => See Voice 1
+@5130 LOAD COL 30  => See Voice 1
 
-// 15
-@5138 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5146 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5154 LOAD COL 30 => Adr 005c30 READ ADPCM
+// In our sample voice 5..24 are not used...
+// Voice 5 
+@5138 LOAD COL 118 => Blank READ
+@5146 LOAD COL 11a => Blank READ
+@5154 LOAD COL 30  => See Voice 1
 
-// 16
-@5162 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5170 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5178 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 6
+@5162 LOAD COL 118 => Blank READ
+@5170 LOAD COL 11a => Blank READ
+@5178 LOAD COL 30  => See Voice 1
 
-// 17
-@5186 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5194 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5202 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 7
+@5186 LOAD COL 118 => Blank READ
+@5194 LOAD COL 11a => Blank READ
+@5202 LOAD COL 30  => See Voice 1
 
-// 18
-@5210 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5218 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5226 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 8
+@5210 LOAD COL 118 => Blank READ
+@5218 LOAD COL 11a => Blank READ
+@5226 LOAD COL 30  => See Voice 1
 
-// 19
-@5234 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5242 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5250 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 9
+@5234 LOAD COL 118 => Blank READ
+@5242 LOAD COL 11a => Blank READ
+@5250 LOAD COL 30  => See Voice 1
 
-// 20
-@5258 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5266 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5274 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 10
+@5258 LOAD COL 118 => Blank READ
+@5266 LOAD COL 11a => Blank READ
+@5274 LOAD COL 30  => See Voice 1
 
-// 21
-@5282 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5290 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5298 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 11
+@5282 LOAD COL 118 => Blank READ
+@5290 LOAD COL 11a => Blank READ
+@5298 LOAD COL 30  => See Voice 1
 
-// 22
-@5306 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5314 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5322 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 12
+@5306 LOAD COL 118 => Blank READ
+@5314 LOAD COL 11a => Blank READ
+@5322 LOAD COL 30  => See Voice 1
 
-// 23
-@5330 LOAD COL 118 => Adr 000b18 READ ADPCM
-@5338 LOAD COL 11a => Adr 000b1a READ ADPCM
-@5346 LOAD COL 30 => Adr 005c30 READ ADPCM
+// Voice 13
+@5330 LOAD COL 118 => Blank READ
+@5338 LOAD COL 11a => Blank READ
+@5346 LOAD COL 30  => See Voice 1
 
-// 24 <=== Channel 12 here....
-@5354 LOAD COL 118 => Adr 000b18 READ ADPCM  ...
-@5362 LOAD COL 11a => Adr 000b1a READ ADPCM  ...
-@5370 LOAD COL 30 => Adr 005c30 READ ADPCM   +760
+... And so on until 23, then loop ...
 
+As a result, we conclude that :
+A - Voice 1 is DONE before the REVERB (weirdly).
+B - Write back of CD L/R and Voice 1/3 is done AFTER VOICE1 only.
+C - REVERB is done between Write back and Voice 2
+D - REVERB state block DOES NOT PARTICIPATE into the DATA TRANSFER.
+E - When uploading data to the SPU from the CPU side, we upload at 24 x 2 x 44.1Khz =  2067.18 Kb/s max.
 
-We still have a few 'mystery' :
+We still have a few 'mysteries' :
+- Timing of Voice1 :
 
-- READ with adress >= 00800h can be anything actually...
-	I supposed :
-	- by the 'regularity' of the structure what is ADPCM and REVERB.
-	- that REVERB does the job in one chunk.
+	Related to Pitch feedback ?                  (Only channel having no pitch feedback )
+	Is voice 1 actually run last or in advance ? (Summation for final output, write back)
+
+	This is not a big deal for the FPGA implementation that does ALL voice then reverb at the end.
+	But it definitely shows that some tricks are used in timing, that shows state machine is a bit different.
 	
-- Unused channel still decode... I bet it is taking any addresses and just do the job.
-	Why those values ? (may be setup at start ? Our sample is short and not from PSX boot)
+- What are the ADDRESS values when UNUSED pattern do perform READ (Reverb, Voice with no transfer of data).
+
+	It is very hardware related, but actually has no meaning for HW or SW recreation.
+	What is important is HOW the bandwidth is used, at which order and timing.
+	But a different HW implementation could use any read pattern to fill the void, it will not make any difference :
+	it is just to 'spent time'.
 	
-- Each channel does 3 memory access (Seen as 005c30)
-	Need to do a proper analysis.
-	Wasted READ ?
-	Usefull time for REVERB (need to check each step of computation and see how it applies to current log)
 	
-- HOW DO THE CPU / DMA upload audio samples without bothering the playback.
-	Is possible that 8 cycle are cut into 4 cycles. (0..3 reserved to SPU work, 4..7 reserved for data write from outside)
-	=> 50% would be reserved for WRITE that simply did not happen during Ash's data sampling session.
+	I also did not check the REVERB adress for WRITE becomes a READ when unused, but I suppose it is the same adr as write.
+	(Makes hardware a lot simpler)
+	
+	Hardware wise, it would also make sense that ADPCM decoding and reading occurs for ALL channels, used or not.
+	My guess is that the ADPCM counter just start from zero and increment without any difference over an active or inactive channel. (Address is (re)set on KON)
+	It use the computation path later that decide (= volume is 0, data muted somewhere with a AND) to throw away the data.

@@ -1,3 +1,6 @@
+/***************************************************************************************************************************************
+	Verilog code done by Laxer3A v1.0
+ **************************************************************************************************************************************/
 module NoiseUnit(
 	input			clk,
 	input			i_nrst,
@@ -23,24 +26,24 @@ reg [15:0] shiftedNoiseAdd;
 always @(*)
 begin
 	case (i_noiseShift)
-	default:shiftedNoiseAdd<= 16'b10_0000_0000_0000_00;
-	4'd0 : shiftedNoiseAdd <= 16'b10_0000_0000_0000_00; 
-	4'd1 : shiftedNoiseAdd <= 16'b01_0000_0000_0000_00; 
-	4'd2 : shiftedNoiseAdd <= 16'b00_1000_0000_0000_00; 
-	4'd3 : shiftedNoiseAdd <= 16'b00_0100_0000_0000_00; 
-	4'd4 : shiftedNoiseAdd <= 16'b00_0010_0000_0000_00; 
-	4'd5 : shiftedNoiseAdd <= 16'b00_0001_0000_0000_00; 
-	4'd6 : shiftedNoiseAdd <= 16'b00_0000_1000_0000_00; 
-	4'd7 : shiftedNoiseAdd <= 16'b00_0000_0100_0000_00; 
-	4'd8 : shiftedNoiseAdd <= 16'b00_0000_0010_0000_00; 
-	4'd9 : shiftedNoiseAdd <= 16'b00_0000_0001_0000_00; 
-	4'd10: shiftedNoiseAdd <= 16'b00_0000_0000_1000_00; 
-	4'd11: shiftedNoiseAdd <= 16'b00_0000_0000_0100_00; 
-	4'd12: shiftedNoiseAdd <= 16'b00_0000_0000_0010_00; 
-	4'd13: shiftedNoiseAdd <= 16'b00_0000_0000_0001_00; 
-	4'd14: shiftedNoiseAdd <= 16'b00_0000_0000_0000_10; 
-	4'd15: shiftedNoiseAdd <= 16'b00_0000_0000_0000_01; 
-	endcase	
+	default:shiftedNoiseAdd= 16'b10_0000_0000_0000_00;
+	4'd0 : shiftedNoiseAdd = 16'b10_0000_0000_0000_00; 
+	4'd1 : shiftedNoiseAdd = 16'b01_0000_0000_0000_00; 
+	4'd2 : shiftedNoiseAdd = 16'b00_1000_0000_0000_00; 
+	4'd3 : shiftedNoiseAdd = 16'b00_0100_0000_0000_00; 
+	4'd4 : shiftedNoiseAdd = 16'b00_0010_0000_0000_00; 
+	4'd5 : shiftedNoiseAdd = 16'b00_0001_0000_0000_00; 
+	4'd6 : shiftedNoiseAdd = 16'b00_0000_1000_0000_00; 
+	4'd7 : shiftedNoiseAdd = 16'b00_0000_0100_0000_00; 
+	4'd8 : shiftedNoiseAdd = 16'b00_0000_0010_0000_00; 
+	4'd9 : shiftedNoiseAdd = 16'b00_0000_0001_0000_00; 
+	4'd10: shiftedNoiseAdd = 16'b00_0000_0000_1000_00; 
+	4'd11: shiftedNoiseAdd = 16'b00_0000_0000_0100_00; 
+	4'd12: shiftedNoiseAdd = 16'b00_0000_0000_0010_00; 
+	4'd13: shiftedNoiseAdd = 16'b00_0000_0000_0001_00; 
+	4'd14: shiftedNoiseAdd = 16'b00_0000_0000_0000_10; 
+	4'd15: shiftedNoiseAdd = 16'b00_0000_0000_0000_01; 
+	endcase
 end
 
 wire [18:0] offset  = { 1'b0,shiftedNoiseAdd,2'b0 };

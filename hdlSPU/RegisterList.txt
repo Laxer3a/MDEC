@@ -17,25 +17,32 @@ Step +10h
 1098 7654 3210
 1101 10xx xxx0
 1101 11	 
-1F801D80h - Mainvolume left
-1F801D82h - Mainvolume right
-1F801D84h spu   vLOUT   volume  Reverb Output Volume Left
-1F801D86h spu   vROUT   volume  Reverb Output Volume Right
-1F801D88h - Voice 0..23 Key ON  (Start Attack/Decay/Sustain) (KON)  (W) (32 bit)
-1F801D8Ch - Voice 0..23 Key OFF (Start Release)              (KOFF) (W)
-1F801D90h - Voice 0..23 Pitch Modulation Enable Flags (PMON) [23:1]
-1F801D94h - Voice 0..23 Noise mode enable (NON) (0=ADPCM, 1=Noise)
-1F801D98h - Voice 0..23 Reverb mode aka Echo On (EON) (R/W) (0=To Mixer, 1=To Mixer and to Reverb)
-1F801D9Ch - Voice 0..23 ON/OFF (status) (ENDX) (R) (0=Newly Keyed On, 1=Reached LOOP-END), Set 0 when set KEY ON, Set 1 reach LOOP-END flag ADPCM header.bit0
-
-1F801DA0h - Some kind of a read-only status register.. or just garbage..0-15
-1F801DA2h spu   mBASE   base    Reverb Work Area Start Address in Sound RAM
-1F801DA4h - Sound RAM IRQ Address (IRQ9)    [15:0] SPUCNT (IRQ enable/disable/acknowledge) and SPUSTAT (IRQ flag).
-1F801DA6h - Sound RAM Data Transfer Address [15:0]
-1F801DA8h - Sound RAM Data Transfer Fifo    [15:0]
-1F801DAAh - SPU Control Register (SPUCNT)
-1F801DAEh - SPU Status Register (SPUSTAT) (R)
-1F801DACh - Sound RAM Data Transfer Control (should be 0004h)
+1F801D80h(00) - Mainvolume left
+1F801D82h(01) - Mainvolume right
+1F801D84h(02) spu   vLOUT   volume  Reverb Output Volume Left
+1F801D86h(03) spu   vROUT   volume  Reverb Output Volume Right
+1F801D88h(04) - Voice 0..23 Key ON  (Start Attack/Decay/Sustain) (KON)  (W) (32 bit)
+         (05)
+1F801D8Ch(06) - Voice 0..23 Key OFF (Start Release)              (KOFF) (W)
+         (07)
+1F801D8Eh		UNDEFINED
+1F801D8Fh		UNDEFINED
+1F801D90h(0A) - Voice 0..23 Pitch Modulation Enable Flags (PMON) [23:1]
+         (0B)
+1F801D94h(0C) - Voice 0..23 Noise mode enable (NON) (0=ADPCM, 1=Noise)
+         (0D)
+1F801D98h(0E) - Voice 0..23 Reverb mode aka Echo On (EON) (R/W) (0=To Mixer, 1=To Mixer and to Reverb)
+         (0F)
+1F801D9Ch(10) - Voice 0..23 ON/OFF (status) (ENDX) (R) (0=Newly Keyed On, 1=Reached LOOP-END), Set 0 when set KEY ON, Set 1 reach LOOP-END flag ADPCM header.bit0
+         (11)
+// 1F801DA0h (12) - Some kind of a read-only status register.. or just garbage..0-15
+1F801DA2h(13) spu   mBASE   base    Reverb Work Area Start Address in Sound RAM
+1F801DA4h(14) - Sound RAM IRQ Address (IRQ9)    [15:0] SPUCNT (IRQ enable/disable/acknowledge) and SPUSTAT (IRQ flag).
+1F801DA6h(15) - Sound RAM Data Transfer Address [15:0]
+1F801DA8h(16) - Sound RAM Data Transfer Fifo    [15:0]
+1F801DAAh(17) - SPU Control Register (SPUCNT)
+1F801DACh(18) - Sound RAM Data Transfer Control (should be 0004h)
+1F801DAEh(19) - SPU Status Register (SPUSTAT) (R)
 
 1F801DB0h - CD Audio Input Volume (for normal CD-DA, and compressed XA-ADPCM)
 1F801DB4h - External Audio Input Volume (32 bit [31:16]=Right, [15:0]=Left)
