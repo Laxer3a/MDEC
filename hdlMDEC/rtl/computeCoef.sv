@@ -1,3 +1,5 @@
+`include "MDEC_Cte.sv"
+
 /*
 	This unit takes the decoded stream of coefficent with scale and specific setup
 	and does the pre IDCT multiplication of the coefficient based on the mode :
@@ -27,16 +29,17 @@ module computeCoef (
 	// Loading Side
 	input					i_dataWrt,
 	input	signed[9:0]		i_dataIn,
+	input	[15:0]			i_debug,
 	input	[5:0]			i_scale,
 	input					i_isDC,
 	input	[5:0]			i_index,			// Linear or Zagzig order.
 	input	[5:0]			i_linearIndex,		// Needed because Quant table is read in linear order, avoid i_index.
 	input					i_fullBlockType,
-	input	[2:0]			i_blockNum,
+	input	MDEC_BLCK		i_blockNum,
 	input					i_matrixComplete,
 
-// IDCT Busy side
-//	input					i_freezePipe,
+	// IDCT Busy side
+	input					i_freezePipe,
 
 	// Quant Table Loading
 	input					i_quantWrt,
@@ -46,10 +49,10 @@ module computeCoef (
 	
 //	output	[23:0]			debug,
 	
-	// Write output (2 cycle latency from loading)
+	// Write output (1 cycle latency from loading)
 	output					o_write,
 	output	[5:0]			o_writeIdx,
-	output	[2:0]			o_blockNum,
+	output	MDEC_BLCK		o_blockNum,
 	output	signed [11:0]	o_coefValue,
 	output          		o_matrixComplete
 );
@@ -122,13 +125,13 @@ module computeCoef (
 		// Write
 		if (i_quantWrt)
 		begin
-			QuantTbl[writeAdr] <= i_quantValue;
+			QuantTbl[writeAdr] = i_quantValue;
 		end
 
 		// Read
-		quantAdr_reg <= {selectTable,quantReadIdx[5:2]};
+		quantAdr_reg 		= {selectTable,quantReadIdx[5:2]};
 		// Read
-		pipeQuantReadIdx <= quantReadIdx[1:0];
+		pipeQuantReadIdx	= quantReadIdx[1:0];
 	end
 	wire [27:0] fullValueQuant = QuantTbl[quantAdr_reg]; 
 
@@ -153,20 +156,21 @@ module computeCoef (
 	// Cycle 0 :	- Drive SRAM Read for quantization block.
 	//				- Compute Scale * Coef => Temporary Coef
 	//
-	wire 		selectTable			= i_blockNum[1] | i_blockNum[2];	// 1=Luma, 0=Chroma
-	wire [5:0]	quantReadIdx		= i_linearIndex;
+	wire 			selectTable			= (!i_blockNum[2] | i_blockNum[1]);	// 1=Luma, 0=Chroma
+	wire [5:0]		quantReadIdx		= i_linearIndex;
 
-	reg			pWrite;
-	reg  [5:0]	pIndex;
-	reg  [2:0]	pBlk;
-	reg			pMatrixComplete;
-	reg			pFullBlkType;
+	reg				pWrite;
+	reg  [5:0]		pIndex;
+	MDEC_BLCK		pBlk;
+	reg				pMatrixComplete;
+	reg				pFullBlkType;
 
 	//
 	// Save values needed for stage 1 (pipeline to match SRAM latency)
 	//
-	wire signed [16:0] multF;
-	reg  signed [15:0] pMultF;
+	wire signed [16:0]	multF;
+	reg  signed [15:0]	pMultF;
+	reg  [15:0]			pDebug;
 	
 	wire signed [6:0]  signedScale = {1'b0,i_scale}; // Verilog authorize wire signed a = ua; and generate one more bit, but Verilator is not. And I prefer explicit anyway.
 	
@@ -174,12 +178,15 @@ module computeCoef (
 
 	always @(posedge i_clk)
 	begin
-		pWrite			<= i_dataWrt;			// Already done in streamInput ( & i_nrst )
-		pIndex			<= i_index;
-		pBlk			<= i_blockNum;
-		pMatrixComplete	<= i_matrixComplete;	// Already done in streamInput ( & i_nrst );
-		pFullBlkType	<= i_fullBlockType;
-		pMultF          <= multF[15:0];
+		if (!i_freezePipe) begin
+			pWrite			= i_dataWrt;			// Already done in streamInput ( & i_nrst )
+			pIndex			= i_index;
+			pBlk			= i_blockNum;
+			pMatrixComplete	= i_matrixComplete;	// Already done in streamInput ( & i_nrst );
+			pFullBlkType	= i_fullBlockType;
+			pMultF          = multF[15:0];
+			pDebug			= i_debug;
+		end
 	end
 	
 	// -------------------------------------------------------------------
@@ -192,13 +199,13 @@ module computeCoef (
 	//
 	wire signed [23:0] outCalc;
 	reg  signed [11:0] pOutCalc;
-	wire signed [ 7:0] quant			= pFullBlkType  ? 8'd1 : { 1'b0, valueQuant };
+	wire signed [ 7:0] quant= pFullBlkType  ? 8'd1 : { 1'b0, valueQuant };
 
 	// Spec says in No$PSX => (signed10bit(n AND 3FFh)*qt[k]*q_scale+4)/8
 	
 	//--------------------------------------------------------------------------------------------
 	// First we do qt[k]*(q_scale*value)
-	assign outCalc = (pMultF * quant); // 16x8 = 24 bit.	// Consider MUL to take 1 cycle, implement accordingly.
+	assign outCalc			= (pMultF * quant); // 16x8 = 24 bit.	// Consider MUL to take 1 cycle, implement accordingly.
 
 	roundDiv8AndClamp inst_roundDiv8AndClamp(
 		.valueIn	(outCalc),
@@ -206,7 +213,6 @@ module computeCoef (
 	);
 	
 	wire [11:0] roundedOddTowardZeroExceptMinus1;
-	
 	wire [11:0] outSelCalc 	= roundedOddTowardZeroExceptMinus1;
 
 //  NOT HANDLED ANYMORE... for now.

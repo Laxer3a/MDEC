@@ -1,3 +1,5 @@
+`include "MDEC_Cte.sv"
+
 /*
 ---------------------------------------------------------------
   MDEC Stream Specification :
@@ -38,30 +40,29 @@ Outputs:
 - o_scale is maintained through the RLE block, user has no need to keep the scale value from
   first item. It is already taken care of.
 - o_fullBlockType value is also guaranteed for the whole block length.
-- o_blockNum (0=Cr, 1=Cb, 2=Y0, 3=Y1, 4=Y2, 5=Y3, 7=Y only mode)
+- o_blockNum (0=Y1, 1=Y2, 2=Y3, 3=Y4, 4=Cr, 5=Cb | 7=Y only mode)
 - o_blockComplete : the previous element (o_dataWrt = 0) or this current element (o_dataWrt = 1) is the last one.
   (Reason : signal is issue when encounter EOB on standard block, or issued at the same time of last element when FULL LINEAR type).
-  
 */
 
 module streamInput(
-	input			clk,
-	input			i_nrst,
-	input			bDataWrite,
-	input [15:0]	i_dataIn,
-	input 			i_YOnly,
+	input				clk,
+	input				i_nrst,
+	input				bDataWrite,
+	input [15:0]		i_dataIn,
+	input 				i_YOnly,
 	
-//	output			o_outOfRangeblockIndex,
+//	output				o_outOfRangeblockIndex,
 	
-	output			o_dataWrt,
-	output[9:0]		o_dataOut,
-	output[5:0]		o_scale,
-	output			o_isDC,
-	output[5:0]		o_index,			// Linear or Z order for storage
-	output[5:0]		o_linearIndex,		// Linear index for Quant Read.
-	output			o_fullBlockType,
-	output[2:0]		o_blockNum,			// Need to propagate info with data, easier for control logic.
-	output			o_blockComplete
+	output				o_dataWrt,
+	output[9:0]			o_dataOut,
+	output[5:0]			o_scale,
+	output				o_isDC,
+	output[5:0]			o_index,			// Linear or Z order for storage
+	output[5:0]			o_linearIndex,		// Linear index for Quant Read.
+	output				o_fullBlockType,
+	output MDEC_BLCK	o_blockNum,			// Need to propagate info with data, easier for control logic.
+	output				o_blockComplete
 );
 	// --------------------------------------------------------
 	// [alias, basic flag for current data reading]
@@ -137,26 +138,28 @@ module streamInput(
 	//	 - Increment only when reaching next block.
     //   => Protected against i_YOnly changes.
     //
-	reg[2:0]	rBlockCounter;
 	reg         prevYOnly;
 	always @(posedge clk) begin
-		prevYOnly <= i_YOnly;
+		prevYOnly = i_YOnly;
 	end
 	
+	MDEC_BLCK	rBlockCounter, nextBlockCounter;
 	always @(posedge clk) begin
-		// Switch to MonoChrome <-> color, one cycle no job garanteed.
-		// ------------------------------------------------------------
-		// Force always to '100' when YOnly. (avoid increment on valid Complete)
-		// Reset when transition from YOnly to color (or opposite)
-		if ((i_nrst == 0) | (i_YOnly) | (i_YOnly ^ prevYOnly)) begin		
-			rBlockCounter <= { i_YOnly, 2'b00 };	// Reset set Counter to 0 or 4 (Color or Y0)
+		rBlockCounter	= nextBlockCounter;
+	end
+	
+	always @(*) begin
+		if ((i_nrst == 0) | (i_YOnly) | (i_YOnly ^ prevYOnly)) begin
+			nextBlockCounter	= { 1'b1, i_YOnly, i_YOnly };	// Reset set Counter to 4 for Color or 7 for always Y.
 		end else begin
 			if (isValidBlockComplete)	// Increment block counter only with VALID stream (no empty FE00)
 			begin
-				if (rBlockCounter == 3'd5)
-					rBlockCounter <= 0;
+				if (rBlockCounter == BLK_CB)
+					nextBlockCounter = BLK_Y1;
 				else
-					rBlockCounter <= rBlockCounter + 3'b001;
+					nextBlockCounter = rBlockCounter + 3'b001;
+			end else begin
+				nextBlockCounter = rBlockCounter;
 			end
 		end
 	end
@@ -173,22 +176,22 @@ module streamInput(
 	always @(posedge clk) begin
 		if (i_nrst == 0)
 		begin
-			indexCounter	<= 0;
-			scalereg		<= 0; // Not necessary, but cleaner.
-			rIsFullBlock	<= 0; // Not necessary, but cleaner.
+			indexCounter	= 0;
+			scalereg		= 0; // Not necessary, but cleaner.
+			rIsFullBlock	= 0; // Not necessary, but cleaner.
 		end else begin
 			if (bDataWrite)
 			begin
 				if (isDC)
 				begin
-					scalereg	 <= offset;
-					rIsFullBlock <= condFullBlock; // Make sure EMPTY EOB is not counted.
+					scalereg	 = offset;
+					rIsFullBlock = condFullBlock; // Make sure EMPTY EOB is not counted.
 				end
 				
 				if (isBlockComplete) // Empty FE00 sequence reset counter too, no pb.
-					indexCounter <= 0;
+					indexCounter = 0;
 				else
-					indexCounter <= currIdx;
+					indexCounter = currIdx;
 			end
 		end
 	end
@@ -215,7 +218,7 @@ module streamInput(
 	end
 	// ---- STATE MACHINE : Clocked part ----
 	always @(posedge clk) begin
-		state <= (i_nrst == 0) ? LOAD_DC : nextState;
+		state = (i_nrst == 0) ? LOAD_DC : nextState;
 	end
 	// --------------------------------------------------------
 
@@ -304,7 +307,7 @@ module streamInput(
 														: scalereg;
 	assign	o_isDC			= isDC;
 	assign	o_fullBlockType	= wFullBlockType;
-	assign  o_blockNum		= rBlockCounter;
+	assign  o_blockNum		= nextBlockCounter; // Can not use register, because we need value for DC, current first item.
 	assign	o_index			= rIsFullBlock ? currIdx6Bit : z; // Index order depends on block type 
 	assign	o_linearIndex	= currIdx6Bit;
 endmodule
