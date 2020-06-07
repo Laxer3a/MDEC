@@ -7,11 +7,11 @@ module GTEEngine (
 	input         i_WritReg,
 	input         i_ReadReg,
 	input  [31:0] i_dataIn,
-	output [31:0] i_dataOut,
+	output [31:0] o_dataOut,
 
-	input  [24:0] Instruction,
-	input         execute,
-	output        o_executing
+	input  [24:0] i_Instruction,
+	input         i_run,		
+	output        o_executing	// SET TO ZERO AT LAST CYCLE OF EXECUTION !!!! Shave off a cycle.
 );
 
 // -----------------------------------------------------------
