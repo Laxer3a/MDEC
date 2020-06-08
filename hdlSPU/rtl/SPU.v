@@ -76,10 +76,11 @@ reg      [2:0]	SPUMemWRSel;
 reg 	[17:0]	internal_adrRAM;
 reg		[15:0]	internal_dataOutRAM;
 
+wire writeSPURAM;
 assign			o_adrRAM		= internal_adrRAM;
-// [BREAK] Double assignement, if we remove we are fucked !!!
-assign			o_dataReadRAM	= !SPUMemWRSel[2];
-assign			o_dataWriteRAM	=  SPUMemWRSel[2];
+assign 			o_dataReadRAM    = (!writeSPURAM) & (SPUMemWRSel[0] | SPUMemWRSel[1]); // Avoid doing READ when not needed.
+assign 			o_dataWriteRAM   = writeSPURAM;
+
 assign			o_dataOutRAM	= internal_dataOutRAM;
 
 parameter	VOICEMD				= 2'd1,
@@ -159,10 +160,6 @@ InternalFifo
 	.o_r_valid		(fifo_r_valid)
 );
 
-wire writeSPURAM;
-// [BREAK] If we remove double assignment, we are fucked !!!!
-assign o_dataReadRAM    = (!writeSPURAM) & (SPUMemWRSel[0] | SPUMemWRSel[1]); // Avoid doing READ when not needed.
-assign o_dataWriteRAM   = writeSPURAM;
 
 wire internalWrite = SWRO & SPUCS;
 wire internalRead  = SRD  & SPUCS;
