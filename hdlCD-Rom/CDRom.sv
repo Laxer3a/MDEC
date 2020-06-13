@@ -15,26 +15,91 @@
 	- Send audio to SPU on a regular basis. (44.1 Khz)
 */
 
+// Assuming that this interface is running at same clock speed as i_clk.
+// We don't provide the clock in it, nor reset.
+interface Soft_IF;
+	//  [PARAMETER FIFO SIGNAL AND DATA READ]
+	logic [7:0]  		paramFIFO_out;								// FROM SOFTWARE SIDE
+	logic				paramRead;									// FROM SOFTWARE SIDE --> Please use 'sig_PARAMFifoNotEmpty'.
+	//  [RESPONSE FIFO INSTANCE WRITE]
+	logic [7:0]  		responseFIFO_in;								// FROM SOFTWARE SIDE --> Please use 'responseFIFO_full' ?
+	logic				responseWrite;								// FROM SOFTWARE SIDE
+	//  [PCM FIFO STATE AND WRITE]
+	logic				writeL   ,writeR;							// FROM SOFTWARE SIDE : Write PCM data
+	logic signed [15:0]	PCMValueL,PCMValueR;						//
+	logic				PCMFifoFull;
+	//  [DATA FIFO STATE AND WRITE]
+	logic				write_data;
+	logic [15:0]		write_dataValue;
+	
+	modport SW (
+		input 	paramFIFO_out,
+		output	paramRead,
+		
+		output	responseFIFO_in,
+		output	responseWrite,
+
+		output	writeL,
+		output	writeR,
+	
+		output	PCMValueL,
+		output	PCMValueR,
+
+		input	PCMFifoFull,
+		
+		output  write_data,
+		output  write_dataValue
+	);
+
+	// Opposite direction for HW.
+	modport HW (
+		output 	paramFIFO_out,
+		input	paramRead,
+		
+		input	responseFIFO_in,
+		input	responseWrite,
+
+		input	writeL,
+		input	writeR,
+	
+		input	PCMValueL,
+		input	PCMValueR,
+
+		output	PCMFifoFull,
+		
+		input  write_data,
+		input  write_dataValue
+	);
+endinterface
 
 module CDRom (
-
-	// HPS Side, real file system stuff here....
-	// TODO Use struct and abstract platform here.
-	
+	// --------------------------------------------
 	// CPU Side
+	// --------------------------------------------
 	input					i_clk,
 	input					i_nrst,
 	input					i_CDROM_CS,
+
+	// [TODO] : Interrupt, input ? output ? Schematics show INPUT... Does not make sense.
+	output					i_CDROM_INT,
 	
 	input					i_write,
+	input					i_read,
 	
 	input	[1:0]			i_adr,
 	input	[7:0]			i_dataIn,
 	output	[7:0]			o_dataOut,
 
+	// --------------------------------------------
+	// Interface for module implementing CD Rom (software or hardware)
+	// Control the front end.
+	// --------------------------------------------
+	Soft_IF.HW				swCtrl,
+	
+	// --------------------------------------------
 	// SPU Side
+	// --------------------------------------------
 	// o_outputX signal is 1 clock, every 768 main cycle
-	// Can be done in software inside, no problem.
 	output  signed [15:0]	o_CDRomOutL,
 	output  signed [15:0]	o_CDRomOutR,
 	output					o_outputL,
@@ -98,23 +163,10 @@ reg       REG_SNDMAP_Emphasis;     // ??
 wire PCMFifoFullL,PCMFifoFullR;
 
 // ---------------------------------------------------------------------------------------------------------
-//  All HW internal controlled by Software CD-Rom emulation
-//  [TODO : Implement the protocol that support those signals]
+//  Logic signal sent back to the platform.
 // ---------------------------------------------------------------------------------------------------------
-//  [PARAMETER FIFO SIGNAL AND DATA READ]
-wire [7:0]  		sw_paramFIFO_out;								// FROM SOFTWARE SIDE
-wire				sw_paramRead;									// FROM SOFTWARE SIDE --> Please use 'sig_PARAMFifoNotEmpty'.
-//  [RESPONSE FIFO INSTANCE WRITE]
-wire [7:0]  		sw_responseFIFO_in;								// FROM SOFTWARE SIDE --> Please use 'responseFIFO_full' ?
-wire				sw_responseWrite;								// FROM SOFTWARE SIDE
-//  [PCM FIFO STATE AND WRITE]
-wire				sw_writeL   ,sw_writeR;							// FROM SOFTWARE SIDE : Write PCM data
-wire signed [15:0]	sw_PCMValueL,sw_PCMValueR;						//
-wire				sw_PCMFifoFull = PCMFifoFullL | PCMFifoFullR;	// FROM SOFTWARE SIDE : Can read the data and check ?
-//  [DATA FIFO STATE AND WRITE]
-wire				sw_write_data;
-wire [15:0]			sw_write_dataValue;
-// ---------------------------------------------------------------------------------------------------------
+// Return if audio data is full.
+assign swCtrl.PCMFifoFull = PCMFifoFullL | PCMFifoFullR;	// FROM SOFTWARE SIDE : Can read the data and check ?
 
 // ---------------------------------------------------------------------------------------------------------
 //  [PARAMETER FIFO SIGNAL AND DATA]
@@ -145,8 +197,8 @@ inParamFIFO (
 	.i_w_data		(i_dataIn),					// Data In
 	.i_w_ena		(sig_writeParamFIFO),		// Write Signal
 	
-	.o_r_data		(sw_paramFIFO_out),			// Data Out
-	.i_r_taken		(sw_paramRead),				// Read signal
+	.o_r_data		(swCtrl.paramFIFO_out),			// Data Out
+	.i_r_taken		(swCtrl.paramRead),				// Read signal
 	
 	.o_w_full		(sig_PARAMFifoFull),
 	.o_r_valid		(sig_PARAMFifoNotEmpty),
@@ -169,8 +221,8 @@ outResponseFIFO (
 	.i_rst			(s_rst),
 	.i_ena			(1),
 	
-	.i_w_data		(sw_responseFIFO_in),	// Data In
-	.i_w_ena		(sw_responseWrite),		// Write Signal
+	.i_w_data		(swCtrl.responseFIFO_in),	// Data In
+	.i_w_ena		(swCtrl.responseWrite),		// Write Signal
 	
 	.o_r_data		(responseFIFO_out),		// Data Out
 	.i_r_taken		(sig_readRespFIFO),		// Read signal
@@ -205,8 +257,8 @@ outDataFIFOL (
 	.i_rst			(s_rst),
 	.i_ena			(1),
 	
-	.i_w_data		(sw_write_dataValue[7:0]),		// Data In
-	.i_w_ena		(sw_write_data),		// Write Signal
+	.i_w_data		(swCtrl.write_dataValue[7:0]),		// Data In
+	.i_w_ena		(swCtrl.write_data),		// Write Signal
 	
 	.o_r_data		(dataFIFOL),				// Data Out
 	.i_r_taken		(readSigL),					// Read signal
@@ -223,8 +275,8 @@ outDataFIFOM (
 	.i_rst			(s_rst),
 	.i_ena			(1),
 	
-	.i_w_data		(sw_write_dataValue[15:8]),		// Data In
-	.i_w_ena		(sw_write_data),		// Write Signal
+	.i_w_data		(swCtrl.write_dataValue[15:8]),		// Data In
+	.i_w_ena		(swCtrl.write_data),		// Write Signal
 	
 	.o_r_data		(dataFIFOM),				// Data Out
 	.i_r_taken		(readSigM),					// Read signal
@@ -247,12 +299,12 @@ reg [4:0] INT_Enabled; reg[2:0] INT_Garbage;
 // =========================
 // ---- WRITE REGISTERS ----
 // =========================
-reg [8:0] REG_Counter;
-wire sendAudioSound = (REG_Counter == 9'd767);
+reg [9:0] REG_Counter;
+wire sendAudioSound = (REG_Counter == 10'd767);
  
 always @(posedge i_clk) begin
 	// Set to 0 when reach 768 or reset signal.
-	REG_Counter	= ((i_nrst == 1'b0) || sendAudioSound) ? 9'd0 : (REG_Counter + 9'd1);
+	REG_Counter	= ((i_nrst == 1'b0) || sendAudioSound) ? 10'd0 : (REG_Counter + 10'd1);
 	
 	if (i_nrst == 1'b0) begin
 		// [TODO : Default value after reset ?]
@@ -396,11 +448,11 @@ outPCMFIFO_L (
 	.i_rst			(s_rst),
 	.i_ena			(1),
 	
-	.i_w_data		(sw_PCMValueL),		// Data In
-	.i_w_ena		(sw_writeL),		// Write Signal
+	.i_w_data		(swCtrl.PCMValueL),	// Data In
+	.i_w_ena		(swCtrl.writeL),		// Write Signal
 	
-	.o_r_data		(pcmL),			// Data Out
-	.i_r_taken		(getAudioSoundFIFO_L),				// Read signal
+	.o_r_data		(pcmL),					// Data Out
+	.i_r_taken		(getAudioSoundFIFO_L),	// Read signal
 	
 	.o_w_full		(PCMFifoFullL),
 	.o_r_valid		(PCMFifoNotEmpty_L),
@@ -414,8 +466,8 @@ outPCMFIFO_R (
 	.i_rst			(s_rst),
 	.i_ena			(1),
 	
-	.i_w_data		(sw_PCMValueR),			// Data In
-	.i_w_ena		(sw_writeR),			// Write Signal
+	.i_w_data		(swCtrl.PCMValueR),	// Data In
+	.i_w_ena		(swCtrl.writeR),		// Write Signal
 	
 	.o_r_data		(pcmR),					// Data Out
 	.i_r_taken		(getAudioSoundFIFO_R),	// Read signal
@@ -430,9 +482,6 @@ outPCMFIFO_R (
 wire signed [15:0] audioL = PCMFifoNotEmpty_L ? pcmL : 16'd0;
 wire signed [15:0] audioR = PCMFifoNotEmpty_R ? pcmR : 16'd0;
 
-assign	o_outputL	= sendAudioSound;
-assign	o_outputR	= sendAudioSound;
-
 wire signed [8:0] sCD_VOL_LL_WORK = { 1'b0, CD_VOL_LL_WORK };
 wire signed [8:0] sCD_VOL_LR_WORK = { 1'b0, CD_VOL_LR_WORK };
 wire signed [8:0] sCD_VOL_RL_WORK = { 1'b0, CD_VOL_RL_WORK };
@@ -446,9 +495,12 @@ wire signed [23:0] RRv = sCD_VOL_RR_WORK * audioR;
 wire signed [17:0] unclampedL = LLv[23:7] + RLv[23:7];	// convert back from fixed point to normal and add.
 wire signed [17:0] unclampedR = LRv[23:7] + RRv[23:7];
 
-// TODO Clipping
+// [TODO] Clipping
 
+assign	o_outputL	= sendAudioSound;
 assign  o_CDRomOutL = unclampedL[15:0];
+
+assign	o_outputR	= sendAudioSound;
 assign  o_CDRomOutR = unclampedR[15:0];
 
 // ---------------------------------------------------------------------------------------------------------
