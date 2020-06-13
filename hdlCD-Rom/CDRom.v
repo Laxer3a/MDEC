@@ -69,6 +69,7 @@ wire sig_applyVolChange= i_CDROM_CS && i_write && (i_adr==2'd3) && (IndexREG==2'
 //  --- READ ---
 // 1F801801.x (R)
 wire sig_readRespFIFO  = i_CDROM_CS && (!i_write) && (i_adr==2'd1);
+wire sig_readDataFIFO  = i_CDROM_CS && (!i_write) && (i_adr==2'd2);
 
 // ------------------------------------------------
 
@@ -92,11 +93,32 @@ reg		  REG_SNDMAP_SampleRate;   // 37800/18900
 reg       REG_SNDMAP_BitPerSample; // 4/8
 reg       REG_SNDMAP_Emphasis;     // ??
 
+
+// Forward declaration, used for PCM Fifo full flags.
+wire PCMFifoFullL,PCMFifoFullR;
+
+// ---------------------------------------------------------------------------------------------------------
+//  All HW internal controlled by Software CD-Rom emulation
+//  [TODO : Implement the protocol that support those signals]
+// ---------------------------------------------------------------------------------------------------------
+//  [PARAMETER FIFO SIGNAL AND DATA READ]
+wire [7:0]  		sw_paramFIFO_out;								// FROM SOFTWARE SIDE
+wire				sw_paramRead;									// FROM SOFTWARE SIDE --> Please use 'sig_PARAMFifoNotEmpty'.
+//  [RESPONSE FIFO INSTANCE WRITE]
+wire [7:0]  		sw_responseFIFO_in;								// FROM SOFTWARE SIDE --> Please use 'responseFIFO_full' ?
+wire				sw_responseWrite;								// FROM SOFTWARE SIDE
+//  [PCM FIFO STATE AND WRITE]
+wire				sw_writeL   ,sw_writeR;							// FROM SOFTWARE SIDE : Write PCM data
+wire signed [15:0]	sw_PCMValueL,sw_PCMValueR;						//
+wire				sw_PCMFifoFull = PCMFifoFullL | PCMFifoFullR;	// FROM SOFTWARE SIDE : Can read the data and check ?
+//  [DATA FIFO STATE AND WRITE]
+wire				sw_write_data;
+wire [15:0]			sw_write_dataValue;
+// ---------------------------------------------------------------------------------------------------------
+
 // ---------------------------------------------------------------------------------------------------------
 //  [PARAMETER FIFO SIGNAL AND DATA]
 // ---------------------------------------------------------------------------------------------------------
-wire [7:0]  sw_paramFIFO_out;		// FROM SOFTWARE SIDE
-wire		sw_paramRead;			// FROM SOFTWARE SIDE --> Please use 'sig_PARAMFifoNotEmpty'.
 wire		sig_PARAMFifoNotEmpty;
 wire		sig_PARAMFifoFull;
 
@@ -138,8 +160,6 @@ inParamFIFO (
 When reading further bytes: The buffer is padded with 00h's to the end of the 16-bytes, and does then restart at the first response byte (that, without receiving a new response, so it'll always return the same 16 bytes, until a new command/response has been sent/received).
 */
 wire [7:0]	responseFIFO_out;
-wire [7:0]  sw_responseFIFO_in;		// FROM SOFTWARE SIDE --> Please use 'responseFIFO_full' ?
-wire		sw_responseWrite;		// FROM SOFTWARE SIDE
 wire        responseFIFO_full;
 
 Fifo2 #(.DEPTH_WIDTH(4),.DATA_WIDTH(8)) // TODO : Spec issues "When reading further bytes: The buffer is padded with 00h's to the end of the 16-bytes ???? ==> Can just return 0 when FIFO is empty and read ?"
@@ -171,7 +191,12 @@ After ReadS/ReadN commands have generated INT1, software must set the Want Data 
 The PSX hardware allows to read 800h-byte or 924h-byte sectors, indexed as [000h..7FFh] or [000h..923h], when trying to read further bytes, then the PSX will repeat the byte at index [800h-8] or [924h-4] as padding value.
 Port 1F801802h can be accessed with 8bit or 16bit reads (ie. to read a 2048-byte sector, one can use 2048 load-byte opcodes, or 1024 load halfword opcodes, or, more conventionally, a 512 word DMA transfer; the actual CDROM databus is only 8bits wide, so CPU/DMA are apparently breaking 16bit/32bit reads into multiple 8bit reads from 1F801802h).
 */
-wire [7:0] dataFIFO_Out; // May read from 2 FIFOs alternating...
+wire [7:0] dataFIFOL,dataFIFOM;
+wire hasDataL,hasDataM;
+reg  currentReadColumn;
+
+wire readSigL = (!currentReadColumn) && sig_readDataFIFO && hasDataL;
+wire readSigM = ( currentReadColumn) && sig_readDataFIFO && hasDataM;
 
 Fifo2 #(.DEPTH_WIDTH(4),.DATA_WIDTH(8)) // TODO : Spec issues "When reading further bytes: The buffer is padded with 00h's to the end of the 16-bytes ???? ==> Can just return 0 when FIFO is empty and read ?"
 outDataFIFOL (
@@ -180,14 +205,14 @@ outDataFIFOL (
 	.i_rst			(s_rst),
 	.i_ena			(1),
 	
-	.i_w_data		(/*TODO : SW Write*/),		// Data In
-	.i_w_ena		(/*TODO : SW Write*/),		// Write Signal
+	.i_w_data		(sw_write_dataValue[7:0]),		// Data In
+	.i_w_ena		(sw_write_data),		// Write Signal
 	
-	.o_r_data		(/*TODO : HW Read*/),		// Data Out
-	.i_r_taken		(/*TODO : HW Read*/),		// Read signal
+	.o_r_data		(dataFIFOL),				// Data Out
+	.i_r_taken		(readSigL),					// Read signal
 	
 	.o_w_full		(),
-	.o_r_valid		(),
+	.o_r_valid		(hasDataL),
 	.o_level		(/*Unused*/)
 );
 
@@ -198,17 +223,20 @@ outDataFIFOM (
 	.i_rst			(s_rst),
 	.i_ena			(1),
 	
-	.i_w_data		(/*TODO : SW Write*/),		// Data In
-	.i_w_ena		(/*TODO : SW Write*/),		// Write Signal
+	.i_w_data		(sw_write_dataValue[15:8]),		// Data In
+	.i_w_ena		(sw_write_data),		// Write Signal
 	
-	.o_r_data		(/*TODO : HW Read*/),		// Data Out
-	.i_r_taken		(/*TODO : HW Read*/),		// Read signal
+	.o_r_data		(dataFIFOM),				// Data Out
+	.i_r_taken		(readSigM),					// Read signal
 	
 	.o_w_full		(),
-	.o_r_valid		(),
+	.o_r_valid		(hasDataM),
 	.o_level		(/*Unused*/)
 );
 
+// Select correct data to send back to main bus.
+wire [7:0] dataFIFO_Out = (!currentReadColumn) ? dataFIFOL : dataFIFOM; // May read from 2 FIFOs alternating...
+// ---------------------------------------------------------------------------------------------------------
 
 // Interrupt enabled flags. + Stored only bits...
 reg [4:0] INT_Enabled; reg[2:0] INT_Garbage;
@@ -252,6 +280,7 @@ always @(posedge i_clk) begin
 		REG_SNDMAP_SampleRate	= 1'b0;
 		REG_SNDMAP_BitPerSample	= 1'b0;
 		REG_SNDMAP_Emphasis		= 1'b0;
+		currentReadColumn		= 1'b0; // LSB first, switch to 1 if MSB first.
 	end else begin
 		if (i_CDROM_CS) begin
 			if (i_write) begin
@@ -353,17 +382,10 @@ end
 //  [AUDIO PCM FIFO]
 // ---------------------------------------------------------------------------------------------------------
 wire PCMFifoNotEmpty_L,PCMFifoNotEmpty_R;
-wire PCMFifoFullL,PCMFifoFullR;
 wire signed [15:0]  pcmL,pcmR;
 
 wire getAudioSoundFIFO_L = sendAudioSound & PCMFifoNotEmpty_L;
 wire getAudioSoundFIFO_R = sendAudioSound & PCMFifoNotEmpty_R;
-
-// Read from SW
-wire sw_PCMFifoFull		 = PCMFifoFullL | PCMFifoFullR;			// [TODO : Software can check if data is needed or not...]
-// Write from SW
-wire				sw_writeL   ,sw_writeR;						// [TODO : Software use those signal to push the PCM data in]
-wire signed [15:0]	sw_PCMValueL,sw_PCMValueR;					// [TODO : Software use those signal to push the PCM data in]
 
 
 // TODO [Size of BOTH AUDIO FIFO : for now 8192 samples.]
@@ -411,8 +433,23 @@ wire signed [15:0] audioR = PCMFifoNotEmpty_R ? pcmR : 16'd0;
 assign	o_outputL	= sendAudioSound;
 assign	o_outputR	= sendAudioSound;
 
-assign  o_CDRomOutL = audioL;	// TODO : Real formula mixing is : SClipping16Bit((audioL * CD_VOL_LL_WORK) + (audioR * CD_VOL_RL_WORK) >> 7);
-assign  o_CDRomOutR = audioR;	// TODO : Real formula mixing is : SClipping16Bit((audioL * CD_VOL_LR_WORK) + (audioR * CD_VOL_RR_WORK) >> 7);
+wire signed [8:0] sCD_VOL_LL_WORK = { 1'b0, CD_VOL_LL_WORK };
+wire signed [8:0] sCD_VOL_LR_WORK = { 1'b0, CD_VOL_LR_WORK };
+wire signed [8:0] sCD_VOL_RL_WORK = { 1'b0, CD_VOL_RL_WORK };
+wire signed [8:0] sCD_VOL_RR_WORK = { 1'b0, CD_VOL_RR_WORK };
+
+wire signed [23:0] LLv = sCD_VOL_LL_WORK * audioL; // Volume 1.0 = 0x80 -> 7 Bit fixed point.
+wire signed [23:0] RLv = sCD_VOL_RL_WORK * audioR;
+wire signed [23:0] LRv = sCD_VOL_LR_WORK * audioL;
+wire signed [23:0] RRv = sCD_VOL_RR_WORK * audioR;
+
+wire signed [17:0] unclampedL = LLv[23:7] + RLv[23:7];	// convert back from fixed point to normal and add.
+wire signed [17:0] unclampedR = LRv[23:7] + RRv[23:7];
+
+// TODO Clipping
+
+assign  o_CDRomOutL = unclampedL[15:0];
+assign  o_CDRomOutR = unclampedR[15:0];
 
 // ---------------------------------------------------------------------------------------------------------
 
