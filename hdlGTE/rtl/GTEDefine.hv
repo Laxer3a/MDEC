@@ -1,0 +1,208 @@
+`ifndef GTE_DEFINITIONS
+`define GTE_DEFINITIONS
+
+typedef enum bit[5:0] {
+	// Data Bank
+	DR_VXY0		= 6'h00,
+	DR_VZ0_		= 6'h01,
+	DR_VXY1		= 6'h02,
+	DR_VZ1_		= 6'h03,
+	DR_VXY2		= 6'h04,
+	DR_VZ2_		= 6'h05,
+	DR_RGBC		= 6'h06,
+	DR_OTZ_		= 6'h07,
+	DR_IR0_		= 6'h08,
+	DR_IR1_		= 6'h09,
+	DR_IR2_		= 6'h0A,
+	DR_IR3_		= 6'h0B,
+	DR_SXY0		= 6'h0C,
+	DR_SXY1		= 6'h0D,
+	DR_SXY2		= 6'h0E,
+	DR_SXYP		= 6'h0F,
+	DR_SZ0_		= 6'h10,
+	DR_SZ1_		= 6'h11,
+	DR_SZ2_		= 6'h12,
+	DR_SZP_		= 6'h13,
+	DR_RGB0		= 6'h14,
+	DR_RGB1		= 6'h15,
+	DR_RGB2		= 6'h16,
+	DR_RES1		= 6'h17, // Prohibited.
+	DR_MAC0		= 6'h18,
+	DR_MAC1		= 6'h19,
+	DR_MAC2		= 6'h1A,
+	DR_MAC3		= 6'h1B,
+	DR_IRGB		= 6'h1C,
+	DR_ORGB		= 6'h1D,
+	DR_LZCS		= 6'h1E,
+	DR_LZCR		= 6'h1F,
+	// Control Bank
+	CR_RT11RT12	= 6'h20,
+	CR_RT13RT21	= 6'h21,
+	CR_RT22RT23	= 6'h22,
+	CR_RT31RT32	= 6'h23,
+	CR_RT33____	= 6'h24,
+	CR_TRX_____	= 6'h25,
+	CR_TRY_____	= 6'h26,
+	CR_TRZ_____	= 6'h27,
+	CR_L11L12__	= 6'h28,
+	CR_L13L21__	= 6'h29,
+	CR_L22L23__	= 6'h2A,
+	CR_L31L32__	= 6'h2B,
+	CR_L33_____	= 6'h2C,
+	CR_RBK_____	= 6'h2D,
+	CR_GBK_____	= 6'h2E,
+	CR_BBK_____	= 6'h2F,
+	CR_LR1LR2__	= 6'h30,
+	CR_LR3LG1__	= 6'h31,
+	CR_LG2LG3__	= 6'h32,
+	CR_LB1LB2__	= 6'h33,
+	CR_LB3_____	= 6'h34,
+	CR_RFC_____	= 6'h35,
+	CR_GFC_____	= 6'h36,
+	CR_BFC_____	= 6'h37,
+	CR_OFX_____	= 6'h38,
+	CR_OFY_____	= 6'h39,
+	CR_H_______ = 6'h3A,
+	CR_DQA_____	= 6'h3B,
+	CR_DQB_____	= 6'h3C,
+	CR_ZSF3____	= 6'h3D,
+	CR_ZSF4____	= 6'h3E,
+	CR_FLAGS___ = 6'h3F
+} E_REG;
+
+typedef enum bit[5:0] { 
+		OP_NOP00    = 6'h00,
+		
+	OP_RTPS     = 6'h01,
+	
+		OP_NOP02    = 6'h02,
+		OP_NOP03    = 6'h03,
+		OP_NOP04    = 6'h04,
+		OP_NOP05    = 6'h05,
+		
+	OP_NCLIP    = 6'h06,
+	
+		OP_NOP07    = 6'h07,
+		OP_NOP08    = 6'h08,
+		OP_NOP09    = 6'h09,
+		OP_NOP0A    = 6'h0A,
+		OP_NOP0B    = 6'h0B,
+		
+	OP_OP	    = 6'h0C,
+	
+		OP_NOP0D    = 6'h0D,
+		OP_NOP0E    = 6'h0E,
+		OP_NOP0F    = 6'h0F,
+		
+	OP_DPCS     = 6'h10,
+	OP_INTPL    = 6'h11,
+	OP_MVMVA    = 6'h12,
+	OP_NCDS     = 6'h13,
+	OP_CDP      = 6'h14,
+	
+		OP_NOP15    = 6'h15,
+	
+	OP_NCDT     = 6'h16,
+		
+		OP_NOP17    = 6'h17,
+		OP_NOP18    = 6'h18,
+		OP_NOP19    = 6'h19,
+		OP_NOP1A    = 6'h1A,
+	
+	OP_NCCS     = 6'h1B,
+	OP_CC       = 6'h1C,
+		
+		OP_NOP1D    = 6'h1D,
+		
+	OP_NCS      = 6'h1E,
+	
+		OP_NOP1F    = 6'h1F,
+	
+	OP_NCT      = 6'h20,
+	
+		OP_NOP21    = 6'h21,
+		OP_NOP22    = 6'h22,
+		OP_NOP23    = 6'h23,
+		OP_NOP24    = 6'h24,
+		OP_NOP25    = 6'h25,
+		OP_NOP26    = 6'h26,
+		OP_NOP27    = 6'h27,
+		
+	OP_SQR      = 6'h28,
+	OP_DCPL     = 6'h29,
+	OP_DPCT     = 6'h2A,
+	
+		OP_NOP2B    = 6'h2B,
+		OP_NOP2C    = 6'h2C,
+	
+	OP_AVSZ3    = 6'h2D,
+	OP_AVSZ4    = 6'h2E,
+	
+		OP_NOP2F    = 6'h2F,
+		
+	OP_RTPT     = 6'h30,
+		
+		OP_NOP31    = 6'h31,
+		OP_NOP32    = 6'h32,
+		OP_NOP33    = 6'h33,
+		OP_NOP34    = 6'h34,
+		OP_NOP35    = 6'h35,
+		OP_NOP36    = 6'h36,
+		OP_NOP37    = 6'h37,
+		OP_NOP38    = 6'h38,
+		OP_NOP39    = 6'h39,
+		OP_NOP3A    = 6'h3A,
+		OP_NOP3B    = 6'h3B,
+		OP_NOP3C    = 6'h3C,
+	
+	OP_GPF      = 6'h3D,
+	OP_GPL      = 6'h3E,
+	OP_NCCT     = 6'h3F
+} E_INSTR;
+
+// From Compute to write back
+typedef struct packed {
+	logic [2:0] wrVX;
+	logic [2:0] wrVY;
+	logic [2:0] wrVZ;
+	logic [3:0] wrIR;
+	logic [3:0] wrMAC;
+	logic       wrOTZ;
+	
+	logic [18:0] updateFlags;
+	
+	logic pushR;
+	logic pushG;
+	logic pushB;
+
+	logic pushX;
+	logic pushY;
+	logic pushZ;
+	
+	logic [7:0] val;
+	logic [15:0] val16;
+	logic [31:0] val32;
+} gteCtrl;
+
+typedef struct packed {
+	logic [15:0] VX0;
+	logic [15:0] VY0;
+	logic [15:0] VZ0;
+} SgteREG;
+
+typedef struct packed {
+	// Instruction Mnemonic
+	logic			sf;
+	logic			lm;
+	// Only in command MVMVA
+	logic	[1:0]	cv;
+	logic	[1:0]	vec;
+	logic	[1:0]	mx;
+	logic			executing;
+} CTRL;
+
+typedef struct packed {
+	logic			dummyForNow;
+} gteComputeCtrl;
+
+`endif
