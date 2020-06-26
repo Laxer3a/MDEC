@@ -5,7 +5,7 @@
 
 module GTERegs (
 	input         i_clk,
-	input         i_nRst,		// TODO : Support i_nRST signal to reset all registers to ZERO.
+	input         i_nRst,
 
 	// Temp stuff
 	input  gteCtrl  gteWR,
@@ -19,23 +19,15 @@ module GTERegs (
 	output [31:0] o_dataOut
 );
 
-wire i_rst = !i_nRst;
 // ----------------------------------------------------------------------------------------------
 //   [REGISTERS] + Management.
 // ----------------------------------------------------------------------------------------------
-
-typedef struct packed {
-	logic [7:0] r;
-	logic [7:0] g;
-	logic [7:0] b;
-	logic [7:0] c;
-} COLOR;
 
 // Special Registers with GTE write back. + FIFO Style stuff.
 COLOR CRGB0,CRGB1,CRGB2;
 reg signed [15:0] SX0  ,SX1  ,SX2;
 reg signed [15:0] SY0  ,SY1  ,SY2;
-reg signed [15:0] SZ0  ,SZ1  ,SZ2;
+reg signed [15:0] SZ0  ,SZ1  ,SZ2 , SZ3;
 
 // Write back from GTE & CPU
 reg signed [15:0] VX0,VY0,VZ0,VX1,VY1,VZ1,VX2,VY2,VZ2;
@@ -80,9 +72,63 @@ reg signed [31:0] OFX,OFY,DQB,REG_lzcs;
 reg        [18:0] FLAGS;
 wire   FLAG_31 = (|FLAGS[18:11]) | (|FLAGS[6:1]); // 30~23 | 18~13
 
+// ----------------------------------------------------------------------------------------------
+//   Export for Compute Path
+// ----------------------------------------------------------------------------------------------
 assign gteREG.VX0 = VX0;
 assign gteREG.VY0 = VY0;
 assign gteREG.VZ0 = VZ0;
+
+assign gteREG.VX1 = VX1;
+assign gteREG.VY1 = VY1;
+assign gteREG.VZ1 = VZ1;
+
+assign gteREG.VX2 = VX2;
+assign gteREG.VY2 = VY2;
+assign gteREG.VZ2 = VZ2;
+
+assign gteREG.IR0 = IR0;
+assign gteREG.IR1 = IR1;
+assign gteREG.IR2 = IR2;
+assign gteREG.IR3 = IR3;
+
+assign gteREG.MAC0 = MAC0;
+assign gteREG.MAC1 = MAC1;
+assign gteREG.MAC2 = MAC2;
+assign gteREG.MAC3 = MAC3;
+
+assign gteREG.R11 = R11; assign gteREG.L11 = L11; assign gteREG.LR1 = LR1;
+assign gteREG.R12 = R12; assign gteREG.L12 = L12; assign gteREG.LR2 = LR2;
+assign gteREG.R13 = R13; assign gteREG.L13 = L13; assign gteREG.LR3 = LR3;
+assign gteREG.R21 = R21; assign gteREG.L21 = L21; assign gteREG.LG1 = LG1;
+assign gteREG.R22 = R22; assign gteREG.L22 = L22; assign gteREG.LG2 = LG2;
+assign gteREG.R23 = R23; assign gteREG.L23 = L23; assign gteREG.LG3 = LG3;
+assign gteREG.R31 = R31; assign gteREG.L31 = L31; assign gteREG.LB1 = LB1;
+assign gteREG.R32 = R32; assign gteREG.L32 = L32; assign gteREG.LB2 = LB2;
+assign gteREG.R33 = R33; assign gteREG.L33 = L33; assign gteREG.LB3 = LB3;
+
+assign gteREG.TRX = TRX; assign gteREG.TRY = TRY; assign gteREG.TRZ = TRZ;
+assign gteREG.RBK = RBK; assign gteREG.GBK = GBK; assign gteREG.BBK = BBK;
+assign gteREG.RFC = RFC; assign gteREG.GFC = GFC; assign gteREG.BFC = BFC;
+
+assign gteREG.CRGB0 = CRGB0;
+assign gteREG.CRGB1 = CRGB1;
+assign gteREG.CRGB2 = CRGB2;
+assign gteREG.CRGB  = CRGB ;
+
+assign gteREG.SX0   = SX0; assign gteREG.SX1   = SX1; assign gteREG.SX2   = SX2;
+assign gteREG.SY0   = SY0; assign gteREG.SY1   = SY1; assign gteREG.SY2   = SY2;
+assign gteREG.SZ0   = SZ0; assign gteREG.SZ1   = SZ1; assign gteREG.SZ2   = SZ2; assign gteREG.SZ3 = SZ3;
+
+assign gteREG.OTZ   = OTZ;
+assign gteREG.H     = H;
+assign gteREG.DQA   = DQA;
+assign gteREG.ZSF3  = ZSF3;
+assign gteREG.ZSF4  = ZSF4;
+
+assign gteREG.OFX   = OFX;
+assign gteREG.OFY   = OFY;
+assign gteREG.DBQ   = DBQ;
 
 // ----------------------------------------------------------------------------------------------
 // ---- COLOR FIFO  -----------------------------------------------------------------------------
@@ -164,7 +210,7 @@ begin
 	if (i_nRst == 1'b0) begin
 		SX0 = 16'd0; SX1 = 16'd0; SX2 = 16'd0;
 		SY0 = 16'd0; SY1 = 16'd0; SY2 = 16'd0;
-		SZ0 = 16'd0; SZ1 = 16'd0; SZ2 = 16'd0;
+		SZ0 = 16'd0; SZ1 = 16'd0; SZ2 = 16'd0; SZ3 = 16'd0;
 	end else begin
 		// SX Fifo
 		if (wrtFSPX | cpuWrtSXY[0]) SX0 = wrtFSPX ? SX1 : i_dataIn[15: 0];
@@ -177,7 +223,8 @@ begin
 		// SZ Fifo
 		if (wrtFSPZ | cpuWrtSZ [0]) SZ0 = wrtFSPZ ? SZ1 : i_dataIn[15: 0];
 		if (wrtFSPZ | cpuWrtSZ [1]) SZ1 = wrtFSPZ ? SZ2 : i_dataIn[15: 0];
-		if (wrtFSPZ | cpuWrtSZ [2]) SZ2 = dataPathSXZ;
+		if (wrtFSPZ | cpuWrtSZ [2]) SZ2 = wrtFSPZ ? SZ3 : i_dataIn[15: 0];
+		if (wrtFSPZ | cpuWrtSZ [3]) SZ3 = dataPathSXZ;
 	end
 end
 
@@ -448,8 +495,8 @@ begin
 
 		DR_SZ0_	  : vOut = {{16'd0}, SZ0};
 		DR_SZ1_   : vOut = {{16'd0}, SZ1};
-		DR_SZ2_	  : vOut = {{16'd0}, SZ2}; // Same view 2 and P
-		DR_SZP_	  : vOut = {{16'd0}, SZ2}; // Same view 2 and P
+		DR_SZ2_	  : vOut = {{16'd0}, SZ2};
+		DR_SZP_	  : vOut = {{16'd0}, SZ3};
 		
 		DR_RGB0   : vOut = { CRGB0.c, CRGB0.b, CRGB0.g, CRGB0.r };
 		DR_RGB1   : vOut = { CRGB1.c, CRGB1.b, CRGB1.g, CRGB1.r };

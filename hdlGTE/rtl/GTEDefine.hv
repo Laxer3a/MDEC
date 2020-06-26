@@ -160,6 +160,20 @@ typedef enum bit[5:0] {
 	OP_NCCT     = 6'h3F
 } E_INSTR;
 
+typedef struct packed {
+	logic [7:0] r;
+	logic [7:0] g;
+	logic [7:0] b;
+	logic [7:0] c;
+} COLOR;
+
+typedef struct packed {
+	logic [1:0] mat;
+	logic [2:0] selLeft;
+	logic [3:0] selRight;
+	logic [1:0] vcompo;
+} gteSelCtrl;
+
 // From Compute to write back
 typedef struct packed {
 	logic [2:0] wrVX;
@@ -185,9 +199,47 @@ typedef struct packed {
 } gteCtrl;
 
 typedef struct packed {
-	logic [15:0] VX0;
-	logic [15:0] VY0;
-	logic [15:0] VZ0;
+	logic [15:0] R11; logic [15:0] R21; logic [15:0] R31;
+	logic [15:0] R12; logic [15:0] R22; logic [15:0] R32;
+	logic [15:0] R13; logic [15:0] R23; logic [15:0] R33;
+
+	logic [15:0] L11; logic [15:0] L21; logic [15:0] L31;
+	logic [15:0] L12; logic [15:0] L22; logic [15:0] L32;
+	logic [15:0] L13; logic [15:0] L23; logic [15:0] L33;
+
+	logic [15:0] LR1; logic [15:0] LG1; logic [15:0] LB1;
+	logic [15:0] LR2; logic [15:0] LG2; logic [15:0] LB2;
+	logic [15:0] LR3; logic [15:0] LG3; logic [15:0] LB3;
+	
+	logic [15:0] VX0; logic [15:0] VY0; logic [15:0] VZ0;
+	logic [15:0] VX1; logic [15:0] VY1; logic [15:0] VZ1;
+	logic [15:0] VX2; logic [15:0] VY2; logic [15:0] VZ2;
+
+	logic [15:0] IR0; logic [15:0] IR1; logic [15:0] IR2; logic [15:0] IR3;
+
+	logic [31:0] MAC0; logic [31:0] MAC1; logic [31:0] MAC2; logic [31:0] MAC3;
+	logic [31:0] TRX; logic [31:0] TRY; logic [31:0] TRZ;
+	logic [31:0] RBK; logic [31:0] GBK; logic [31:0] BBK;
+	logic [31:0] RFC; logic [31:0] GFC; logic [31:0] BFC;
+
+	COLOR CRGB0;
+	COLOR CRGB1;
+	COLOR CRGB2;
+	COLOR CRGB;
+	
+	logic [15:0] SX0; logic [15:0] SY0; logic [15:0] SZ0;
+	logic [15:0] SX1; logic [15:0] SY1; logic [15:0] SZ1;
+	logic [15:0] SX2; logic [15:0] SY2; logic [15:0] SZ2;
+	                                    logic [15:0] SZ3;
+
+	logic [15:0] OTZ;
+	logic [15:0] H;
+	logic [15:0] DQA;
+	logic [15:0] ZSF3;
+	logic [15:0] ZSF4;
+	
+	logic [31:0] OFX; logic [31:0] OFY; logic [31:0] DBQ;
+
 } SgteREG;
 
 typedef struct packed {
@@ -202,7 +254,9 @@ typedef struct packed {
 } CTRL;
 
 typedef struct packed {
-	logic			dummyForNow;
+	gteSelCtrl sel1;
+	gteSelCtrl sel2;
+	gteSelCtrl sel3;
 } gteComputeCtrl;
 
 `endif

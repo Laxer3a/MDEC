@@ -4,6 +4,7 @@ module LeadCountS32(
 );
 	reg [5:0] oneLead;
 	reg [5:0] zeroLead;
+	wire[30:0] valueI = value[31] ? ~value[30:0] : value[30:0];
 	
 	// BRUTE FORCE REFERENCE
 	/* 
@@ -89,22 +90,21 @@ module LeadCountS32(
 	// Faster too.
 	reg [2:0] countT3,countT2,countT1,countT0;
 	
-	always @ (value)
-	casez(value[31:24]) // Number of leading zero for [31:24]
-		8'b00000001: countT3 = 3'b111;
-		8'b0000001?: countT3 = 3'b110;
-		8'b000001??: countT3 = 3'b101;
-		8'b00001???: countT3 = 3'b100;
-		8'b0001????: countT3 = 3'b011;
-		8'b001?????: countT3 = 3'b010;
-		8'b01??????: countT3 = 3'b001;
-		8'b1???????: countT3 = 3'b000;
-		default    : countT3 = 3'b000; // Dont care value
+	always @ (valueI)
+	casez(valueI[30:24]) // Number of leading zero for [31:24]
+		7'b0000001: countT3 = 3'b111;
+		7'b000001?: countT3 = 3'b110;
+		7'b00001??: countT3 = 3'b101;
+		7'b0001???: countT3 = 3'b100;
+		7'b001????: countT3 = 3'b011;
+		7'b01?????: countT3 = 3'b010;
+		7'b1??????: countT3 = 3'b001;
+		default   : countT3 = 3'b000; // Dont care value
 	endcase
-	wire anyOneT3 = |value[31:24];
+	wire anyOneT3 = |valueI[30:24];
 
-	always @ (value)
-	casez(value[23:16]) // Number of leading zero for [23:16]
+	always @ (valueI)
+	casez(valueI[23:16]) // Number of leading zero for [23:16]
 		8'b00000001: countT2 = 3'b111;
 		8'b0000001?: countT2 = 3'b110;
 		8'b000001??: countT2 = 3'b101;
@@ -115,10 +115,10 @@ module LeadCountS32(
 		8'b1???????: countT2 = 3'b000;
 		default    : countT2 = 3'b000; // Dont care value
 	endcase
-	wire anyOneT2 = |value[23:16];
+	wire anyOneT2 = |valueI[23:16];
 
-	always @ (value)
-	casez(value[15:8]) // Number of leading zero for [15: 8]
+	always @ (valueI)
+	casez(valueI[15:8]) // Number of leading zero for [15: 8]
 		8'b00000001: countT1 = 3'b111;
 		8'b0000001?: countT1 = 3'b110;
 		8'b000001??: countT1 = 3'b101;
@@ -129,10 +129,10 @@ module LeadCountS32(
 		8'b1???????: countT1 = 3'b000;
 		default    : countT1 = 3'b000; // Dont care value
 	endcase
-	wire anyOneT1 = |value[15:8];
+	wire anyOneT1 = |valueI[15:8];
 
-	always @ (value)
-	casez(value[7:0]) // Number of leading zero for [ 7: 0]
+	always @ (valueI)
+	casez(valueI[7:0]) // Number of leading zero for [ 7: 0]
 		8'b00000001: countT0 = 3'b111;
 		8'b0000001?: countT0 = 3'b110;
 		8'b000001??: countT0 = 3'b101;
@@ -143,13 +143,13 @@ module LeadCountS32(
 		8'b1???????: countT0 = 3'b000;
 		default    : countT0 = 3'b000; // Dont care value
 	endcase
-	wire anyOneT0 = |value[7:0];
+	wire anyOneT0 = |valueI[7:0];
 
 	// Gather all leading zero generated in parallel and generate final value.
 	always @ (*)
 	begin
 		if (anyOneT3)
-			zeroLead = { 3'b000 ,countT3 };
+			zeroLead = { 3'b000 , countT3 };
 		else
 		begin
 			if (anyOneT2)
@@ -169,6 +169,7 @@ module LeadCountS32(
 		end
 	end
 
+/*
 	//-----------------------------------------------
 	//  Count Leading One computation
 	//-----------------------------------------------
@@ -186,7 +187,7 @@ module LeadCountS32(
 		8'b0???????: countO3 = 3'b000;
 		default    : countO3 = 3'b000; // Dont care value
 	endcase
-	wire anyOneO3 = |value[31:24];
+	wire anyZeroO3 = !(&value[31:24]);
 
 	always @ (value)
 	casez(value[23:16]) // Number of leading one for [23:16]
@@ -200,10 +201,10 @@ module LeadCountS32(
 		8'b0???????: countO2 = 3'b000;
 		default    : countO2 = 3'b000; // Dont care value
 	endcase
-	wire anyOneO2 = |value[23:16];
+	wire anyZeroO2 = !(&value[23:16]);
 
 	always @ (value)
-	casez(value[15:8]) // Number of leading zero for [15: 8]
+	casez(value[15:8]) // Number of leading one for [15: 8]
 		8'b11111110: countO1 = 3'b111;
 		8'b1111110?: countO1 = 3'b110;
 		8'b111110??: countO1 = 3'b101;
@@ -214,10 +215,10 @@ module LeadCountS32(
 		8'b0???????: countO1 = 3'b000;
 		default    : countO1 = 3'b000; // Dont care value
 	endcase
-	wire anyOneO1 = |value[15:8];
+	wire anyZeroO1 = !(&value[15:8]);
 
 	always @ (value)
-	casez(value[7:0]) // Number of leading zero for [ 7: 0]
+	casez(value[7:0]) // Number of leading one for [ 7: 0]
 		8'b11111110: countO0 = 3'b111;
 		8'b1111110?: countO0 = 3'b110;
 		8'b111110??: countO0 = 3'b101;
@@ -228,24 +229,24 @@ module LeadCountS32(
 		8'b0???????: countO0 = 3'b000;
 		default    : countO0 = 3'b000; // Dont care value
 	endcase
-	wire anyOneO0 = |value[15:8];
+	wire anyZeroO0 = !(&value[7:0]);
 
 	// Gather all leading zero generated in parallel and generate final value.
 	always @ (*)
 	begin
-		if (anyOneO3)
+		if (anyZeroO3)
 			oneLead = { 3'b000 ,countO3 };
 		else
 		begin
-			if (anyOneO2)
+			if (anyZeroO2)
 				oneLead = { 3'b001, countO2 };
 			else
 			begin
-				if (anyOneO1)
+				if (anyZeroO1)
 					oneLead = { 3'b010, countO1 };
 				else
 				begin
-					if (anyOneO0)
+					if (anyZeroO0)
 						oneLead = { 3'b011, countO0 };
 					else
 						oneLead = 6'd32;
@@ -255,4 +256,6 @@ module LeadCountS32(
 	end
 
 	assign result = value[31] ? oneLead : zeroLead;
+*/
+	assign result = zeroLead;
 endmodule
