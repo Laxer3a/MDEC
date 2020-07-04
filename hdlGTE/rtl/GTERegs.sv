@@ -8,6 +8,7 @@ module GTERegs (
 	input         i_nRst,
 
 	// Temp stuff
+	input  gteWriteBack i_wb,
 	input  gteCtrl  gteWR,
 	output SgteREG  gteREG,
 	
@@ -30,7 +31,6 @@ reg signed [15:0] SY0  ,SY1  ,SY2;
 reg signed [15:0] SZ0  ,SZ1  ,SZ2 , SZ3;
 
 // Write back from GTE & CPU
-reg signed [15:0] VX0,VY0,VZ0,VX1,VY1,VZ1,VX2,VY2,VZ2;
 reg signed [15:0] IR0,IR1,IR2,IR3;
 reg signed [31:0] MAC0,MAC1,MAC2,MAC3;
 reg signed [15:0] OTZ;
@@ -43,6 +43,8 @@ reg signed [15:0] LR1,LR2,LR3,LG1,LG2,LG3,LB1,LB2,LB3;
 reg signed [31:0] TRX,TRY,TRZ,RBK,GBK,BBK,RFC,GFC,BFC,RES1;
 reg signed [15:0] H,DQA,ZSF3,ZSF4;
 reg signed [31:0] OFX,OFY,DQB,REG_lzcs;
+
+reg signed [15:0] VX0,VY0,VZ0,VX1,VY1,VZ1,VX2,VY2,VZ2;
 /*
 --  31   Error Flag (Bit30..23, and 18..13 ORed together) (Read only)
 -------------------------------------------------------------------------------
@@ -128,7 +130,7 @@ assign gteREG.ZSF4  = ZSF4;
 
 assign gteREG.OFX   = OFX;
 assign gteREG.OFY   = OFY;
-assign gteREG.DBQ   = DBQ;
+assign gteREG.DQB   = DQB;
 
 // ----------------------------------------------------------------------------------------------
 // ---- COLOR FIFO  -----------------------------------------------------------------------------
@@ -155,21 +157,21 @@ begin
 		CRGB0.c = 8'd0; CRGB1.c = 8'd0; CRGB2.c = 8'd0; CRGB.c = 8'd0;
 	end else begin
 		// R Fifo
-		if (gteWR.pushR | cpuWrtCRGB[0]) CRGB0.r = gteWR.pushR ? CRGB1.r   : i_dataIn[ 7: 0]; // R
-		if (gteWR.pushR | cpuWrtCRGB[1]) CRGB1.r = gteWR.pushR ? CRGB2.r   : i_dataIn[ 7: 0]; // R
-		if (gteWR.pushR | cpuWrtCRGB[2]) CRGB2.r = gteWR.pushR ? gteWR.val : i_dataIn[ 7: 0]; // R
+		if (i_wb.pushR | cpuWrtCRGB[0]) CRGB0.r = i_wb.pushR ? CRGB1.r   : i_dataIn[ 7: 0]; // R
+		if (i_wb.pushR | cpuWrtCRGB[1]) CRGB1.r = i_wb.pushR ? CRGB2.r   : i_dataIn[ 7: 0]; // R
+		if (i_wb.pushR | cpuWrtCRGB[2]) CRGB2.r = i_wb.pushR ? gteWR.val : i_dataIn[ 7: 0]; // R
 		// G Fifo
-		if (gteWR.pushG | cpuWrtCRGB[0]) CRGB0.g = gteWR.pushG ? CRGB1.g   : i_dataIn[15: 8]; // G
-		if (gteWR.pushG | cpuWrtCRGB[1]) CRGB1.g = gteWR.pushG ? CRGB2.g   : i_dataIn[15: 8]; // G
-		if (gteWR.pushG | cpuWrtCRGB[2]) CRGB2.g = gteWR.pushG ? gteWR.val : i_dataIn[15: 8]; // G
+		if (i_wb.pushG | cpuWrtCRGB[0]) CRGB0.g = i_wb.pushG ? CRGB1.g   : i_dataIn[15: 8]; // G
+		if (i_wb.pushG | cpuWrtCRGB[1]) CRGB1.g = i_wb.pushG ? CRGB2.g   : i_dataIn[15: 8]; // G
+		if (i_wb.pushG | cpuWrtCRGB[2]) CRGB2.g = i_wb.pushG ? gteWR.val : i_dataIn[15: 8]; // G
 		// B    Fifo
 		// Code Fifo (Move on BLUE)
-		if (gteWR.pushB | cpuWrtCRGB[0]) CRGB0.b = gteWR.pushB ? CRGB1.b   : i_dataIn[23:16]; // B
-		if (gteWR.pushB | cpuWrtCRGB[1]) CRGB1.b = gteWR.pushB ? CRGB2.b   : i_dataIn[23:16]; // B
-		if (gteWR.pushB | cpuWrtCRGB[2]) CRGB2.b = gteWR.pushB ? gteWR.val : i_dataIn[23:16]; // B
-		if (gteWR.pushB | cpuWrtCRGB[0]) CRGB0.c = gteWR.pushB ? CRGB1.c   : i_dataIn[31:24]; // Code
-		if (gteWR.pushB | cpuWrtCRGB[1]) CRGB1.c = gteWR.pushB ? CRGB2.c   : i_dataIn[31:24]; // Code
-		if (gteWR.pushB | cpuWrtCRGB[2]) CRGB2.c = gteWR.pushB ? CRGB.c    : i_dataIn[31:24]; // Code
+		if (i_wb.pushB | cpuWrtCRGB[0]) CRGB0.b = i_wb.pushB ? CRGB1.b   : i_dataIn[23:16]; // B
+		if (i_wb.pushB | cpuWrtCRGB[1]) CRGB1.b = i_wb.pushB ? CRGB2.b   : i_dataIn[23:16]; // B
+		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.b = i_wb.pushB ? gteWR.val : i_dataIn[23:16]; // B
+		if (i_wb.pushB | cpuWrtCRGB[0]) CRGB0.c = i_wb.pushB ? CRGB1.c   : i_dataIn[31:24]; // Code
+		if (i_wb.pushB | cpuWrtCRGB[1]) CRGB1.c = i_wb.pushB ? CRGB2.c   : i_dataIn[31:24]; // Code
+		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.c = i_wb.pushB ? CRGB.c    : i_dataIn[31:24]; // Code
 		
 		// Cache codeReg
 		if (cpuWrtCRGB[3]) begin
@@ -196,9 +198,9 @@ wire [3:0] cpuWrtSXY	= {4{i_WritReg}} & { accSXY0 , accSXY1 , accSXY2  , accSXYP
 wire [3:0] cpuWrtSZ		= {4{i_WritReg}} & { accSZ0  , accSZ1  , accSZ2   , accSZP };
 
 // FIFO Write, by CPU or GPU.
-wire       wrtFSPX      = cpuWrtSXY[3] | gteWR.pushX;	// Write FIFO from CPU or GTE.
-wire       wrtFSPY      = cpuWrtSXY[3] | gteWR.pushY;	// Write FIFO from CPU or GTE.
-wire       wrtFSPZ      = cpuWrtSZ [3] | gteWR.pushZ;	// Write FIFO from CPU or GTE.
+wire       wrtFSPX      = cpuWrtSXY[3] | i_wb.pushX;	// Write FIFO from CPU or GTE.
+wire       wrtFSPY      = cpuWrtSXY[3] | i_wb.pushY;	// Write FIFO from CPU or GTE.
+wire       wrtFSPZ      = cpuWrtSZ [3] | i_wb.pushZ;	// Write FIFO from CPU or GTE.
 
 // Data Value = CPU or GTE write ?
 wire [15:0] dataPathSY	= i_WritReg ? i_dataIn[31:16] : gteWR.val16;
@@ -239,56 +241,41 @@ wire [15:0] B16 = { 4'd0 , i_dataIn[14:10] , 7'd0 };
 always @(posedge i_clk)
 begin
 	if (i_nRst == 1'b0) begin
-		VY0 = 16'd0; VX0 = 16'd0; VZ0 = 16'd0;
-		VY1 = 16'd0; VX1 = 16'd0; VZ1 = 16'd0;
-		VY2 = 16'd0; VX2 = 16'd0; VZ2 = 16'd0;
 		OTZ = 16'd0;
 		IR0 = 16'd0; IR1 = 16'd0; IR2 = 16'd0; IR3 = 16'd0;
 		MAC0= 32'd0; MAC1= 32'd0; MAC2= 32'd0; MAC3= 32'd0;
 		FLAGS = 19'd0;
 	end else begin
-		// VX0,VY0,VZ0
-		if (((i_regID == DR_VXY0) & i_WritReg) | gteWR.wrVY[0]) VY0 = gteWR.wrVY[0] ? gteWR.val16 : i_dataIn[31:16];
-		if (((i_regID == DR_VXY0) & i_WritReg) | gteWR.wrVX[0]) VX0 = gteWR.wrVX[0] ? gteWR.val16 : i_dataIn[15: 0];
-		if (((i_regID == DR_VZ0_) & i_WritReg) | gteWR.wrVZ[0]) VZ0 = gteWR.wrVZ[0] ? gteWR.val16 : i_dataIn[15: 0];
-		// VX1,VY1,VZ1
-		if (((i_regID == DR_VXY1) & i_WritReg) | gteWR.wrVY[1]) VY1 = gteWR.wrVY[1] ? gteWR.val16 : i_dataIn[31:16];
-		if (((i_regID == DR_VXY1) & i_WritReg) | gteWR.wrVX[1]) VX1 = gteWR.wrVX[1] ? gteWR.val16 : i_dataIn[15: 0];
-		if (((i_regID == DR_VZ1_) & i_WritReg) | gteWR.wrVZ[1]) VZ1 = gteWR.wrVZ[1] ? gteWR.val16 : i_dataIn[15: 0];
-		// VX2,VY2,VZ2
-		if (((i_regID == DR_VXY2) & i_WritReg) | gteWR.wrVY[2]) VY2 = gteWR.wrVY[2] ? gteWR.val16 : i_dataIn[31:16];
-		if (((i_regID == DR_VXY2) & i_WritReg) | gteWR.wrVX[2]) VX2 = gteWR.wrVX[2] ? gteWR.val16 : i_dataIn[15: 0];
-		if (((i_regID == DR_VZ2_) & i_WritReg) | gteWR.wrVZ[2]) VZ2 = gteWR.wrVZ[2] ? gteWR.val16 : i_dataIn[15: 0];
 		// OTZ
-		if (((i_regID == DR_OTZ_) & i_WritReg) |gteWR.wrOTZ   ) OTZ = gteWR.wrOTZ   ? gteWR.val16 : i_dataIn[15: 0];
+		if (((i_regID == DR_OTZ_) & i_WritReg) | i_wb.wrOTZ  ) OTZ = i_wb.wrOTZ   ? gteWR.val16 : i_dataIn[15: 0];
 		// IRO,IR1,IR2,IR3
-		if (((i_regID == DR_IR0_) & i_WritReg) | gteWR.wrIR[0]) IR0 = gteWR.wrIR[0] ? gteWR.val16 : i_dataIn[15: 0];
-		if (((i_regID == DR_IR1_) & i_WritReg) | wrIRGB | gteWR.wrIR[1]) begin
+		if (((i_regID == DR_IR0_) & i_WritReg) | i_wb.wrIR[0]) IR0 = i_wb.wrIR[0] ? gteWR.val16 : i_dataIn[15: 0];
+		if (((i_regID == DR_IR1_) & i_WritReg) | wrIRGB | i_wb.wrIR[1]) begin
 			if (wrIRGB) begin
 				IR1 = R16;
 			end else begin
-				IR1 = gteWR.wrIR[1] ? gteWR.val16 : i_dataIn[15: 0];
+				IR1 = i_wb.wrIR[1] ? gteWR.val16 : i_dataIn[15: 0];
 			end
 		end
-		if (((i_regID == DR_IR2_) & i_WritReg) | wrIRGB | gteWR.wrIR[2]) begin
+		if (((i_regID == DR_IR2_) & i_WritReg) | wrIRGB | i_wb.wrIR[2]) begin
 			if (wrIRGB) begin
 				IR2 = G16;
 			end else begin
-				IR2 = gteWR.wrIR[2] ? gteWR.val16 : i_dataIn[15: 0];
+				IR2 = i_wb.wrIR[2] ? gteWR.val16 : i_dataIn[15: 0];
 			end
 		end
-		if (((i_regID == DR_IR3_) & i_WritReg) | wrIRGB | gteWR.wrIR[3]) begin
+		if (((i_regID == DR_IR3_) & i_WritReg) | wrIRGB | i_wb.wrIR[3]) begin
 			if (wrIRGB) begin
 				IR3 = B16;
 			end else begin
-				IR3 = gteWR.wrIR[3] ? gteWR.val16 : i_dataIn[15: 0];
+				IR3 = i_wb.wrIR[3] ? gteWR.val16 : i_dataIn[15: 0];
 			end
 		end
 		// MAC0,MAC1,MAC2,MAC3
-		if (((i_regID == DR_MAC0) & i_WritReg) |gteWR.wrMAC[0]) MAC0= gteWR.wrMAC[0]? gteWR.val32 : i_dataIn;
-		if (((i_regID == DR_MAC1) & i_WritReg) |gteWR.wrMAC[1]) MAC1= gteWR.wrMAC[1]? gteWR.val32 : i_dataIn;
-		if (((i_regID == DR_MAC2) & i_WritReg) |gteWR.wrMAC[2]) MAC2= gteWR.wrMAC[2]? gteWR.val32 : i_dataIn;
-		if (((i_regID == DR_MAC3) & i_WritReg) |gteWR.wrMAC[3]) MAC3= gteWR.wrMAC[3]? gteWR.val32 : i_dataIn;
+		if (((i_regID == DR_MAC0) & i_WritReg) | i_wb.wrMAC[0]) MAC0 = i_wb.wrMAC[0] ? gteWR.val32 : i_dataIn;
+		if (((i_regID == DR_MAC1) & i_WritReg) | i_wb.wrMAC[1]) MAC1 = i_wb.wrMAC[1] ? gteWR.val32 : i_dataIn;
+		if (((i_regID == DR_MAC2) & i_WritReg) | i_wb.wrMAC[2]) MAC2 = i_wb.wrMAC[2] ? gteWR.val32 : i_dataIn;
+		if (((i_regID == DR_MAC3) & i_WritReg) | i_wb.wrMAC[3]) MAC3 = i_wb.wrMAC[3] ? gteWR.val32 : i_dataIn;
 		
 		if ((i_regID == CR_FLAGS___) & i_WritReg) begin
 			FLAGS = i_dataIn[30:12];
@@ -314,7 +301,7 @@ begin
 		LR1 = 16'd0; LR2 = 16'd0; LR3 = 16'd0;
 		LG1 = 16'd0; LG2 = 16'd0; LG3 = 16'd0;
 		LB1 = 16'd0; LB2 = 16'd0; LB3 = 16'd0;
-		
+				
 		H   = 16'd0; DQA = 16'd0;
 		ZSF3= 16'd0; ZSF4= 16'd0;
 		
@@ -327,7 +314,25 @@ begin
 		
 		RES1 = 32'd0;
 		REG_lzcs = 32'd0;
+		
+		VY0 = 16'd0; VX0 = 16'd0; VZ0 = 16'd0;
+		VY1 = 16'd0; VX1 = 16'd0; VZ1 = 16'd0;
+		VY2 = 16'd0; VX2 = 16'd0; VZ2 = 16'd0;
+		
 	end else begin
+		// VX0,VY0,VZ0
+		if ((i_regID == DR_VXY0) & i_WritReg) VY0 = i_dataIn[31:16];
+		if ((i_regID == DR_VXY0) & i_WritReg) VX0 = i_dataIn[15: 0];
+		if ((i_regID == DR_VZ0_) & i_WritReg) VZ0 = i_dataIn[15: 0];
+		// VX1,VY1,VZ1
+		if ((i_regID == DR_VXY1) & i_WritReg) VY1 = i_dataIn[31:16];
+		if ((i_regID == DR_VXY1) & i_WritReg) VX1 = i_dataIn[15: 0];
+		if ((i_regID == DR_VZ1_) & i_WritReg) VZ1 = i_dataIn[15: 0];
+		// VX2,VY2,VZ2
+		if ((i_regID == DR_VXY2) & i_WritReg) VY2 = i_dataIn[31:16];
+		if ((i_regID == DR_VXY2) & i_WritReg) VX2 = i_dataIn[15: 0];
+		if ((i_regID == DR_VZ2_) & i_WritReg) VZ2 = i_dataIn[15: 0];
+		// ------------------------------------------------------
 		if ((i_regID == CR_RT11RT12) & i_WritReg) begin
 			R11 = i_dataIn[31:16];
 			R12 = i_dataIn[15: 0];

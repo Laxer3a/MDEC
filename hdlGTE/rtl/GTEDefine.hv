@@ -167,23 +167,11 @@ typedef struct packed {
 	logic [7:0] c;
 } COLOR;
 
-typedef struct packed {
-	logic [1:0] mat;
-	logic [2:0] selLeft;
-	logic [3:0] selRight;
-	logic [1:0] vcompo;
-} gteSelCtrl;
-
-// From Compute to write back
-typedef struct packed {
-	logic [2:0] wrVX;
-	logic [2:0] wrVY;
-	logic [2:0] wrVZ;
+// MICROCODE => REGISTER WRITE (Direct control, without compute path)
+typedef struct packed { // 24 bit
 	logic [3:0] wrIR;
 	logic [3:0] wrMAC;
 	logic       wrOTZ;
-	
-	logic [18:0] updateFlags;
 	
 	logic pushR;
 	logic pushG;
@@ -192,12 +180,13 @@ typedef struct packed {
 	logic pushX;
 	logic pushY;
 	logic pushZ;
-	
-	logic [7:0] val;
-	logic [15:0] val16;
-	logic [31:0] val32;
-} gteCtrl;
+} gteWriteBack;
 
+// --------------------------------------------------------------------------
+//   Compute Path INPUT
+// --------------------------------------------------------------------------
+
+// REGISTERS -> COMPUTE PATH INPUT
 typedef struct packed {
 	logic [15:0] R11; logic [15:0] R21; logic [15:0] R31;
 	logic [15:0] R12; logic [15:0] R22; logic [15:0] R32;
@@ -238,10 +227,10 @@ typedef struct packed {
 	logic [15:0] ZSF3;
 	logic [15:0] ZSF4;
 	
-	logic [31:0] OFX; logic [31:0] OFY; logic [31:0] DBQ;
-
+	logic [31:0] OFX; logic [31:0] OFY; logic [31:0] DQB;
 } SgteREG;
 
+// INSTRUCTION -> COMPUTE PATH CONTROL
 typedef struct packed {
 	// Instruction Mnemonic
 	logic			sf;
@@ -253,10 +242,56 @@ typedef struct packed {
 	logic			executing;
 } CTRL;
 
+// MICROCODE -> COMPUTE PATH CONTROL
+	// Internal sub structures...
+	typedef struct packed { // 11 Bit x 3 Unit
+		logic [1:0] mat;
+		logic [2:0] selLeft;
+		logic [3:0] selRight;
+		logic [1:0] vcompo;
+	} gteSelCtrl;
+	
+	typedef struct packed {
+		logic			useSF;
+		logic	[1:0]	id;
+		logic	[3:0]	sel;
+	} gteSelAddCtrl;
+
 typedef struct packed {
 	gteSelCtrl sel1;
 	gteSelCtrl sel2;
 	gteSelCtrl sel3;
+	gteSelAddCtrl addSel;
+	logic [2:0] negSel;
+	logic [1:0] selOpInstr;
+	logic      assignIRtoTMP;
+	logic      wrTMP1;
+	logic      wrTMP2;
+	logic      wrTMP3;
+	logic      wrDivRes;
+	logic      selCol0;
+	logic      useSFWrite32;
 } gteComputeCtrl;
+
+// --------------------------------------------------------------------------
+//   Compute Path OUTPUT
+// --------------------------------------------------------------------------
+
+// COMPUTE PATH OUTPUT => REGISTER WRITE BACK VALUES/FLAGS
+typedef struct packed {
+	logic [18:0] updateFlags;
+		
+	logic [ 7:0] val;
+	logic [15:0] val16;
+	logic [31:0] val32;
+} gteCtrl;
+
+// --------------------------------------------------------------------------
+//   MICROCODE TABLE
+// --------------------------------------------------------------------------
+typedef struct packed {
+	gteComputeCtrl	ctrlPath;
+	gteWriteBack	wb;
+} MCodeEntry;
 
 `endif
