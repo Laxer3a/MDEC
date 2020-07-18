@@ -170,7 +170,8 @@ module GTEFastDiv(
 	// ---------------------------------------------
 	wire [15:0] ladr = d - 16'h7FC0; // [0x8000~0xFFFF] - 0x7FC0
 
-	reg [15:0] pd,pn;
+	reg [15:0] pd;
+	reg [30:0] pn;
 	reg p_isHLessZM2;
 	always @(posedge i_clk)
 	begin
@@ -317,7 +318,7 @@ module GTEFastDiv(
 	wire [18:0] d3   = dmdu2[19:1];					// Then shift 1 again.
 	
 	reg [18:0] pd3;
-	reg [15:0] ppn;
+	reg [30:0] ppn;
 	reg pp_isHLessZM2;
 	always @ (posedge i_clk)
 	begin

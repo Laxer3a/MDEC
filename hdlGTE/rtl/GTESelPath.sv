@@ -57,6 +57,7 @@ module GTESelPath(
 	input [15:0] SZ,
 	input [15:0] DQA,
 	input [16:0] HS3Z,
+	input [15:0] SX,
 	
 	// -----------------
 	// --- RIGHT SIDE---
@@ -69,6 +70,8 @@ module GTESelPath(
 	input [15:0] V0c,
 	input [15:0] V1c,
 	input [15:0] V2c,
+	input [15:0] SYA,
+	input [15:0] SYB,
 	
 	// --- Reuse i_IRn
 	output signed [34:0] outstuff
@@ -76,10 +79,8 @@ module GTESelPath(
 	reg [15:0] mc1,mc2,mc3;
 	reg [17:0] vComp;
 	
-	reg sgnRight;
-	
-	wire mat    = isMVMVA ? mx  : ctrl.mat;
-	wire vcompo = isMVMVA ? vec : ctrl.vcompo;
+	wire [1:0] mat    = isMVMVA ? mx  : ctrl.mat;
+	wire [1:0] vcompo = isMVMVA ? vec : ctrl.vcompo;
 	
 	always @(*) begin
 		case (mat)
@@ -115,14 +116,16 @@ module GTESelPath(
 	reg signed [16:0] leftSide;
 	always @(*) begin
 		case (ctrl.selLeft)
-		3'd0 :   leftSide = { mc1[15], mc1};		//   SIGNED
-		3'd1 :   leftSide = { mc2[15], mc2};		//   SIGNED
-		3'd2 :   leftSide = { mc3[15], mc3};		//   SIGNED
-		3'd3 :   leftSide = { 5'd0, color, 4'd0 };	// UNSIGNED
-		3'd4 :   leftSide = { IRn[15], IRn};		//   SIGNED
-		3'd5 :   leftSide = { 1'b0, SZ };			// UNSIGNED
-		3'd6 :   leftSide = { DQA[15], DQA};		//   SIGNED
-		3'd7 :   leftSide = 17'd4096;
+		4'd0 :   leftSide = { mc1[15], mc1};		//   SIGNED
+		4'd1 :   leftSide = { mc2[15], mc2};		//   SIGNED
+		4'd2 :   leftSide = { mc3[15], mc3};		//   SIGNED
+		4'd3 :   leftSide = { 5'd0, color, 4'd0 };	// UNSIGNED
+		4'd4 :   leftSide = { IRn[15], IRn};		//   SIGNED
+		4'd5 :   leftSide = { 1'b0, SZ };			// UNSIGNED
+		4'd6 :   leftSide = { DQA[15], DQA};		//   SIGNED
+		4'd8 :   leftSide = { SX[15] , SX };		//   SIGNED
+		// Same as 7'd7
+		default: leftSide = 17'd4096; // DEFAULT 7
 		endcase
 	end
 
@@ -138,9 +141,13 @@ module GTESelPath(
 		4'd5 :   rightSide = {{2{IRn[15]}},IRn};
 		4'd6 :   rightSide = {{2{IR0[15]}},IR0};
 		4'd7 :   rightSide = { 6'd0, color, 4'd0 };
+		4'd8 :   rightSide = {{2{SYA[15]}}, SYA };
+		4'd9 :   rightSide = {{2{SYB[15]}}, SYB };
+		
 		default: rightSide = 18'd0;
 		endcase
 	end
 	
-	assign outstuff = rightSide * leftSide;
+	wire signed [34:0] result = rightSide * leftSide;
+	assign outstuff = result;
 endmodule

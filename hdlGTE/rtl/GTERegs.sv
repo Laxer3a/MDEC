@@ -7,6 +7,9 @@ module GTERegs (
 	input         i_clk,
 	input         i_nRst,
 
+
+	input		  i_loadInstr,
+
 	// Temp stuff
 	input  gteWriteBack i_wb,
 	input  gteCtrl  gteWR,
@@ -143,7 +146,7 @@ wire   accCRGB1= (i_regID == DR_RGB1);
 wire   accCRGB2= (i_regID == DR_RGB2);
 wire   accCRGB = (i_regID == DR_RGBC);
 
-wire [3:0] cpuWrtCRGB	= {4{i_WritReg}} & { accCRGB0, accCRGB1, accCRGB2 , accCRGB };
+wire [3:0] cpuWrtCRGB	= {4{i_WritReg}} & { accCRGB, accCRGB2, accCRGB1 , accCRGB0 };
 // ---------------------------------------------------------------
 // CPU can directly write to 0/1/2 but no FIFO.
 // GTE can only push to the FIFO instead when writing.
@@ -159,16 +162,16 @@ begin
 		// R Fifo
 		if (i_wb.pushR | cpuWrtCRGB[0]) CRGB0.r = i_wb.pushR ? CRGB1.r   : i_dataIn[ 7: 0]; // R
 		if (i_wb.pushR | cpuWrtCRGB[1]) CRGB1.r = i_wb.pushR ? CRGB2.r   : i_dataIn[ 7: 0]; // R
-		if (i_wb.pushR | cpuWrtCRGB[2]) CRGB2.r = i_wb.pushR ? gteWR.val : i_dataIn[ 7: 0]; // R
+		if (i_wb.pushR | cpuWrtCRGB[2]) CRGB2.r = i_wb.pushR ? gteWR.colV: i_dataIn[ 7: 0]; // R
 		// G Fifo
 		if (i_wb.pushG | cpuWrtCRGB[0]) CRGB0.g = i_wb.pushG ? CRGB1.g   : i_dataIn[15: 8]; // G
 		if (i_wb.pushG | cpuWrtCRGB[1]) CRGB1.g = i_wb.pushG ? CRGB2.g   : i_dataIn[15: 8]; // G
-		if (i_wb.pushG | cpuWrtCRGB[2]) CRGB2.g = i_wb.pushG ? gteWR.val : i_dataIn[15: 8]; // G
+		if (i_wb.pushG | cpuWrtCRGB[2]) CRGB2.g = i_wb.pushG ? gteWR.colV: i_dataIn[15: 8]; // G
 		// B    Fifo
 		// Code Fifo (Move on BLUE)
 		if (i_wb.pushB | cpuWrtCRGB[0]) CRGB0.b = i_wb.pushB ? CRGB1.b   : i_dataIn[23:16]; // B
 		if (i_wb.pushB | cpuWrtCRGB[1]) CRGB1.b = i_wb.pushB ? CRGB2.b   : i_dataIn[23:16]; // B
-		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.b = i_wb.pushB ? gteWR.val : i_dataIn[23:16]; // B
+		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.b = i_wb.pushB ? gteWR.colV: i_dataIn[23:16]; // B
 		if (i_wb.pushB | cpuWrtCRGB[0]) CRGB0.c = i_wb.pushB ? CRGB1.c   : i_dataIn[31:24]; // Code
 		if (i_wb.pushB | cpuWrtCRGB[1]) CRGB1.c = i_wb.pushB ? CRGB2.c   : i_dataIn[31:24]; // Code
 		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.c = i_wb.pushB ? CRGB.c    : i_dataIn[31:24]; // Code
@@ -194,18 +197,18 @@ wire   accSZ1  = (i_regID == DR_SZ1_);
 wire   accSZ2  = (i_regID == DR_SZ2_);
 wire   accSZP  = (i_regID == DR_SZP_);
 
-wire [3:0] cpuWrtSXY	= {4{i_WritReg}} & { accSXY0 , accSXY1 , accSXY2  , accSXYP};
-wire [3:0] cpuWrtSZ		= {4{i_WritReg}} & { accSZ0  , accSZ1  , accSZ2   , accSZP };
+wire [3:0] cpuWrtSXY	= {4{i_WritReg}} & { accSXYP, accSXY2, accSXY1, accSXY0 };
+wire [3:0] cpuWrtSZ		= {4{i_WritReg}} & {  accSZP,  accSZ2,  accSZ1,  accSZ0 };
 
 // FIFO Write, by CPU or GPU.
 wire       wrtFSPX      = cpuWrtSXY[3] | i_wb.pushX;	// Write FIFO from CPU or GTE.
 wire       wrtFSPY      = cpuWrtSXY[3] | i_wb.pushY;	// Write FIFO from CPU or GTE.
-wire       wrtFSPZ      = cpuWrtSZ [3] | i_wb.pushZ;	// Write FIFO from CPU or GTE.
+wire       wrtFSPZ      = i_wb.pushZ;					// Write FIFO from GTE ONLY.
 
 // Data Value = CPU or GTE write ?
-wire [15:0] dataPathSY	= i_WritReg ? i_dataIn[31:16] : gteWR.val16;
-// Note : SAME MUX for X or Z write...
-wire [15:0] dataPathSXZ	= i_WritReg ? i_dataIn[15: 0] : gteWR.val16;
+wire [15:0] dataPathSY	= i_WritReg ? i_dataIn[31:16] : gteWR.XYV;
+wire [15:0] dataPathSX 	= i_WritReg ? i_dataIn[15: 0] : gteWR.XYV;
+wire [15:0] dataPathSZ	= i_WritReg ? i_dataIn[15: 0] : gteWR.OTZV;
 
 always @(posedge i_clk)
 begin
@@ -217,16 +220,16 @@ begin
 		// SX Fifo
 		if (wrtFSPX | cpuWrtSXY[0]) SX0 = wrtFSPX ? SX1 : i_dataIn[15: 0];
 		if (wrtFSPX | cpuWrtSXY[1]) SX1 = wrtFSPX ? SX2 : i_dataIn[15: 0];
-		if (wrtFSPX | cpuWrtSXY[2]) SX2 = dataPathSXZ;
+		if (wrtFSPX | cpuWrtSXY[2]) SX2 = dataPathSX;
 		// SY Fifo
 		if (wrtFSPY | cpuWrtSXY[0]) SY0 = wrtFSPY ? SY1 : i_dataIn[31:16];
 		if (wrtFSPY | cpuWrtSXY[1]) SY1 = wrtFSPY ? SY2 : i_dataIn[31:16];
 		if (wrtFSPY | cpuWrtSXY[2]) SY2 = dataPathSY;
-		// SZ Fifo
+		// SZ Fifo : No$ spec wrong : GTE ONLY FIFO. Not CPU SIDE !
 		if (wrtFSPZ | cpuWrtSZ [0]) SZ0 = wrtFSPZ ? SZ1 : i_dataIn[15: 0];
 		if (wrtFSPZ | cpuWrtSZ [1]) SZ1 = wrtFSPZ ? SZ2 : i_dataIn[15: 0];
 		if (wrtFSPZ | cpuWrtSZ [2]) SZ2 = wrtFSPZ ? SZ3 : i_dataIn[15: 0];
-		if (wrtFSPZ | cpuWrtSZ [3]) SZ3 = dataPathSXZ;
+		if (wrtFSPZ | cpuWrtSZ [3]) SZ3 = dataPathSZ;
 	end
 end
 
@@ -247,40 +250,44 @@ begin
 		FLAGS = 19'd0;
 	end else begin
 		// OTZ
-		if (((i_regID == DR_OTZ_) & i_WritReg) | i_wb.wrOTZ  ) OTZ = i_wb.wrOTZ   ? gteWR.val16 : i_dataIn[15: 0];
+		if (((i_regID == DR_OTZ_) & i_WritReg) | i_wb.wrOTZ  ) OTZ = i_wb.wrOTZ   ? gteWR.OTZV : i_dataIn[15: 0];
 		// IRO,IR1,IR2,IR3
-		if (((i_regID == DR_IR0_) & i_WritReg) | i_wb.wrIR[0]) IR0 = i_wb.wrIR[0] ? gteWR.val16 : i_dataIn[15: 0];
+		if (((i_regID == DR_IR0_) & i_WritReg) | i_wb.wrIR[0]) IR0 = i_wb.wrIR[0] ? gteWR.IR0  : i_dataIn[15: 0];
 		if (((i_regID == DR_IR1_) & i_WritReg) | wrIRGB | i_wb.wrIR[1]) begin
 			if (wrIRGB) begin
 				IR1 = R16;
 			end else begin
-				IR1 = i_wb.wrIR[1] ? gteWR.val16 : i_dataIn[15: 0];
+				IR1 = i_wb.wrIR[1] ? gteWR.IR13 : i_dataIn[15: 0];
 			end
 		end
 		if (((i_regID == DR_IR2_) & i_WritReg) | wrIRGB | i_wb.wrIR[2]) begin
 			if (wrIRGB) begin
 				IR2 = G16;
 			end else begin
-				IR2 = i_wb.wrIR[2] ? gteWR.val16 : i_dataIn[15: 0];
+				IR2 = i_wb.wrIR[2] ? gteWR.IR13 : i_dataIn[15: 0];
 			end
 		end
 		if (((i_regID == DR_IR3_) & i_WritReg) | wrIRGB | i_wb.wrIR[3]) begin
 			if (wrIRGB) begin
 				IR3 = B16;
 			end else begin
-				IR3 = i_wb.wrIR[3] ? gteWR.val16 : i_dataIn[15: 0];
+				IR3 = i_wb.wrIR[3] ? gteWR.IR13 : i_dataIn[15: 0];
 			end
 		end
 		// MAC0,MAC1,MAC2,MAC3
-		if (((i_regID == DR_MAC0) & i_WritReg) | i_wb.wrMAC[0]) MAC0 = i_wb.wrMAC[0] ? gteWR.val32 : i_dataIn;
-		if (((i_regID == DR_MAC1) & i_WritReg) | i_wb.wrMAC[1]) MAC1 = i_wb.wrMAC[1] ? gteWR.val32 : i_dataIn;
-		if (((i_regID == DR_MAC2) & i_WritReg) | i_wb.wrMAC[2]) MAC2 = i_wb.wrMAC[2] ? gteWR.val32 : i_dataIn;
-		if (((i_regID == DR_MAC3) & i_WritReg) | i_wb.wrMAC[3]) MAC3 = i_wb.wrMAC[3] ? gteWR.val32 : i_dataIn;
+		if (((i_regID == DR_MAC0) & i_WritReg) | i_wb.wrMAC[0]) MAC0 = i_wb.wrMAC[0] ? gteWR.MAC0  : i_dataIn;
+		if (((i_regID == DR_MAC1) & i_WritReg) | i_wb.wrMAC[1]) MAC1 = i_wb.wrMAC[1] ? gteWR.MAC13 : i_dataIn;
+		if (((i_regID == DR_MAC2) & i_WritReg) | i_wb.wrMAC[2]) MAC2 = i_wb.wrMAC[2] ? gteWR.MAC13 : i_dataIn;
+		if (((i_regID == DR_MAC3) & i_WritReg) | i_wb.wrMAC[3]) MAC3 = i_wb.wrMAC[3] ? gteWR.MAC13 : i_dataIn;
 		
 		if ((i_regID == CR_FLAGS___) & i_WritReg) begin
 			FLAGS = i_dataIn[30:12];
 		end else begin
-			FLAGS = FLAGS | gteWR.updateFlags; 
+			if (i_loadInstr) begin
+				FLAGS = gteWR.updateFlags;
+			end else begin
+				FLAGS = FLAGS | gteWR.updateFlags; 
+			end
 		end
 	end
 end
@@ -334,60 +341,60 @@ begin
 		if ((i_regID == DR_VZ2_) & i_WritReg) VZ2 = i_dataIn[15: 0];
 		// ------------------------------------------------------
 		if ((i_regID == CR_RT11RT12) & i_WritReg) begin
-			R11 = i_dataIn[31:16];
-			R12 = i_dataIn[15: 0];
+			R12 = i_dataIn[31:16];
+			R11 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_RT13RT21) & i_WritReg) begin
-			R13 = i_dataIn[31:16];
-			R21 = i_dataIn[15: 0];
+			R21 = i_dataIn[31:16];
+			R13 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_RT22RT23) & i_WritReg) begin
-			R22 = i_dataIn[31:16];
-			R23 = i_dataIn[15: 0];
+			R23 = i_dataIn[31:16];
+			R22 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_RT31RT32) & i_WritReg) begin
-			R31 = i_dataIn[31:16];
-			R32 = i_dataIn[15: 0];
+			R32 = i_dataIn[31:16];
+			R31 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_RT33____) & i_WritReg) begin
 			R33 = i_dataIn[15: 0];
 		end
 		// ------------------------------------------------------
 		if ((i_regID == CR_L11L12__) & i_WritReg) begin
-			L11 = i_dataIn[31:16];
-			L12 = i_dataIn[15: 0];
+			L12 = i_dataIn[31:16];
+			L11 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_L13L21__) & i_WritReg) begin
-			L13 = i_dataIn[31:16];
-			L21 = i_dataIn[15: 0];
+			L21 = i_dataIn[31:16];
+			L13 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_L22L23__) & i_WritReg) begin
-			L22 = i_dataIn[31:16];
-			L23 = i_dataIn[15: 0];
+			L23 = i_dataIn[31:16];
+			L22 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_L31L32__) & i_WritReg) begin
-			L31 = i_dataIn[31:16];
-			L32 = i_dataIn[15: 0];
+			L32 = i_dataIn[31:16];
+			L31 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_L33_____) & i_WritReg) begin
 			L33 = i_dataIn[15: 0];
 		end
 		// ------------------------------------------------------
 		if ((i_regID == CR_LR1LR2__) & i_WritReg) begin
-			LR1 = i_dataIn[31:16];
-			LR2 = i_dataIn[15: 0];
+			LR2 = i_dataIn[31:16];
+			LR1 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_LR3LG1__) & i_WritReg) begin
-			LR3 = i_dataIn[31:16];
-			LG1 = i_dataIn[15: 0];
+			LG1 = i_dataIn[31:16];
+			LR3 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_LG2LG3__) & i_WritReg) begin
-			LG2 = i_dataIn[31:16];
-			LG3 = i_dataIn[15: 0];
+			LG3 = i_dataIn[31:16];
+			LG2 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_LB1LB2__) & i_WritReg) begin
-			LB1 = i_dataIn[31:16];
-			LB2 = i_dataIn[15: 0];
+			LB2 = i_dataIn[31:16];
+			LB1 = i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_LB3_____) & i_WritReg) begin
 			LB3 = i_dataIn[15: 0];
@@ -436,30 +443,30 @@ begin
 	if (pRegID[5])
 	begin
 		case ({1'b1, pRegID[4:0]})
-		CR_RT11RT12	: vOut = { R11,R12 };
-		CR_RT13RT21	: vOut = { R13,R21 };
-		CR_RT22RT23	: vOut = { R22,R23 };
-		CR_RT31RT32	: vOut = { R31,R32 };
+		CR_RT11RT12	: vOut = { R12,R11 };
+		CR_RT13RT21	: vOut = { R21,R13 };
+		CR_RT22RT23	: vOut = { R23,R22 };
+		CR_RT31RT32	: vOut = { R32,R31 };
 		
 		CR_RT33____	: vOut = {{16{R33[15]}}, R33};
 		CR_TRX_____	: vOut = TRX;
 		CR_TRY_____	: vOut = TRY;
 		CR_TRZ_____	: vOut = TRZ;
 		
-		CR_L11L12__	: vOut = { L11,L12 };
-		CR_L13L21__	: vOut = { L13,L21 };
-		CR_L22L23__	: vOut = { L22,L23 };
-		CR_L31L32__	: vOut = { L31,L32 };
+		CR_L11L12__	: vOut = { L12,L11 };
+		CR_L13L21__	: vOut = { L21,L13 };
+		CR_L22L23__	: vOut = { L23,L22 };
+		CR_L31L32__	: vOut = { L32,L31 };
 		
 		CR_L33_____	: vOut = {{16{L33[15]}}, L33};
 		CR_RBK_____	: vOut = RBK;
 		CR_GBK_____	: vOut = GBK;
 		CR_BBK_____	: vOut = BBK;
 		
-		CR_LR1LR2__	: vOut = { LR1,LR2 };
-		CR_LR3LG1__	: vOut = { LR3,LG1 };
-		CR_LG2LG3__	: vOut = { LG2,LG3 };
-		CR_LB1LB2__	: vOut = { LB1,LB2 };
+		CR_LR1LR2__	: vOut = { LR2,LR1 };
+		CR_LR3LG1__	: vOut = { LG1,LR3 };
+		CR_LG2LG3__	: vOut = { LG3,LG2 };
+		CR_LB1LB2__	: vOut = { LB2,LB1 };
 		
 		CR_LB3_____	: vOut = {{16{LB3[15]}}, LB3};
 		CR_RFC_____	: vOut = RFC;

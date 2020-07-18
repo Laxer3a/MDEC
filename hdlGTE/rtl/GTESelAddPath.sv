@@ -92,7 +92,7 @@ module GTESelAddPath(
 		4'd4   : out[43:12] = { 20'd0, colV, 4'd0 };
 		4'd5   : out[43:12] = mac_Hi;
 		4'd6   : out[43:12] = specialZ0MulZSF4_Hi;
-		4'd7   : out[43:12] = shadowIR;
+		4'd7   : out[43:12] = { {16{shadowIR[15]}}, shadowIR};
 		4'd8   : out[43:12] = {{12{of[31]}}, of[31:12]};
 		4'd9   : out[43:12] = {{16{NCDS_CDP_DPCL_Special[23]}}, NCDS_CDP_DPCL_Special[23:8]};
 		default: out[43:12] = 32'd0; // ZERO (Vector 3 for MVMA)

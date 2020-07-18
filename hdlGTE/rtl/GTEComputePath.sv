@@ -67,6 +67,10 @@ GTESelPath SelMuxUnit1 (
   .MAT3_C1 (i_registers.R13),
   .MAT3_C2 (i_registers.R22),
   
+  .SX      (i_registers.SX0),
+  .SYA     (i_registers.SY1),
+  .SYB     (i_registers.SY2),
+  
   .color (colR),
   .IRn (i_registers.IR1),
   .SZ (i_registers.SZ1),
@@ -104,6 +108,10 @@ GTESelPath SelMuxUnit2 (
   .MAT3_C0 ({4'd0, i_registers.CRGB.r, 4'd0}),
   .MAT3_C1 (i_registers.R13),
   .MAT3_C2 (i_registers.R22),
+
+  .SX      (i_registers.SX1),
+  .SYA     (i_registers.SY2),
+  .SYB     (i_registers.SY0),
   
   .color (colG),
   .IRn (i_registers.IR2),
@@ -143,11 +151,15 @@ GTESelPath SelMuxUnit3 (
   .MAT3_C1 (i_registers.R13),
   .MAT3_C2 (i_registers.R22),
   
+  .SX      (i_registers.SX2),
+  .SYA     (i_registers.SY0),
+  .SYB     (i_registers.SY1),
+  
   .color (colB),
   .IRn (i_registers.IR3),
   .SZ (i_registers.SZ3),
   .DQA(16'd0), // DQA not used in SEL3.
-  .HS3Z(16'd0),
+  .HS3Z(17'd0),
   .V0c (i_registers.VZ0),
   .V1c (i_registers.VZ1),
   .V2c (i_registers.VZ2),
@@ -215,6 +227,7 @@ GTESelAddPath selAddInst (
 
 wire        divOverflow;
 GTEFastDiv GTEFastDiv_Inst(
+	.i_clk		(i_clk),
 	.h			(i_registers.H),	// Dividend
 	.z3			(i_registers.SZ3),	// Divisor
 	.divRes		(divRes),			// Result
@@ -226,47 +239,149 @@ wire [34:0]  outSel1P = i_computeCtrl.negSel[0] ? (~outSel1 + 35'd1) : outSel1;
 wire [34:0]  outSel2P = i_computeCtrl.negSel[1] ? (~outSel2 + 35'd1) : outSel2;
 wire [34:0]  outSel3P = i_computeCtrl.negSel[2] ? (~outSel3 + 35'd1) : outSel3;
 
-wire [45:0]  part1Sum = {outAddSel[43],outAddSel[43],outAddSel} + {{11{outSel1P[34]}},outSel1P};
-wire [45:0]  part2Sum = part1Sum + {{11{outSel2P[34]}},outSel2P};
-wire [45:0]  finalSum = part2Sum + {{11{outSel3P[34]}},outSel3P};
+wire [44:0]  part1Sum = {outAddSel[43],outAddSel} + {{10{outSel1P[34]}},outSel1P};
+
+wire [2:0] isOverflowS44 ;
+wire [2:0] isUnderflowS44;
+wire       isOverflowS32,isUnderflowS32;
+
+FlagsS44 FlagS44Local1(
+	.v			(part1Sum),
+	.isOverflow	(isOverflowS44 [0]),
+	.isUnderflow(isUnderflowS44[0])
+);
+
+wire [44:0]  part2Sum = part1Sum + {{10{outSel2P[34]}},outSel2P};
+
+FlagsS44 FlagS44Local2(
+	.v			(part2Sum),
+	.isOverflow	(isOverflowS44 [1]),
+	.isUnderflow(isUnderflowS44[1])
+);
+
+reg  [44:0]  tempSumREG;
+wire [44:0]  finalSum = part2Sum + {{10{outSel3P[34]}},outSel3P} + (i_computeCtrl.useStoreFull ? tempSumREG : 45'd0);
+
+FlagsS44 FlagS44Global(
+	.v			(finalSum),
+	.isOverflow	(isOverflowS44 [2]),
+	.isUnderflow(isUnderflowS44[2])
+);
+
+FlagsS32 FlagS32Global(
+	.v			(finalSum),
+	.isOverflow	(isOverflowS32 ),
+	.isUnderflow(isUnderflowS32)
+);
+
+wire [15:0] otzValue;
+wire [15:0] IR0Value;
+wire isUO_OTZ;
+wire isUO_IR0;
+
+FlagClipOTZ FlagClipOTZ_inst(
+	.i_overflowS32			(isOverflowS32),
+	.i_underflowS32			(isUnderflowS32),
+	.v						(finalSum[31:12]),	// 16 bit (27:12)
+	
+	.isUnderOrOverflow		(isUO_OTZ),
+	.clampOut				(otzValue),			// 0..FFFFh
+
+	.isUnderOrOverflowIR0	(isUO_IR0),
+	.clampOutIR0			(IR0Value)			// 0..1000h (!!! Not FFFh !!!)
+);
+
+wire [15:0] xyValue;
+wire isXY_UOFlow;
+FlagClipXY FlagClipXY_inst(
+	.v					(finalSum[31:16]), 		// 11 bit (27:16)
+	.i_overflowS32		(isOverflowS32),
+	.i_underflowS32		(isUnderflowS32),
+	
+	.isUnderOrOverflow	(isXY_UOFlow),
+	.clampOut			(xyValue)			// -400h..+3ffh as 16 bit.
+);
+
+wire [7:0] colorPostClip;
+wire [15:0] IRnPostClip;
+wire ou_IRn;
+wire ou_Color;
+
+wire useLM = i_computeCtrl.isIRnCheckUseLM & i_instrParam.lm;
+
+FlagClipIRnColor FlagClipIRnColor_Inst(
+	.i_v44			(finalSum),
+	.i_sf			(useSFWrite32),
+	.i_LM			(useLM),
+	.i_useFixedSFLM	(i_computeCtrl.lmFalseForIR3Saturation),
+	
+	.o_OU_IRn		(ou_IRn),
+	.o_OU_Color		(ou_Color),
+	
+	.clampOut		(IRnPostClip),
+	.clampOutCol	(colorPostClip)
+);
 
 wire useSFWrite32     = i_instrParam.sf & i_computeCtrl.useSFWrite32;
 
 wire [31:0] valWriteBack32 = useSFWrite32 ? finalSum[43:12] : finalSum[31:0];
 
-// -------------------------------------------------------------------------------
+wire overFlow44       = (( isOverflowS44[2] & i_computeCtrl.check44Global) || (( |isOverflowS44[1:0]) & i_computeCtrl.check44Local));
+wire underFlow44      = ((isUnderflowS44[2] & i_computeCtrl.check44Global) || ((|isUnderflowS44[1:0]) & i_computeCtrl.check44Local));
 
-wire [15:0] clampZ;
-wire flagBit18;
-GTEOverflowFLAGS GTEOverflowFLAGS_Instance(
-	.v					(finalSum),
-	.sf					(/*None*/),
-	.lm					(/*None*/),
-	.forceSF_BFlag		(/*None*/),
-	
-	.AxPos				(/*None*/),	// Use  0 bit shift.
-	.AxNeg				(/*None*/),	// Use  0 bit shift.
-	.FPos				(/*None*/),	// Use  0 bit shift.
-	.FNeg				(/*None*/),	// Use  0 bit shift.
-	.G					(/*None*/),		// Use >> 16 bit shift.
-	.H					(/*None*/),		// Use >> 12 bit shift.
+wire writeFlag30      = (i_computeCtrl.maskID == 2'd1) && overFlow44;
+wire writeFlag29      = (i_computeCtrl.maskID == 2'd2) && overFlow44;
+wire writeFlag28      = (i_computeCtrl.maskID == 2'd3) && overFlow44;
+wire writeFlag27      = (i_computeCtrl.maskID == 2'd1) && underFlow44;
+wire writeFlag26      = (i_computeCtrl.maskID == 2'd2) && underFlow44;
+wire writeFlag25      = (i_computeCtrl.maskID == 2'd3) && underFlow44;
+wire writeFlag24      = (i_computeCtrl.maskID == 2'd1) && i_computeCtrl.checkIRn   && ou_IRn;
+wire writeFlag23      = (i_computeCtrl.maskID == 2'd2) && i_computeCtrl.checkIRn   && ou_IRn;
+wire writeFlag22      = (i_computeCtrl.maskID == 2'd3) && i_computeCtrl.checkIRn   && ou_IRn;
+wire writeFlag21      = (i_computeCtrl.maskID == 2'd1) && i_computeCtrl.checkColor && ou_Color;
+wire writeFlag20      = (i_computeCtrl.maskID == 2'd2) && i_computeCtrl.checkColor && ou_Color;
+wire writeFlag19      = (i_computeCtrl.maskID == 2'd3) && i_computeCtrl.checkColor && ou_Color;
 
-	.B					(/*None*/),		// Depend on SF.
-	.C					(/*None*/),		// Depend on SF+4.
-	.D					(flagBit18),
-
-	.OutA				(/*None*/),
-	.OutB				(/*None*/),
-	.OutC				(/*None*/),
-	.OutD				(clampZ),
-	.OutG				(/*None*/),
-	.OutH				(/*None*/)
-);
+wire writeFlag18      = (      isUO_OTZ & i_computeCtrl.checkOTZ);
+wire writeFlag17      =     divOverflow & i_computeCtrl.checkDIV ;
+wire writeFlag16      = (isOverflowS32  & i_computeCtrl.check32Global);
+wire writeFlag15      = (isUnderflowS32 & i_computeCtrl.check32Global);
+wire writeFlag14      = (   isXY_UOFlow & i_computeCtrl.checkXY & (!i_computeCtrl.X0_or_Y1)); // X Selected.
+wire writeFlag13      = (   isXY_UOFlow & i_computeCtrl.checkXY & ( i_computeCtrl.X0_or_Y1)); // Y Selected.
+wire writeFlag12      = (      isUO_IR0 & i_computeCtrl.checkIR0);
 
 // -------------------------------------------------------------------------------
+assign o_RegCtrl.updateFlags =	{
+	writeFlag30,
+	writeFlag29,
+	writeFlag28,
+	writeFlag27,
+	writeFlag26,
+	writeFlag25,
+	writeFlag24,
+	writeFlag23,
+	writeFlag22,
+	writeFlag21,
+	writeFlag20,
+	writeFlag19,
+	writeFlag18,
+	writeFlag17,
+	writeFlag16,
+	writeFlag15,
+	writeFlag14,
+	writeFlag13,
+	writeFlag12
+};
 
-assign o_RegCtrl.val   = valWriteBack32[11:4]; // TODO : Saturate [0..255]
-
+/*
+	Generic write back :
+	MAC0    Hard coded (can use same MAC1?)
+	MAC1..3 same unit.
+	IR 1..3 except that IR3 is Z in RTCP (Different path) => Same CLIP unit, with just different setup.
+	IR0     Hard coded clip
+	X/Y     Hard coded clip
+	Color   Hard coded clip
+ */
 //CASE 0/1
 // ir[i] = clip(value , 0x7fff, lm ? 0 : -0x8000, saturatedBits);
 // ir[3] = clip(mac[3], 0x7fff, lm ? 0 : -0x8000);               // RTP --> TAKE CARE OF mac[3] value there... shifted ???
@@ -278,19 +393,13 @@ assign o_RegCtrl.val   = valWriteBack32[11:4]; // TODO : Saturate [0..255]
 //   pushScreenZ((int32_t)(mac3 >> 12)); ==> clip(z, 0xffff, 0x0000, Flag::SZ3_OTZ_SATURATED); // PUSH Z, same as AVZ3/4
 //CASE 3
 //   clip(x, 0x3ff, -0x400, Flag::SX2_SATURATED); // Push X,Y
-wire [15:0] val16;
-assign o_RegCtrl.val16 = val16;
-assign o_RegCtrl.val32 = valWriteBack32;
-
-always @(*) begin
-	if (i_wb.pushZ | i_wb.wrOTZ) begin
-		// Case 2.
-		val16 = clampZ;
-	end else begin
-		// [TODO] Fake.
-		val16 = finalSum[15:0];
-	end
-end
+assign o_RegCtrl.MAC0  = finalSum[31:0];
+assign o_RegCtrl.MAC13 = valWriteBack32;
+assign o_RegCtrl.colV  = colorPostClip;
+assign o_RegCtrl.OTZV  = otzValue;
+assign o_RegCtrl.XYV   = xyValue; // TODO : also for Z ? 
+assign o_RegCtrl.IR0   = IR0Value;
+assign o_RegCtrl.IR13  = IRnPostClip;
 
 always @(posedge i_clk) begin
 	if (i_computeCtrl.assignIRtoTMP) begin
@@ -298,10 +407,11 @@ always @(posedge i_clk) begin
 		TMP2 = i_registers.IR2;
 		TMP3 = i_registers.IR3;
 	end
-	if (i_computeCtrl.wrTMP1) begin TMP1 = val16; end
-	if (i_computeCtrl.wrTMP2) begin TMP2 = val16; end
-	if (i_computeCtrl.wrTMP3) begin TMP3 = val16; end
+	if (i_computeCtrl.wrTMP1)   begin TMP1 = IRnPostClip; end
+	if (i_computeCtrl.wrTMP2)   begin TMP2 = IRnPostClip; end
+	if (i_computeCtrl.wrTMP3)   begin TMP3 = IRnPostClip; end
 	if (i_computeCtrl.wrDivRes) begin divResREG = divRes; end
+	if (i_computeCtrl.storeFull) begin tempSumREG = (~finalSum + 45'd1); end // Negative value. TODO OPTIMIZE : Move to NEG post REG ?
 end
 
 endmodule

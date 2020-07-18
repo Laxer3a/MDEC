@@ -161,10 +161,12 @@ typedef enum bit[5:0] {
 } E_INSTR;
 
 typedef struct packed {
-	logic [7:0] r;
-	logic [7:0] g;
-	logic [7:0] b;
+	// Want to have order 31..0 in verilator for debug
+	// So order is important here for debug.
 	logic [7:0] c;
+	logic [7:0] b;
+	logic [7:0] g;
+	logic [7:0] r;
 } COLOR;
 
 // MICROCODE => REGISTER WRITE (Direct control, without compute path)
@@ -246,7 +248,7 @@ typedef struct packed {
 	// Internal sub structures...
 	typedef struct packed { // 11 Bit x 3 Unit
 		logic [1:0] mat;
-		logic [2:0] selLeft;
+		logic [3:0] selLeft;
 		logic [3:0] selRight;
 		logic [1:0] vcompo;
 	} gteSelCtrl;
@@ -268,9 +270,29 @@ typedef struct packed {
 	logic      wrTMP1;
 	logic      wrTMP2;
 	logic      wrTMP3;
+	logic      storeFull;
+	logic      useStoreFull;
 	logic      wrDivRes;
 	logic      selCol0;
 	logic      useSFWrite32;
+	
+	// Overflow Flag management.
+	logic      check44Global;
+	logic      check44Local;
+	logic      check32Global;
+	logic      checkOTZ;
+	logic      checkDIV;
+	logic      checkXY;
+	logic      checkIR0;
+	logic      checkIRn;
+	logic      checkColor;
+	logic      isIRnCheckUseLM;
+	logic      lmFalseForIR3Saturation;
+	
+	// -- ID and selector
+	logic [1:0] maskID;
+	logic       X0_or_Y1;
+	
 } gteComputeCtrl;
 
 // --------------------------------------------------------------------------
@@ -281,9 +303,13 @@ typedef struct packed {
 typedef struct packed {
 	logic [18:0] updateFlags;
 		
-	logic [ 7:0] val;
-	logic [15:0] val16;
-	logic [31:0] val32;
+	logic [ 7:0] colV;
+	logic [15:0] OTZV;
+	logic [15:0] XYV;
+	logic [15:0] IR0;
+	logic [31:0] MAC0;
+	logic [31:0] MAC13;
+	logic [15:0] IR13;
 } gteCtrl;
 
 // --------------------------------------------------------------------------
@@ -292,6 +318,7 @@ typedef struct packed {
 typedef struct packed {
 	gteComputeCtrl	ctrlPath;
 	gteWriteBack	wb;
+	logic			lastInstr;
 } MCodeEntry;
 
 `endif

@@ -28,6 +28,11 @@ gteWriteBack    writeBack;
 CTRL            ctrl;
 
 reg             isMVMVA;
+wire            isMVMVAWire  = (i_Instruction[5:0] == 6'h12);
+wire            isBuggyMVMVA = isMVMVAWire & (i_Instruction[14:13] == 2'd2);
+// Control status for microcode.
+wire            gteLastMicroInstruction;
+
 // ----------------------------------------------------------------------------------------------
 // Register instancing and manage CPU or GTE write back.
 // ----------------------------------------------------------------------------------------------
@@ -35,6 +40,8 @@ reg             isMVMVA;
 GTERegs GTERegs_inst (
 	.i_clk			(i_clk),
 	.i_nRst			(i_nRst),
+
+	.i_loadInstr	(loadInstr),	// MUST : reset FLAG when instruction start.
 
 	.i_wb			(writeBack),
 	.gteWR			(gteWR),	// Input
@@ -54,7 +61,7 @@ GTEComputePath GTEComputePath_inst(
 	.i_clk			(i_clk),
 	.i_nRst			(i_nRst),
 
-	.isMVMVA        (isMVMVA),
+	.isMVMVA        (isMVMVA | isMVMVAWire),
 	.i_instrParam	(ctrl),				// Instruction Parameter bits
 	.i_computeCtrl	(computeCtrl),		// Control from Microcode Module.
 	.i_wb			(writeBack),		// Write Back Signal
@@ -68,6 +75,8 @@ GTEComputePath GTEComputePath_inst(
 
 GTEMicroCode GTEMicroCode_inst(
 	.i_clk			(i_clk),			// Pass clock if BRAM is used for storage...
+	.isNewInstr		(loadInstr),
+	.Instruction	(i_Instruction[5:0]),
 	.i_PC			(vPC),
 	
 	.o_writeBack	(writeBack),
@@ -79,17 +88,12 @@ GTEMicroCode GTEMicroCode_inst(
 //   Microcode Management : PC, Start Adress and Microcode ROM.
 // ----------------------------------------------------------------------------------------------
 
-// Control status for microcode.
-wire		gteLastMicroInstruction;
-reg			executing;
-
 reg  [ 8:0] PC,vPC;
 wire [ 8:0] startMicroCodeAdr;
 
-wire isNop = gteLastMicroInstruction | (!i_nRst);
-
 GTEMicrocodeStart GTEMicrocodeStart_inst(
-	.IsNop			(isNop),
+	.IsNop			(!ctrl.executing),
+	.isBuggyMVMVA	(isBuggyMVMVA),
 	.Instruction	(i_Instruction[5:0]),
 	.StartAddress	(startMicroCodeAdr)
 );
@@ -102,10 +106,10 @@ begin
 	if (loadInstr) begin
 		vPC = startMicroCodeAdr;
 	end else begin
-		if (isNop) begin
+		if (!ctrl.executing) begin
 			vPC = 9'd0; // NOP is first entry in ROM. (Special zero latency case ?)
 		end else begin
-			vPC = PC + { 7'd0, ctrl.executing };
+			vPC = PC + 9'd1;
 		end
 	end
 end
@@ -114,24 +118,24 @@ always @(posedge i_clk)
 begin
 	// Instruction Loading.
 	if (loadInstr) begin
-		ctrl.sf  = i_Instruction[19];		// 0:No fraction, 1:12 Bit Fraction
-		ctrl.lm  = i_Instruction[10];		// 0:Clamp to MIN, 1:Clamp to ZERO.
+		ctrl.sf  <= i_Instruction[19];		// 0:No fraction, 1:12 Bit Fraction
+		ctrl.lm  <= i_Instruction[10];		// 0:Clamp to MIN, 1:Clamp to ZERO.
 		// MVMVA only.
-		ctrl.cv  = i_Instruction[14:13];		// 0:TR,       1:BK,    2:FC/Bugged, 3:None
-		ctrl.vec = i_Instruction[16:15];		// 0:V0,       1:V1,    2:V2,        3:IR/Long
-		ctrl.mx	 = i_Instruction[18:17];		// 0:Rotation, 1:Light, 2:Color,     3:Reserved
+		ctrl.cv  <= i_Instruction[14:13];		// 0:TR,       1:BK,    2:FC/Bugged, 3:None
+		ctrl.vec <= i_Instruction[16:15];		// 0:V0,       1:V1,    2:V2,        3:IR/Long
+		ctrl.mx	 <= i_Instruction[18:17];		// 0:Rotation, 1:Light, 2:Color,     3:Reserved
 	end
 
 	// Executing lock flag.
-	if (i_nRst == 1'b0) begin
-		ctrl.executing = 1'b0;
-		PC	= 9'd0;
-		isMVMVA  = 1'b0;
+	if (gteLastMicroInstruction || (i_nRst == 1'b0)) begin
+		ctrl.executing			<= 1'b0;
+		PC						<= 9'd0;
+		isMVMVA					<= 1'b0;
 	end else begin
-		PC	= vPC;
+		PC	<= vPC;
 		if (loadInstr) begin
-		    isMVMVA        = (i_Instruction[5:0] == 6'h12); // MVMVA.
-			ctrl.executing = 1'b1;
+		    isMVMVA				<= isMVMVAWire; // MVMVA.
+			ctrl.executing		<= 1'b1;
 		end
 	end
 end
