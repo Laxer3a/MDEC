@@ -1,16 +1,19 @@
 //----------------------------------------------------------------------------
-// Test for full range of values. for -128..+127 for Cr/Cb/Y
-// - Verify Signed/Unsigned Conversion
-// - Verify Y Only, YUV output
+// Test for full range of values
+// - Division Unit of GTE.
+// - LeadZeroCount Unit of GTE.
 //----------------------------------------------------------------------------
 
 
 #include <stdio.h>
-#include "VGTEFastDiv.h"
+#include "./rtl/obj_dir/VGTEFastDiv.h"
+#include "obj_dir/VLeadCountS32.h"
 
 #define ASSERT_CHK(cond)		if (!cond) { error(); }
 
+
 void error() {
+	printf("ERROR\n");
 	while (1) {
 	}
 }
@@ -151,5 +154,38 @@ int testGTEFastDiv() {
 	printf("Error range [%i,%i]\n",minD,maxD);
 	
 	delete mod;
+	return 1;
+}
+
+int GTE_countLeadingZeroes(uint32_t n) {
+    int zeroes = 0;
+    if ((n & 0x80000000) == 0) n = ~n;
+
+    while ((n & 0x80000000) != 0) {
+        zeroes++;
+        n <<= 1;
+    }
+    return zeroes;
+}
+
+int testGTELeadingZeroes() {
+	VLeadCountS32* mod = new VLeadCountS32();
+	unsigned int n = 0;
+	unsigned int r;
+	do {
+		// HW
+		mod->value = n;
+		mod->eval();
+		// SW
+		r = GTE_countLeadingZeroes(n);
+		if (r != mod->result) {
+			printf("ERROR\n");
+			return 0;
+		}
+		if ((n & 0xFFFF) == 0x0) {
+			printf("%x\n",n);
+		}
+	} while ((n++)!=0xFFFFFFFF);
+
 	return 1;
 }

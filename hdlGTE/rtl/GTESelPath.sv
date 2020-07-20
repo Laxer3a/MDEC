@@ -114,8 +114,9 @@ module GTESelPath(
 	end
 
 	reg signed [16:0] leftSide;
+	wire [3:0] selLeft = ctrl.selLeft; // For verilator debug. Bad SV support.
 	always @(*) begin
-		case (ctrl.selLeft)
+		case (selLeft)
 		4'd0 :   leftSide = { mc1[15], mc1};		//   SIGNED
 		4'd1 :   leftSide = { mc2[15], mc2};		//   SIGNED
 		4'd2 :   leftSide = { mc3[15], mc3};		//   SIGNED
@@ -130,8 +131,9 @@ module GTESelPath(
 	end
 
 	reg signed [17:0] rightSide;
+	wire [3:0] selRight = ctrl.selRight; // For verilator debug. Bad SV support.
 	always @(*) begin
-		case (ctrl.selRight)
+		case (selRight)
 		4'd0 :   rightSide = vComp;
 		4'd1 :   rightSide = {{2{tmpReg[15]}}, tmpReg };
 		// Do not have more than 8 at this level, Z3,Z4,ZERO at higher mux.
@@ -143,7 +145,6 @@ module GTESelPath(
 		4'd7 :   rightSide = { 6'd0, color, 4'd0 };
 		4'd8 :   rightSide = {{2{SYA[15]}}, SYA };
 		4'd9 :   rightSide = {{2{SYB[15]}}, SYB };
-		
 		default: rightSide = 18'd0;
 		endcase
 	end

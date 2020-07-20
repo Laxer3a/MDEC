@@ -52,15 +52,15 @@ GTESelPath SelMuxUnit1 (
   .mx      (i_instrParam.mx),
 
   .MAT0_C0 (i_registers.R11),
-  .MAT1_C0 (i_registers.R21),
-  .MAT2_C0 (i_registers.R31),
+  .MAT0_C1 (i_registers.R21),
+  .MAT0_C2 (i_registers.R31),
 
-  .MAT0_C1 (i_registers.L11),
+  .MAT1_C0 (i_registers.L11),
   .MAT1_C1 (i_registers.L21),
-  .MAT2_C1 (i_registers.L31),
+  .MAT1_C2 (i_registers.L31),
   
-  .MAT0_C2 (i_registers.LR1),
-  .MAT1_C2 (i_registers.LG1),
+  .MAT2_C0 (i_registers.LR1),
+  .MAT2_C1 (i_registers.LG1),
   .MAT2_C2 (i_registers.LB1),
 
   .MAT3_C0 (minusR),
@@ -94,15 +94,15 @@ GTESelPath SelMuxUnit2 (
   .mx      (i_instrParam.mx),
 
   .MAT0_C0 (i_registers.R12),
-  .MAT1_C0 (i_registers.R22),
-  .MAT2_C0 (i_registers.R32),
+  .MAT0_C1 (i_registers.R22),
+  .MAT0_C2 (i_registers.R32),
   
-  .MAT0_C1 (i_registers.L12),
+  .MAT1_C0 (i_registers.L12),
   .MAT1_C1 (i_registers.L22),
-  .MAT2_C1 (i_registers.L32),
+  .MAT1_C2 (i_registers.L32),
   
-  .MAT0_C2 (i_registers.LR2),
-  .MAT1_C2 (i_registers.LG2),
+  .MAT2_C0 (i_registers.LR2),
+  .MAT2_C1 (i_registers.LG2),
   .MAT2_C2 (i_registers.LB2),
   
   .MAT3_C0 ({4'd0, i_registers.CRGB.r, 4'd0}),
@@ -136,15 +136,15 @@ GTESelPath SelMuxUnit3 (
   .mx      (i_instrParam.mx),
   
   .MAT0_C0 (i_registers.R13),
-  .MAT1_C0 (i_registers.R23),
-  .MAT2_C0 (i_registers.R33),
+  .MAT0_C1 (i_registers.R23),
+  .MAT0_C2 (i_registers.R33),
   
-  .MAT0_C1 (i_registers.L13),
+  .MAT1_C0 (i_registers.L13),
   .MAT1_C1 (i_registers.L23),
-  .MAT2_C1 (i_registers.L33),
+  .MAT1_C2 (i_registers.L33),
   
-  .MAT0_C2 (i_registers.LR3),
-  .MAT1_C2 (i_registers.LG3),
+  .MAT2_C0 (i_registers.LR3),
+  .MAT2_C1 (i_registers.LG3),
   .MAT2_C2 (i_registers.LB3),
   
   .MAT3_C0 (i_registers.IR0),
