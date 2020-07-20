@@ -241,8 +241,8 @@ wire [34:0]  outSel3P = i_computeCtrl.negSel[2] ? (~outSel3 + 35'd1) : outSel3;
 
 wire [44:0]  part1Sum = {outAddSel[43],outAddSel} + {{10{outSel1P[34]}},outSel1P};
 
-wire [2:0] isOverflowS44 ;
-wire [2:0] isUnderflowS44;
+wire [3:0] isOverflowS44 ;
+wire [3:0] isUnderflowS44;
 wire       isOverflowS32,isUnderflowS32;
 
 FlagsS44 FlagS44Local1(
@@ -251,7 +251,8 @@ FlagsS44 FlagS44Local1(
 	.isUnderflow(isUnderflowS44[0])
 );
 
-wire [44:0]  part2Sum = part1Sum + {{10{outSel2P[34]}},outSel2P};
+wire [44:0]  part1SumPostExt = { i_computeCtrl.check44Local ? part1Sum[43] : part1Sum[44] , part1Sum[43:0] };
+wire [44:0]  part2Sum = part1SumPostExt + {{10{outSel2P[34]}},outSel2P};
 
 FlagsS44 FlagS44Local2(
 	.v			(part2Sum),
@@ -260,12 +261,21 @@ FlagsS44 FlagS44Local2(
 );
 
 reg  [44:0]  tempSumREG;
-wire [44:0]  finalSum = part2Sum + {{10{outSel3P[34]}},outSel3P} + (i_computeCtrl.useStoreFull ? tempSumREG : 45'd0);
+wire [44:0]  part2SumPostExt = { i_computeCtrl.check44Local ? part2Sum[43] : part2Sum[44], part2Sum[43:0] };
+wire [44:0]  finalSumBeforeExt = part2SumPostExt + {{10{outSel3P[34]}},outSel3P} + (i_computeCtrl.useStoreFull ? tempSumREG : 45'd0);
+
+FlagsS44 FlagS44Local3(
+	.v			(finalSumBeforeExt),
+	.isOverflow	(isOverflowS44 [2]),
+	.isUnderflow(isUnderflowS44[2])
+);
+
+wire [44:0]  finalSum = { i_computeCtrl.check44Local ? finalSumBeforeExt[43] : finalSumBeforeExt[44] , finalSumBeforeExt[43:0] };
 
 FlagsS44 FlagS44Global(
 	.v			(finalSum),
-	.isOverflow	(isOverflowS44 [2]),
-	.isUnderflow(isUnderflowS44[2])
+	.isOverflow	(isOverflowS44 [3]),
+	.isUnderflow(isUnderflowS44[3])
 );
 
 FlagsS32 FlagS32Global(
@@ -326,8 +336,8 @@ wire useSFWrite32     = i_instrParam.sf & i_computeCtrl.useSFWrite32;
 
 wire [31:0] valWriteBack32 = useSFWrite32 ? finalSum[43:12] : finalSum[31:0];
 
-wire overFlow44       = (( isOverflowS44[2] & i_computeCtrl.check44Global) || (( |isOverflowS44[1:0]) & i_computeCtrl.check44Local));
-wire underFlow44      = ((isUnderflowS44[2] & i_computeCtrl.check44Global) || ((|isUnderflowS44[1:0]) & i_computeCtrl.check44Local));
+wire overFlow44       = (( isOverflowS44[3] & i_computeCtrl.check44Global) || (( |isOverflowS44[2:0]) & i_computeCtrl.check44Local));
+wire underFlow44      = ((isUnderflowS44[3] & i_computeCtrl.check44Global) || ((|isUnderflowS44[2:0]) & i_computeCtrl.check44Local));
 
 wire writeFlag30      = (i_computeCtrl.maskID == 2'd1) && overFlow44;
 wire writeFlag29      = (i_computeCtrl.maskID == 2'd2) && overFlow44;
