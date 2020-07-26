@@ -109,7 +109,8 @@ module GTESelPath(
 		2'd1   : vComp = {{2{V1c[15]}}, V1c };  // S
 		2'd2   : vComp = {{2{V2c[15]}}, V2c };  // S
 		// U Unsigned 17 bit !!!! when not MVMVA, else IRn
-		default: vComp = isMVMVA ? {{2{IRn[15]}}, IRn } : { 1'b0, HS3Z }; 		
+		default: vComp = isMVMVA	?	((ctrl.vcompo == 2'd0) ? {{2{IRn[15]}}, IRn } : {{2{tmpReg[15]}}, tmpReg }) 
+									:	{ 1'b0, HS3Z };
 		endcase
 	end
 

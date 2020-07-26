@@ -25,7 +25,6 @@ wire [7:0] colG = i_computeCtrl.selCol0 ? i_registers.CRGB0.g : i_registers.CRGB
 wire [7:0] colB = i_computeCtrl.selCol0 ? i_registers.CRGB0.b : i_registers.CRGB.b;
 
 wire [16:0] divRes;
-reg  [16:0] divResREG;
 
 // Handle special weird case of OP() instruction. Use IR0 path to inject IR in various order.
 reg [15:0] selIR0_1,selIR0_2,selIR0_3;
@@ -75,7 +74,7 @@ GTESelPath SelMuxUnit1 (
   .IRn (i_registers.IR1),
   .SZ (i_registers.SZ1),
   .DQA(i_registers.DQA),
-  .HS3Z(divResREG),
+  .HS3Z(divRes),
   .V0c (i_registers.VX0),
   .V1c (i_registers.VX1),
   .V2c (i_registers.VX2),
@@ -117,7 +116,7 @@ GTESelPath SelMuxUnit2 (
   .IRn (i_registers.IR2),
   .SZ (i_registers.SZ2),
   .DQA(16'd0), // DQA not used in SEL2.
-  .HS3Z(divResREG),
+  .HS3Z(divRes),
   .V0c (i_registers.VY0),
   .V1c (i_registers.VY1),
   .V2c (i_registers.VY2),
@@ -225,6 +224,12 @@ GTESelAddPath selAddInst (
 	.outstuff(outAddSel)
 );
 
+// HW Timing TRICK :
+// - Cycle 0 : Compute value to put to Z Stack (Z Component done first !)
+// - Cycle 1 : Z Stack updated. (Div compute first part)
+// - Cycle 2 : Fast Div Pipeline (Div pipeline to second part)
+// - Cycle 3 : Value output of pipeline !!!!
+// NOW : SZ3 and H won't change from Cycle 1+, so no need to save values !
 wire        divOverflow;
 GTEFastDiv GTEFastDiv_Inst(
 	.i_clk		(i_clk),
@@ -260,8 +265,15 @@ FlagsS44 FlagS44Local2(
 	.isUnderflow(isUnderflowS44[1])
 );
 
+/*
+reg  [44:0]  pipe_part2Sum;
+always @(posedge i_clk) begin
+	pipe_part2Sum = part2Sum;
+end
+*/
+
 reg  [44:0]  tempSumREG;
-wire [44:0]  part2SumPostExt = { i_computeCtrl.check44Local ? part2Sum[43] : part2Sum[44], part2Sum[43:0] };
+wire [44:0]  part2SumPostExt = { i_computeCtrl.check44Local ? /*pipe_*/part2Sum[43] : /*pipe_*/part2Sum[44], /*pipe_*/part2Sum[43:0] };
 wire [44:0]  finalSumBeforeExt = part2SumPostExt + {{10{outSel3P[34]}},outSel3P} + (i_computeCtrl.useStoreFull ? tempSumREG : 45'd0);
 
 FlagsS44 FlagS44Local3(
@@ -292,7 +304,7 @@ wire isUO_IR0;
 FlagClipOTZ FlagClipOTZ_inst(
 	.i_overflowS32			(isOverflowS32),
 	.i_underflowS32			(isUnderflowS32),
-	.v						(finalSum[31:12]),	// 16 bit (27:12)
+	.v						({finalSum[44],finalSum[31:12]}),	// Sign + 16 bit (27:12)
 	
 	.isUnderOrOverflow		(isUO_OTZ),
 	.clampOut				(otzValue),			// 0..FFFFh
@@ -304,7 +316,7 @@ FlagClipOTZ FlagClipOTZ_inst(
 wire [15:0] xyValue;
 wire isXY_UOFlow;
 FlagClipXY FlagClipXY_inst(
-	.v					(finalSum[31:16]), 		// 11 bit (27:16)
+	.v					({finalSum[44],finalSum[31:16]}), 		// 11 bit (27:16)
 	.i_overflowS32		(isOverflowS32),
 	.i_underflowS32		(isUnderflowS32),
 	
@@ -420,7 +432,7 @@ always @(posedge i_clk) begin
 	if (i_computeCtrl.wrTMP1)   begin TMP1 = IRnPostClip; end
 	if (i_computeCtrl.wrTMP2)   begin TMP2 = IRnPostClip; end
 	if (i_computeCtrl.wrTMP3)   begin TMP3 = IRnPostClip; end
-	if (i_computeCtrl.wrDivRes) begin divResREG = divRes; end
+//	if (i_computeCtrl.wrDivRes) begin divResREG = divRes; end NOT USED ANYMORE, BUT WANT TO KEEP ROM SIGNAL FOR NOW [TODO CLEAN AFTER DEBUG]
 	if (i_computeCtrl.storeFull) begin tempSumREG = (~finalSum + 45'd1); end // Negative value. TODO OPTIMIZE : Move to NEG post REG ?
 end
 

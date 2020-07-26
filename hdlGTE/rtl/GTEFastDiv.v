@@ -76,8 +76,6 @@ module GTEFastDiv(
 	output[16:0]	divRes,		// Result
 	output          overflow	// Overflow bit
 );
-	// (H < SZ3*2)
-	wire isHLessZM2 = ( { 1'b0,h } < { z3,1'b0 } );
 
 	//-----------------------------------------------
 	//  Count 'h' Leading zero computation
@@ -164,6 +162,14 @@ module GTEFastDiv(
 	wire [29:0] h2	= shiftAmount[1] ? { h1, 2'd0 } : { 2'd0, h1 };	// 2 Bit Left Shift
 	wire [30:0] h3	= shiftAmount[0] ? { h2, 1'd0 } : { 1'd0, h2 };	// 1 Bit Left Shift
 	wire [30:0] n   = h3;	// [0..7FFF8000]
+
+	// ---------------------------------------
+	// Overflow is :
+	// Condition     =  !(Z3*2 >  H   )
+	// Equivalent to =>  (Z3*2 <= H   )
+	// Equivalent to =>  (   H >= Z3*2)
+	// ---------------------------------------
+	wire ovf = ( { 1'b0,h } >= { z3,1'b0 } );
 	
 	// ---------------------------------------------
 	// unr_table[(d-7FC0h) SHR 7] + 101h
@@ -172,12 +178,12 @@ module GTEFastDiv(
 
 	reg [15:0] pd;
 	reg [30:0] pn;
-	reg p_isHLessZM2;
+	reg p_ovf;
 	always @(posedge i_clk)
 	begin
 		pd <= d;
 		pn <= n;
-		p_isHLessZM2 <= isHLessZM2;
+		p_ovf <= ovf;
 	end
 	
 	// Declare the ROM variable
@@ -319,12 +325,12 @@ module GTEFastDiv(
 	
 	reg [18:0] pd3;
 	reg [30:0] ppn;
-	reg pp_isHLessZM2;
+	reg pp_ovf;
 	always @ (posedge i_clk)
 	begin
 		pd3 <= d3;
 		ppn <= pn;
-		pp_isHLessZM2 <= p_isHLessZM2;
+		pp_ovf <= p_ovf;
 	end
 
 	// ---------------------------------------------
@@ -335,8 +341,7 @@ module GTEFastDiv(
 	wire [34:0] shfm= mnd[49:15] + 1'b1;		// Remove 15 bit add 1 = same as add 0x8000 then shift 15.
 	wire [33:0] shcp= shfm[34:1];
 
-	wire   ovf				= !pp_isHLessZM2;
-	wire 		isOver		= (|shcp[33:17]) | ovf;			// Same as >= 0x20000, optimized comparison OR overflow bit set from comparison test.
+	wire 		isOver		= (|shcp[33:17]) | pp_ovf;		// Same as >= 0x20000, optimized comparison OR overflow bit set from comparison test.
 	wire [16:0] outStage4	=   shcp[16: 0]  | {17{isOver}};// Saturated arithmetic, if over 0x2000 -> then all 0x1FFFF, else value.
 	
 	// + setup bit17 and bit 31:
@@ -348,5 +353,5 @@ module GTEFastDiv(
 	//   Output
 	// ---------------------------------------------
 	assign divRes	= outStage4;
-	assign overflow	= ovf;
+	assign overflow	= pp_ovf;
 endmodule

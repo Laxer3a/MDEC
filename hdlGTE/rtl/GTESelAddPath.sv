@@ -75,7 +75,7 @@ module GTESelAddPath(
 	reg [15:0] shadowIR;
 	
 	reg [43:0] out;
-	wire [3:0] sel = isMVMVA ? {2'd0,cv} : ctrl.sel;
+	wire [3:0] sel = isMVMVA && (ctrl.sel != 4'd3) ? {2'd0,cv} : ctrl.sel; // Microcode can override CV selection to force ZERO.
 	
 	always @(*) begin
 		case (ctrl.id)

@@ -12,7 +12,7 @@ endmodule
 module FlagClipOTZ(
 	input i_overflowS32,
 	input i_underflowS32,
-	input [19:0] v,
+	input [20:0] v,
 	
 	output isUnderOrOverflow,
 	output [15:0] clampOut,			// Unsigned 0..FFFF
@@ -21,48 +21,70 @@ module FlagClipOTZ(
 	output [15:0] clampOutIR0		// Unsigned 0..1000
 );
 	wire hasOne      = |v[19:16];		// [31:
-	wire hasOneIR0   = hasOne | (|v[15:12]);		// [31:
-	wire isNot1000   = (v != 20'h1000); 
 	reg isOver;
-	reg isOver_IR0;
 	reg isUnder;
+	
+//	wire hasOneIR0   = hasOne | (|v[15:12]);		// [31:
+//	wire isNot1000   = (v != 21'h1000); 
+	
+//	reg isOver_IR0;
 	
 	always @(*) begin
 		if (i_overflowS32) begin
 			isOver	   = 1'b1;
-			isOver_IR0 = 1'b1;
+//			isOver_IR0 = 1'b1;
 			isUnder    = 1'b0;
 		end else begin
 			if (i_underflowS32) begin
 				isOver	   = 1'b0;
-				isOver_IR0 = 1'b0;
+//				isOver_IR0 = 1'b0;
 				isUnder    = 1'b1;
 			end else begin
-				isUnder    = v[19]; 								// Negative number.
-				isOver     = (!v[19]) & hasOne;						// Positive number but too big.
-				isOver_IR0 = ((!v[19]) & hasOneIR0) & isNot1000;	// Range 0xFFFF~0x0FFF
+				isUnder    = v[20]; 								// Negative number.
+				isOver     = (!v[20]) & hasOne;						// Positive number but too big.
+//				isOver_IR0 = ((!v[20]) & hasOneIR0) & isNot1000;	// Range 0xFFFF~0x0FFF
 			end
 		end
 	end
 	
-	wire [15:0] andS = {16{!isUnder}};
+	wire [15:0] andS = {16{(!isUnder) /* & isNot1000*/}};
 	
 	assign isUnderOrOverflow    = isOver     | isUnder;
-	assign isUnderOrOverflowIR0 = isOver_IR0 | isUnder;
+//	assign isUnderOrOverflowIR0 = isOver_IR0 | isUnder;
 	assign clampOut             = (v[15:0] & andS) | {16{isOver}};
-	assign clampOutIR0          = { 3'd0, v[12] & (!isNot1000), (v[11:0] & andS[11:0]) | {12{isOver_IR0}}};
+	
+	//
+	reg [15:0] outIR0;
+	reg        outUnderOver;
+	wire isGEQ4096 = (v > 21'd4096) && (!v[20]); // Verilog is stupid, and does not compare using signed operator even using signed type... Sigh...
+	always @(*) begin
+		if (i_overflowS32 || isGEQ4096) begin
+			outUnderOver = 1;
+			outIR0 = 16'd4096;
+		end else begin
+			if (v[20]) begin
+				outUnderOver = 1;
+				outIR0 = 16'd0;
+			end else begin
+				outUnderOver = 0;
+				outIR0 = { 3'd0, v[12:0] };
+			end
+		end
+	end
+	assign isUnderOrOverflowIR0 = outUnderOver;
+	assign clampOutIR0          = outIR0; // { 3'd0, v[12] & (!isNot1000), (v[11:0] & andS[11:0]) | {12{isOver_IR0}}};
 endmodule
 
 module FlagClipXY(
-	input [15:0] v,
+	input [16:0] v,
 	input        i_overflowS32 ,
 	input        i_underflowS32,
 	
 	output        isUnderOrOverflow,
 	output [15:0] clampOut			// -400..+3FF
 );
-	wire hasOne      = |v[15:11];
-	wire hasZero     = !(&v[15:11]);
+	wire hasOne      = |v[15:10];
+	wire hasZero     = !(&v[15:10]);
 	reg  isOver;
 	reg  isOver_IR0;
 	reg  isUnder;
@@ -76,15 +98,15 @@ module FlagClipXY(
 				isOver     = 1'b0;
 				isUnder    = 1'b1;
 			end else begin
-				isUnder    =  v[15]   & hasZero; 					// Negative number but too big.
-				isOver     = (!v[15]) & hasOne;						// Positive number but too big.
+				isUnder    =  v[16]   & hasZero; 					// Negative number but too big.
+				isOver     = (!v[16]) & hasOne;						// Positive number but too big.
 			end
 		end
 	end
 
 	assign isUnderOrOverflow    = isOver     | isUnder;
-	wire [15:0] andS            = {16{!isUnder}};
-	assign clampOut             = (v[15:0] & andS) | {16{isOver}};
+	wire [9:0] andS             = {10{!isUnder}};
+	assign clampOut             = { {6{v[16]}}, (v[9:0] & andS) | {10{isOver}} };
 	
 endmodule
 
