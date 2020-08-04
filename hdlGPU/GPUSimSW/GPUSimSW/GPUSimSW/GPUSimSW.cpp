@@ -159,6 +159,11 @@ int main(int argcount, char** args)
 	}
 	mod->i_nrst = 1;
 
+	// Not busy by default...
+	mod->i_busy        = 0;
+	mod->i_dataInValid = 0;
+	for (int n=0; n < 8; n++) { mod->i_dataIn[n] = 0; }
+
 	/*	
 		I decided to setup the textures as GPU commands,
 		this will allow you to extract the information more easily for simulation on another platform.
@@ -168,9 +173,10 @@ int main(int argcount, char** args)
 	GPUCommandGen	commandGenerator;
 
 	if (useScan) {
-		pScan->addPlugin(new ValueChangeDump_Plugin("gpuLog2.vcd"));
+		pScan->addPlugin(new ValueChangeDump_Plugin("gpuLogFat.vcd"));
 	}
 
+#if 0
 	enum DEMO {
 		NO_TEXTURE,
 		TEXTURE_TRUECOLOR_BLENDING,
@@ -187,7 +193,6 @@ int main(int argcount, char** args)
 	if (demo == TEXTURE_TRUECOLOR_BLENDING) {
 		// Load Gradient128x64.png at [0,0] in VRAM as true color 1555 (bit 15 = 0).
 		// => Generate GPU upload stream. Will be used as TEXTURE SOURCE for TRUE COLOR TEXTURING.
-		// loadImageToVRAMAsCommand(commandGenerator,"Gradient128x64.png",0,0,false);
 		loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,false);
 	}
 
@@ -982,6 +987,67 @@ int main(int argcount, char** args)
 	}
 	
 	commandGenerator.writeRaw(0); // NOP
+#endif
+
+#if 0
+	// FILL TEST
+	commandGenerator.writeRaw(0x028000FF); // Red + Half Blue
+	commandGenerator.writeRaw(0x00000000); // 0,0
+	commandGenerator.writeRaw(0x00100010); // 16,16
+#endif
+
+#if 0
+	// RECT FILL TEST
+	commandGenerator.writeRaw(0x6000FF00); // Green, Rect (Variable Size)
+	commandGenerator.writeRaw(0x00080008); // [8,8]
+	commandGenerator.writeRaw(0x00100010); // 16x16
+#endif
+
+#if 0
+	// GENERIC POLYGON FILL
+	commandGenerator.writeRaw(0x380000b2);
+	commandGenerator.writeRaw((192<<0) | (240<<16));
+	commandGenerator.writeRaw(0x00008cb2);
+	commandGenerator.writeRaw((320<<0) | (112<<16));
+	commandGenerator.writeRaw(0x00008cb2);
+	commandGenerator.writeRaw((320<<0) | (368<<16));
+	commandGenerator.writeRaw(0x000000b2);
+	commandGenerator.writeRaw((448<<0) | (240<<16));
+#endif
+
+#if 1
+// GP0(40h) - Monochrome line, opaque
+// GP0(42h) - Monochrome line, semi-transparent
+	commandGenerator.writeRaw(0x4000FFFF);
+	commandGenerator.writeRaw(0x00000000);
+	commandGenerator.writeRaw(0x00100010);
+
+	commandGenerator.writeRaw(0x40FF0000);
+	commandGenerator.writeRaw(0x00000000);
+	commandGenerator.writeRaw(0x00400010);
+#endif
+
+#if 0
+	// Test CPU->VRAM
+	loadImageToVRAMAsCommand(commandGenerator,"Gradient128x64.png",0,0,false);
+#endif
+
+#if 0
+	loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,false);
+	commandGenerator.writeRaw(0x24FFFFFF);						// Polygon, 3 pts, opaque, raw texture
+	// Vertex 1
+	commandGenerator.writeRaw(0x01100100);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
+	commandGenerator.writeRaw(0xFFF30000);						// [31:16]Color LUT : NONE, value ignored
+																// [15:8,7:0] Texture [0,0]
+	// Vertex 2
+	commandGenerator.writeRaw(0x00100180);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
+	commandGenerator.writeRaw(((
+		0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11)			// [31:16] Texture at 0(4x64),0 ******4BPP******
+		)<<16 )                  | 0x001F);						// [15:8,7:0] Texture [1F,0]
+																// Vertex 3
+	commandGenerator.writeRaw(0x01200230);						// [15:0] XCoordinate, [31:16] Y Coordinate
+	commandGenerator.writeRaw(0x00001F1F);						// Texture [1F,1F]
+#endif
 
 	// prepairListOfGPUCommands(0); // Simple Polygon, no texture, no alpha blending.
 	// prepairListOfGPUCommands(1);	// Simple Polygon, true color texture, no alpha blending.
@@ -1082,7 +1148,7 @@ int main(int argcount, char** args)
 #endif
 
 	while ((waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
-		&& (stuckState < 50000)
+		&& (stuckState < 250000)
 //		&& (clockCnt < 150000)
 	)
 	{
@@ -1145,6 +1211,7 @@ int main(int argcount, char** args)
 		// Cycle 2. Read 4 byte until counter reach 0.
 		//			Set ACK to ZERO when reach last element.
 		//-------------------------------------------------------------------------------------
+		/*
 		static int cnt = 0;
 		int workAdr;
 		static bool firstRW = false;
@@ -1154,8 +1221,8 @@ int main(int argcount, char** args)
 		static int from = sFrom;
 		static int to = sTo;
 		static int l = sL;
-
-		if (waitComplete) {
+		*/
+//		if (waitComplete) {
 			/*
 			if (mod->gpu__DOT__currWorkState == 0) {
 				waitComplete = false;
@@ -1187,90 +1254,82 @@ int main(int argcount, char** args)
 				currentItemCheckCount = 0;
 			}
 			*/
+//		}
+
+		static int busyCounter = 0;
+		static bool isRead = false;
+		static int readAdr = 0;
+		static int readSize= 0;
+
+		if (busyCounter) {
+			busyCounter--;
+			if (busyCounter == 1) {
+				mod->i_dataInValid = 1;
+
+				// Clear
+				for (int n=0; n < 8; n++) { mod->i_dataIn[n] = 0; }
+
+				for (int n=0; n < readSize; n++) {
+					mod->i_dataIn[n] = buffer[readAdr  ] | (buffer[readAdr+1]<<8) | (buffer[readAdr+2]<<16) | (buffer[readAdr+3]<<24);
+					readAdr += 4;
+				}
+			}
+
+			if (busyCounter == 0) {
+				mod->i_busy = 0;
+				mod->i_dataInValid = 0;
+				for (int n=0; n < 8; n++) {
+					mod->i_dataIn[n] = 0; // Clean just for cleaning purpose
+				}
+			}
+
+			mod->eval();
 		}
 
-		if (mod->req_o == 1) {
-			if (mod->ack_i == 0) {
-				cnt = mod->cnt_o + 1;
-				mod->ack_i = 1;
-				//				printf("Start\n");
-				firstRW = (cnt==8);
+		// Request
+		if (mod->o_command == 1 && (mod->i_busy == 0)) {
+			// Can do busy stuff if needed...
+			int msk;
+			int baseAdr;
+			int sizeParam;
+
+			switch (mod->o_commandSize) {
+			case 0:	// 8 Byte
+				msk = mod->o_writeMask & 0xF;
+				baseAdr = (mod->o_adr<<5) + (mod->o_subadr<<2); // 8 byte
+				sizeParam = 2;
+				break;
+			case 1: // 32 Byte
+				msk		= mod->o_writeMask;
+				baseAdr = mod->o_adr<<5; // 32 byte
+				sizeParam = 8;
+				break;
+			case 2: // 4 Byte
+				msk = mod->o_writeMask & 0x3;
+				baseAdr = (mod->o_adr<<5) + (mod->o_subadr<<2); // 4 byte
+				sizeParam = 1;
+				break;
+			}
+
+			if (mod->o_write) {
+				int selPix = mod->o_writeMask;
+				for (int n=0; n < sizeParam; n++) {
+					if (selPix &  1) { buffer[baseAdr  ] =  mod->o_dataOut[n]      & 0xFF; }
+					if (selPix &  1) { buffer[baseAdr+1] = (mod->o_dataOut[n]>> 8) & 0xFF; }
+					if (selPix &  2) { buffer[baseAdr+2] = (mod->o_dataOut[n]>>16) & 0xFF; }
+					if (selPix &  2) { buffer[baseAdr+3] = (mod->o_dataOut[n]>>24) & 0xFF; }
+					baseAdr += 4;
+					selPix >>= 2;
+				}
+
+				busyCounter = 0;
 			} else {
-				if (firstRW) {
-					firstRW = false;
-					// TEST HERE !!!!
-
-					// Reach last element...
-					/*
-					if (mod->adr_o != adrStorage[currentItemCheckCount++]) {
-						printf("ERROR %i %i %i\n", from, to, l);
-						char buff[500];
-						sprintf(buff, "%i_%i_%i.error.txt", from, to, l);
-						FILE* f = fopen(buff, "wb");
-						fprintf(f, buff);
-						fclose(f);
-					}
-
-					if (adrStorageCount == currentItemCheckCount && (!stop)) {
-						waitComplete = true;
-					}
-					*/
-
-					// If test complete -> Push new command into GPU.
-					/*
-						Can put the full test suite... Computer run for days...
-						- Release build
-						- No VCD Log
-						- Detect log when read/write discrepancy occurs.
-						- Send mail ?
-
-						- Width 
-					*/
-				}
-
-				if (mod->wrt_o == 1) {
-					// Write mode...
-					// Let's see...
-					workAdr = mod->adr_o;
-					//					printf("(W) [%x] = %x [Sel:%x]\n",workAdr,mod->dat_o,mod->sel_o);
-					cnt--;
-					if (mod->adr_o & 3) {
-						// Must be a multiple of 4
-						assert(false);
-					}
-
-					if (workAdr > 1024*1024) {
-						printf("Write outside of VRAM");
-						while (1) {
-						}
-					}
-
-					if (mod->sel_o &  1) { buffer[workAdr  ] =  mod->dat_o      & 0xFF; }
-					if (mod->sel_o &  2) { buffer[workAdr+1] = (mod->dat_o>> 8) & 0xFF; }
-					if (mod->sel_o &  4) { buffer[workAdr+2] = (mod->dat_o>>16) & 0xFF; }
-					if (mod->sel_o &  8) { buffer[workAdr+3] = (mod->dat_o>>24) & 0xFF; }
-
-					if (cnt == 0) {
-						// Release Bus.
-						mod->ack_i = 0;
-						//						printf("End Write\n");
-					}
-				} else {
-					cnt--;
-
-					workAdr = mod->adr_o;
-
-					// Must be a multiple of 4
-					mod->dat_i = buffer[workAdr] | (buffer[workAdr+1]<<8) | (buffer[workAdr+2]<<16) | (buffer[workAdr+3]<<24); 
-
-					//					printf("(R) [%x]=>%x\n",workAdr,mod->dat_i);
-
-					if (cnt == 0) {
-						//						printf("End Read\n");
-						mod->ack_i = 0;
-						stuckState = 0;
-					}
-				}
+				// Read command... gives back result in 3 cycles...
+				isRead = true;
+				mod->i_busy = 1;
+				readAdr   = baseAdr;
+				readSize  = sizeParam;
+				busyCounter = 3;
 			}
 		}
 

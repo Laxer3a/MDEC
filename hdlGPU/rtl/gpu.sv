@@ -28,11 +28,12 @@ module gpu
 //	output	[7:0]	blue,
 //	output          owritePixelL,
 //	output          owritePixelR,
-// output	[31:0]	mydebugCnt,
+	output	[31:0]	mydebugCnt,
 
-    //
-    // Temporary Memory Interface
-    //
+    // --------------------------------------
+    // Memory Interface
+    // --------------------------------------
+	/*
     output [19:0]   adr_o,   // ADR_O() address
     input  [31:0]   dat_i,   // DAT_I() data in
     output [31:0]   dat_o,   // DAT_O() data out
@@ -41,7 +42,21 @@ module gpu
     output			wrt_o,
     output			req_o,
     input			ack_i,
+	*/
+	input			 clkBus,
+    output           o_command,        // 0 = do nothing, 1 Perform a read or write to memory.
+    input            i_busy,           // Memory busy 1 => can not use.
+    output   [1:0]   o_commandSize,    // 0 = 8 byte, 1 = 32 byte. (Support for write ?)
+    
+    output           o_write,          // 0=READ / 1=WRITE 
+    output [ 14:0]   o_adr,            // 1 MB memory splitted into 32768 block of 32 byte.
+    output   [2:0]   o_subadr,         // Block of 8 or 4 byte into a 32 byte block.
+    output  [15:0]   o_writeMask,
 
+    input  [255:0]   i_dataIn,
+    input            i_dataInValid,
+    output [255:0]   o_dataOut,
+	
     /*
     output			hSync,
     output			vSync, // cSync pin exist in real HW : hSync | vSync most likely
@@ -56,6 +71,9 @@ module gpu
     output	[15:0]	oStencilOut,
     */
 
+    // --------------------------------------
+	//   CPU Bus
+    // --------------------------------------
     input			write,
     input			read,
     input 	[31:0]	cpuDataIn,
@@ -519,7 +537,7 @@ reg	 [ 6:0] counterXDst;
 
 
 // ------------------ Debug Stuff --------------
-/*
+
 reg [31:0] rdebugCnt;
 always @(posedge clk)
 begin
@@ -530,7 +548,7 @@ begin
     end
 end
 assign mydebugCnt =rdebugCnt;
-*/
+
 // ---------------------------------------------
 
 wire writeFifo		= !gpuAdrA2 & gpuSel & write;
@@ -3235,8 +3253,9 @@ CLUT_Cache CLUT_CacheInst(
 wire  [5:0]    XPosClut           = {1'b0,rClutPacketCount} + RegCLUT[5:0];
 wire  [14:0]   adrClutCacheUpdate = { RegCLUT[14:6] , XPosClut };
 
-MemoryArbitrator MemoryArbitratorInstance(
+MemoryArbitratorFat MemoryArbitratorInstance(
     .gpuClk					(clk),
+	.busClk					(clkBus),
     .i_nRst					(i_nrst),
 
     // ---TODO Describe all fifo command ---
@@ -3317,7 +3336,20 @@ MemoryArbitrator MemoryArbitratorInstance(
     // -----------------------------------
     // [Fake Memory SIDE]
     // -----------------------------------
+	.o_command							(o_command		),        // 0 = do nothing, 1 Perform a read or write to memory.
+	.i_busy								(i_busy			),           // Memory busy 1 => can not use.
+	.o_commandSize						(o_commandSize	),    // 0 = 8 byte, 1 = 32 byte. (Support for write ?)
 
+	.o_write							(o_write		),          // 0=READ / 1=WRITE 
+	.o_adr								(o_adr			),            // 1 MB memory splitted into 32768 block of 32 byte.
+	.o_subadr							(o_subadr		),         // Block of 8 or 4 byte into a 32 byte block.
+	.o_writeMask						(o_writeMask	),
+
+	.i_dataIn							(i_dataIn		),
+	.i_dataInValid						(i_dataInValid	),
+	.o_dataOut                          (o_dataOut		)
+
+	/*
     .adr_o					(adr_o),   // ADR_O() address
     .dat_i					(dat_i),   // DAT_I() data in
     .dat_o					(dat_o),   // DAT_O() data out
@@ -3326,6 +3358,7 @@ MemoryArbitrator MemoryArbitratorInstance(
     .wrt_o					(wrt_o),
     .req_o					(req_o),
     .ack_i					(ack_i)
+	*/
 );
 
 GPUBackend GPUBackendInstance(
