@@ -1,0 +1,64 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Source Files\MiniFB">
+      <UniqueIdentifier>{0d0b87f1-4e30-40f4-bdfd-42efcd504c14}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="GPUSimSW.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="HelperFunc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GPUCommandGen.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="VerilatedIntoVCD.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vgpu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vgpu__Syms.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ConsoleApplication5.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MiniFB\MiniFB_common.c">
+      <Filter>Source Files\MiniFB</Filter>
+    </ClCompile>
+    <ClCompile Include="MiniFB\MiniFB_cpp.cpp">
+      <Filter>Source Files\MiniFB</Filter>
+    </ClCompile>
+    <ClCompile Include="MiniFB\MiniFB_internal.c">
+      <Filter>Source Files\MiniFB</Filter>
+    </ClCompile>
+    <ClCompile Include="MiniFB\MiniFB_linux.c">
+      <Filter>Source Files\MiniFB</Filter>
+    </ClCompile>
+    <ClCompile Include="MiniFB\MiniFB_timer.c">
+      <Filter>Source Files\MiniFB</Filter>
+    </ClCompile>
+    <ClCompile Include="MiniFB\WinMiniFB.c">
+      <Filter>Source Files\MiniFB</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
