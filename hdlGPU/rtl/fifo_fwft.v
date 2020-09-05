@@ -11,7 +11,7 @@ module fifo_fwft
     input                   rd_en,
     output                  empty);
 
-   wire [DATA_WIDTH-1:0]    fifo_dout;
+// wire [DATA_WIDTH-1:0]    fifo_dout;
    wire                     fifo_empty;
    wire                     fifo_rd_en;
 
@@ -24,12 +24,30 @@ module fifo_fwft
       .clk       (clk),
       .rst       (rst),
       .rd_en_i   (fifo_rd_en),
-      .rd_data_o (fifo_dout),
+      .rd_data_o (dout),
       .empty_o   (fifo_empty),
       .wr_en_i   (wr_en),
       .wr_data_i (din),
       .full_o    (full));
 
+	reg dout_valid;
+	
+   assign fifo_rd_en = !fifo_empty && (!dout_valid || rd_en);
+   assign empty = !dout_valid;
+
+   always @(posedge clk)
+   begin
+      if (rst)
+         dout_valid <= 0;
+      else
+         begin
+            if (fifo_rd_en)
+               dout_valid <= 1;
+            else if (rd_en)
+               dout_valid <= 0;
+         end 
+	end
+	/*
    fifo_fwft_adapter
      #(.DATA_WIDTH (DATA_WIDTH))
    fwft_adapter
@@ -41,5 +59,6 @@ module fifo_fwft
       .fifo_dout_i  (fifo_dout),
       .dout_o       (dout),
       .empty_o      (empty));
-
+	*/
+	
 endmodule

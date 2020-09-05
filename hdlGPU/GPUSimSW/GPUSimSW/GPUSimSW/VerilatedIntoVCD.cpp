@@ -92,8 +92,8 @@ void addEnumIntoScanner(VCScanner* pScan) {
 			{ 2, "Y_LINE_NEXT" },
 			{ 3, "Y_TRI_START" },
 			{ 4, "Y_TRI_NEXT" },
-			{ 5, "Y_CV_ZERO" },
-			{ 6, "INVALID_6" },
+			{ 5, "Y_TRI_PREV" },
+			{ 6, "Y_CV_ZERO" },
 			{ 7, "INVALID_7" },
 		};
 		pSelNextY->assignEnum(enum_l,8);
@@ -262,6 +262,81 @@ void addEnumIntoScanner(VCScanner* pScan) {
 		pNextState->assignEnum (enum_l, 16);
 		pNextLogicalState->assignEnum (enum_l, 16);
 	}
+
+	{
+		VCMember* pCurrState = pScan->findMemberFullPath("gpu.CVCopyState_Inst.subState");
+		VCMember* pNextState = pScan->findMemberFullPath("gpu.CVCopyState_Inst.next");
+
+		VCMember* pNBlk  = pScan->findMemberFullPath("gpu.flagIsNewBlock");
+	
+		static EnumArray enum_l[] = {
+			{ 0, "END" },
+			{ 1, "A1" },
+			{ 2, "B1" },
+			{ 3, "B2" },
+			{ 4, "B3" },
+			{ 5, "B4" },
+			{ 6, "C1" },
+			{ 7, "C2" },
+			{ 8, "C3" },
+			{ 9, "D1" },
+			{10, "D2" },
+			{11,"D3"},
+			{12,"D4"},
+			{13,"D5"},
+			{14,"D6"},
+			{15,"P0"},
+			{16,"P1"},
+			{17,"T0"},
+			{18,"T1"},
+			{19,"<ERR>"},
+			{20,"<ERR>"},
+			{21,"<ERR>"},
+			{22,"<ERR>"},
+			{23,"<ERR>"},
+			{24,"<ERR>"},
+			{25,"<ERR>"},
+			{26,"<ERR>"},
+			{27,"<ERR>"},
+			{28,"<ERR>"},
+			{29,"<ERR>"},
+			{30,"<ERR>"},
+			{31,"<ERR>"},
+		};
+
+		pCurrState->assignEnum(enum_l, 32);
+		pNextState->assignEnum(enum_l, 32);
+	}
+
+	{
+		VCMember* pASel = pScan->findMemberFullPath("gpu.CVCopyState_Inst.ctrl");
+
+		static EnumArray enum_l[] = {
+			{ 0, "MA" },
+			{ 1, "MB" },
+			{ 2, "MC" },
+			{ 3, "S1" },
+			{ 4, "S2" },
+			{ 5, "S3" },
+			{ 6, "S4" },
+			{ 7, "S5" },
+		};
+
+		pASel->assignEnum(enum_l, 8);
+	}
+
+	{
+		VCMember* pASel = pScan->findMemberFullPath("gpu.CVCopyState_Inst.aSelABDX");
+
+		static EnumArray enum_l[] = {
+			{ 0, "SELA_A" },
+			{ 1, "SELA_B" },
+			{ 2, "SELA_D" },
+			{ 3, "SELA__" },
+		};
+
+		pASel->assignEnum(enum_l, 4);
+	}
 }
 
 void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
@@ -272,21 +347,24 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_IN8(clk,0,0);
     VL_IN8(clkBus,0,0);
     VL_IN8(i_nrst,0,0);
-    VL_IN8(gpuAdrA2,0,0);
-    VL_IN8(gpuSel,0,0);
-    VL_OUT8(o_canWrite,0,0);
     VL_OUT8(IRQRequest,0,0);
+    VL_OUT8(DMA_REQ,0,0);
+    VL_IN8(DMA_ACK,0,0);
+    VL_OUT8(dbg_canWrite,0,0);
     VL_OUT8(o_command,0,0);
     VL_IN8(i_busy,0,0);
     VL_OUT8(o_commandSize,1,0);
     VL_OUT8(o_write,0,0);
     VL_OUT8(o_subadr,2,0);
     VL_IN8(i_dataInValid,0,0);
+    VL_IN8(gpuAdrA2,0,0);
+    VL_IN8(gpuSel,0,0);
     VL_IN8(write,0,0);
     VL_IN8(read,0,0);
     VL_OUT8(validDataOut,0,0);
     VL_OUT16(o_adr,14,0);
     VL_OUT16(o_writeMask,15,0);
+    VL_OUT(mydebugCnt,31,0);
     VL_INW(i_dataIn,255,0,8);
     VL_OUTW(o_dataOut,255,0,8);
     VL_IN(cpuDataIn,31,0);
@@ -297,10 +375,10 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     // Begin mtask footprint  all: 
     VL_SIG8(gpu__DOT__clk,0,0);
     VL_SIG8(gpu__DOT__i_nrst,0,0);
-    VL_SIG8(gpu__DOT__gpuAdrA2,0,0);
-    VL_SIG8(gpu__DOT__gpuSel,0,0);
-    VL_SIG8(gpu__DOT__o_canWrite,0,0);
     VL_SIG8(gpu__DOT__IRQRequest,0,0);
+    VL_SIG8(gpu__DOT__DMA_REQ,0,0);
+    VL_SIG8(gpu__DOT__DMA_ACK,0,0);
+    VL_SIG8(gpu__DOT__dbg_canWrite,0,0);
     VL_SIG8(gpu__DOT__clkBus,0,0);
     VL_SIG8(gpu__DOT__o_command,0,0);
     VL_SIG8(gpu__DOT__i_busy,0,0);
@@ -308,6 +386,8 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__o_write,0,0);
     VL_SIG8(gpu__DOT__o_subadr,2,0);
     VL_SIG8(gpu__DOT__i_dataInValid,0,0);
+    VL_SIG8(gpu__DOT__gpuAdrA2,0,0);
+    VL_SIG8(gpu__DOT__gpuSel,0,0);
     VL_SIG8(gpu__DOT__write,0,0);
     VL_SIG8(gpu__DOT__read,0,0);
     VL_SIG8(gpu__DOT__validDataOut,0,0);
@@ -315,7 +395,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__isFifoFullMSB,0,0);
     VL_SIG8(gpu__DOT__isFifoEmptyLSB,0,0);
     VL_SIG8(gpu__DOT__isFifoEmptyMSB,0,0);
-    VL_SIG8(gpu__DOT__isFifoFull,0,0);
+    VL_SIG8(gpu__DOT__isINFifoFull,0,0);
     VL_SIG8(gpu__DOT__isFifoEmpty,0,0);
     VL_SIG8(gpu__DOT__isFifoNotEmpty,0,0);
     VL_SIG8(gpu__DOT__rstInFIFO,0,0);
@@ -421,7 +501,6 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__isNegYAxis,0,0);
     VL_SIG8(gpu__DOT__resetXCounter,0,0);
     VL_SIG8(gpu__DOT__endVertical,0,0);
-    VL_SIG8(gpu__DOT__changeX,0,0);
     VL_SIG8(gpu__DOT__selNextX,2,0);
     VL_SIG8(gpu__DOT__selNextY,2,0);
     VL_SIG8(gpu__DOT__doBlockWork,0,0);
@@ -481,6 +560,11 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__counterXDst,6,0);
     VL_SIG8(gpu__DOT__writeFifo,0,0);
     VL_SIG8(gpu__DOT__writeGP1,0,0);
+    VL_SIG8(gpu__DOT__readFifoOut,0,0);
+    VL_SIG8(gpu__DOT__reqDataDMAIn,0,0);
+    VL_SIG8(gpu__DOT__reqDataDMAOut,0,0);
+    VL_SIG8(gpu__DOT__outFIFO_read,0,0);
+    VL_SIG8(gpu__DOT__pReadFifoOut,0,0);
     VL_SIG8(gpu__DOT__readLFifo,0,0);
     VL_SIG8(gpu__DOT__readMFifo,0,0);
     VL_SIG8(gpu__DOT__readFifoLSB,0,0);
@@ -503,10 +587,9 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__clearBank1,0,0);
     VL_SIG8(gpu__DOT__clearOtherBank,0,0);
     VL_SIG8(gpu__DOT__writeBankOld,0,0);
-    VL_SIG8(gpu__DOT__gpuReadyReceiveDMA,0,0);
-    VL_SIG8(gpu__DOT__gpuReceiveCmdReady,0,0);
     VL_SIG8(gpu__DOT__dmaDataRequest,0,0);
     VL_SIG8(gpu__DOT__gpuReadySendToCPU,0,0);
+    VL_SIG8(gpu__DOT__gpuReadyReceiveDMA,0,0);
     VL_SIG8(gpu__DOT__fifoDataOutUR,7,0);
     VL_SIG8(gpu__DOT__fifoDataOutVG,7,0);
     VL_SIG8(gpu__DOT__fifoDataOutB,7,0);
@@ -615,6 +698,21 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__validCLUTLoad,0,0);
     VL_SIG8(gpu__DOT__updateClutCacheComplete,0,0);
     VL_SIG8(gpu__DOT__requClutCacheUpdate,0,0);
+    VL_SIG8(gpu__DOT__copyVCActive,0,0);
+    VL_SIG8(gpu__DOT__exitSig,0,0);
+    VL_SIG8(gpu__DOT__cvs_nextX,2,0);
+    VL_SIG8(gpu__DOT__cvs_nextY,2,0);
+    VL_SIG8(gpu__DOT__aSelABDX,1,0);
+    VL_SIG8(gpu__DOT__bSelAB,0,0);
+    VL_SIG8(gpu__DOT__wbSel,0,0);
+    VL_SIG8(gpu__DOT__pushNextCycle,0,0);
+    VL_SIG8(gpu__DOT__memReadPairValid,0,0);
+    VL_SIG8(gpu__DOT__nextPairIsLineLast,0,0);
+    VL_SIG8(gpu__DOT__currPairIsLineLast,0,0);
+    VL_SIG8(gpu__DOT__readPairFromVRAM,0,0);
+    VL_SIG8(gpu__DOT__pipeToFIFOOut,0,0);
+    VL_SIG8(gpu__DOT__outFIFO_empty,0,0);
+    VL_SIG8(gpu__DOT__outFIFO_full,0,0);
     VL_SIG8(gpu__DOT__canReadFIFO,0,0);
     VL_SIG8(gpu__DOT__bNoTexture,0,0);
     VL_SIG8(gpu__DOT__bPipeIssueTrianglePrimitive,0,0);
@@ -695,6 +793,50 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__Fifo_instLSB__DOT__raddr,3,0);
     VL_SIG8(gpu__DOT__Fifo_instLSB__DOT__pRaddr,3,0);
     VL_SIG8(gpu__DOT__Fifo_instLSB__DOT__pRd_en_i,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__clk,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__nRst,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__active,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__isWidthNot1,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__xb_0,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__wb_0,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__canPush,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__endVertical,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__nextPairIsLineLast,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__currPairIsLineLast,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__readACK,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__o_nextX,2,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__o_nextY,2,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__read,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__exitSig,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__o_aSelABDX,1,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__o_bSelAB,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__o_pushNextCycle,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__o_wbSel,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__subState,4,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__next,4,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__nextX,2,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__nextY,2,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__nextStateIsEnd,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__pReadAck,0,0);
+//    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__readSet,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__ctrl,2,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__aSelABDX,1,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__wbSel,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__bSelAB,0,0);
+//    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__readHappened,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__goNextStep,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__pushNextCycle,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__sread,0,0);
+    VL_SIG8(gpu__DOT__CVCopyState_Inst__DOT__nextCoord,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__clk,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__rst,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__wr_en_i,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__rd_en_i,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__full_o,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__empty_o,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__empty_int,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__full_or_empty,0,0);
+    VL_SIG8(gpu__DOT__FifoPixOut_inst__DOT__pRd_en_i,0,0);
     VL_SIG8(gpu__DOT__StencilCacheInstance__DOT__clk,0,0);
     VL_SIG8(gpu__DOT__StencilCacheInstance__DOT__fullMode,0,0);
     VL_SIG8(gpu__DOT__StencilCacheInstance__DOT__stencilWriteSig,0,0);
@@ -977,6 +1119,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__saveLoadOnGoing,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__resetPipelinePixelStateSpike,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__resetMask,0,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__readPairValid,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__o_command,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__i_busy,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__o_commandSize,1,0);
@@ -993,6 +1136,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__isCLUT,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__idxCnt,2,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__lastCLUT,0,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__isPairRead,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__isBlendingBlock,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__fifoFULL,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__validRead,0,0);
@@ -1002,6 +1146,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__writeFIFO,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__saveTexAdr,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__sendCommandToMemory,0,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__rdEmpty,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__hasCommand,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__commandSize,1,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__waitRead,0,0);
@@ -1030,6 +1175,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__empty,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo_empty,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo_rd_en,0,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__dout_valid,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__clk,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__rst,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__wr_en_i,0,0);
@@ -1042,17 +1188,6 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__re,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__we,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__bypass_gen__DOT__bypass,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__clk,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__rst,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__rd_en_i,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__fifo_empty_i,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__fifo_rd_en_o,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__empty_o,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__fifo_valid,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__middle_valid,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__dout_valid,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__will_update_middle,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__will_update_dout,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ROL512_inst__DOT__rot,4,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__rdClk,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__wrClk,0,0);
@@ -1069,33 +1204,23 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__empty,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo_empty,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo_rd_en,0,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__dout_valid,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__clk,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__rst,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__wr_en_i,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__rd_en_i,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__full_o,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__empty_o,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__write_pointer,1,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__read_pointer,1,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__write_pointer,2,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__read_pointer,2,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__empty_int,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__full_or_empty,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__clk,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__raddr,0,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__raddr,1,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__re,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__waddr,0,0);
+    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__waddr,1,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__we,0,0);
     VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__bypass_gen__DOT__bypass,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__clk,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__rst,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__rd_en_i,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__fifo_empty_i,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__fifo_rd_en_o,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__empty_o,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__fifo_valid,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__middle_valid,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__dout_valid,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__will_update_middle,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__will_update_dout,0,0);
     VL_SIG8(gpu__DOT__GPUBackendInstance__DOT__clk,0,0);
     VL_SIG8(gpu__DOT__GPUBackendInstance__DOT__i_nrst,0,0);
     VL_SIG8(gpu__DOT__GPUBackendInstance__DOT__i_pausePipeline,0,0);
@@ -1563,6 +1688,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG16(gpu__DOT__XE,11,0);
     VL_SIG16(gpu__DOT__nextScrY,9,0);
     VL_SIG16(gpu__DOT__nextY,9,0);
+    VL_SIG16(gpu__DOT__DPixelReg,15,0);
     VL_SIG16(gpu__DOT__stencilWMaskCpy,15,0);
     VL_SIG16(gpu__DOT__stencilWValueCpy,15,0);
     VL_SIG16(gpu__DOT__VVReadAdrStencil,14,0);
@@ -1657,6 +1783,8 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG16(gpu__DOT__Fifo_instLSB__DOT__rd_data_o,15,0);
     VL_SIG16(gpu__DOT__Fifo_instLSB__DOT__outputCache,15,0);
     VL_SIG16(gpu__DOT__Fifo_instLSB__DOT__straight_rd_data_o,15,0);
+    VL_SIG16(gpu__DOT__FifoPixOut_inst__DOT__raddr,15,0);
+    VL_SIG16(gpu__DOT__FifoPixOut_inst__DOT__pRaddr,15,0);
     VL_SIG16(gpu__DOT__StencilCacheInstance__DOT__writeValue16,15,0);
     VL_SIG16(gpu__DOT__StencilCacheInstance__DOT__writeMask16,15,0);
     VL_SIG16(gpu__DOT__StencilCacheInstance__DOT__readValue16,15,0);
@@ -1929,6 +2057,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG16(gpu__DOT__GPUBackendInstance__DOT__GPUComputeOnlyInstance__DOT__ditherR__DOT__clampSPositive_R__DOT__valueIn,9,0);
     VL_SIG16(gpu__DOT__GPUBackendInstance__DOT__GPUComputeOnlyInstance__DOT__ditherR__DOT__clampSPositive_G__DOT__valueIn,9,0);
     VL_SIG16(gpu__DOT__GPUBackendInstance__DOT__GPUComputeOnlyInstance__DOT__ditherR__DOT__clampSPositive_B__DOT__valueIn,9,0);
+    VL_SIG(gpu__DOT__mydebugCnt,31,0);
     VL_SIGW(gpu__DOT__i_dataIn,255,0,8);
     VL_SIGW(gpu__DOT__o_dataOut,255,0,8);
     VL_SIG(gpu__DOT__cpuDataIn,31,0);
@@ -1949,10 +2078,14 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG(gpu__DOT__w0R,22,0);
     VL_SIG(gpu__DOT__w1R,22,0);
     VL_SIG(gpu__DOT__w2R,22,0);
+    VL_SIG(gpu__DOT__rdebugCnt,31,0);
     VL_SIG(gpu__DOT__fifoDataOut,31,0);
     VL_SIG(gpu__DOT__gpuInfoMux,31,0);
     VL_SIG(gpu__DOT__stencilReadCache,31,0);
     VL_SIG(gpu__DOT__maskReadCache,31,0);
+    VL_SIG(gpu__DOT__memReadPairValue,31,0);
+    VL_SIG(gpu__DOT__pairPixelToCPU,31,0);
+    VL_SIG(gpu__DOT__outFIFO_readV,31,0);
     VL_SIG(gpu__DOT__DETP1,21,0);
     VL_SIG(gpu__DOT__DETP2,21,0);
     VL_SIG(gpu__DOT__DET,21,0);
@@ -1987,6 +2120,12 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG(gpu__DOT__offBR,19,0);
     VL_SIG(gpu__DOT__offUR,19,0);
     VL_SIG(gpu__DOT__offVR,19,0);
+    VL_SIG(gpu__DOT__FifoPixOut_inst__DOT__wr_data_i,31,0);
+    VL_SIG(gpu__DOT__FifoPixOut_inst__DOT__rd_data_o,31,0);
+    VL_SIG(gpu__DOT__FifoPixOut_inst__DOT__write_pointer,16,0);
+    VL_SIG(gpu__DOT__FifoPixOut_inst__DOT__read_pointer,16,0);
+    VL_SIG(gpu__DOT__FifoPixOut_inst__DOT__outputCache,31,0);
+    VL_SIG(gpu__DOT__FifoPixOut_inst__DOT__straight_rd_data_o,31,0);
     VL_SIG(gpu__DOT__instDivisorA__DOT__numerator,31,0);
     VL_SIG(gpu__DOT__instDivisorA__DOT__denominator,21,0);
     VL_SIG(gpu__DOT__instDivisorA__DOT__output20,19,0);
@@ -2035,6 +2174,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIG(gpu__DOT__MemoryArbitratorInstance__DOT__ClutCacheData,31,0);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__exportedBGBlock,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__importedBGBlock,255,0,8);
+    VL_SIG(gpu__DOT__MemoryArbitratorInstance__DOT__readPairValue,31,0);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__i_dataIn,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__o_dataOut,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__res_data,255,0,8);
@@ -2052,16 +2192,12 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__q,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__din,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__dout,289,0,10);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo_dout,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__wr_data_i,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__rd_data_o,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__din,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__dout,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__rdata,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__bypass_gen__DOT__din_r,289,0,10);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__fifo_dout_i,289,0,10);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__dout_o,289,0,10);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__middle_dout,289,0,10);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ROL512_inst__DOT__inp,511,0,16);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ROL512_inst__DOT__out,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ROL512_inst__DOT__a,511,0,16);
@@ -2070,16 +2206,12 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__q,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__din,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__dout,255,0,8);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo_dout,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__wr_data_i,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__rd_data_o,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__din,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__dout,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__rdata,255,0,8);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__bypass_gen__DOT__din_r,255,0,8);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__fifo_dout_i,255,0,8);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__dout_o,255,0,8);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fwft_adapter__DOT__middle_dout,255,0,8);
     VL_SIG(gpu__DOT__GPUBackendInstance__DOT__adrTexReq_c0L,18,0);
     VL_SIG(gpu__DOT__GPUBackendInstance__DOT__adrTexCacheUpdate_c0L,16,0);
     VL_SIG(gpu__DOT__GPUBackendInstance__DOT__adrTexReq_c0R,18,0);
@@ -2113,6 +2245,7 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
 	/*
     VL_SIG16(gpu__DOT__Fifo_instMSB__DOT__RAMStorage[16],15,0);
     VL_SIG16(gpu__DOT__Fifo_instLSB__DOT__RAMStorage[16],15,0);
+    VL_SIG(gpu__DOT__FifoPixOut_inst__DOT__RAMStorage[65536],31,0);
     VL_SIG8(gpu__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem[16384],0,0);
     VL_SIG8(gpu__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem[16384],0,0);
     VL_SIG8(gpu__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem[16384],0,0);
@@ -2148,24 +2281,6 @@ void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan) {
     VL_SIGW(gpu__DOT__directCacheDoublePortInst__DOT__RAMStorage[256],72,0,3);
     VL_SIG(gpu__DOT__CLUT_CacheInst__DOT__CLUTStorage[128],31,0);
     VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__mem[512],289,0,10);
-    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__mem[2],255,0,8);
+    VL_SIGW(gpu__DOT__MemoryArbitratorInstance__DOT__ResultFIFO__DOT__fifo_fwftInst__DOT__fifo0__DOT__fifo_ram__DOT__mem[4],255,0,8);
 	*/
-
-    // LOCAL VARIABLES
-    // Internals; generally not touched by application code
-    // Begin mtask footprint  all: 
-    VL_SIG8(gpu__DOT____Vcellinp__StencilCacheInstance__stencilReadSig,0,0);
-    VL_SIG8(gpu__DOT____Vcellinp__MemoryArbitratorInstance__saveBGBlock,1,0);
-    VL_SIG8(gpu__DOT____Vcellinp__GPUBackendInstance__bgMSK_R,0,0);
-    VL_SIG8(gpu__DOT____Vcellinp__GPUBackendInstance__bgMSK_L,0,0);
-    VL_SIG8(gpu__DOT__MemoryArbitratorInstance__DOT____Vcellinp__ResultFIFO__wrreq,0,0);
-    VL_SIG8(gpu__DOT__GPUBackendInstance__DOT__GPUComputeOnlyInstance__DOT____Vcellinp__blendUnitL__px_STP,0,0);
-    VL_SIG8(gpu__DOT__GPUBackendInstance__DOT__GPUComputeOnlyInstance__DOT____Vcellinp__blendUnitR__px_STP,0,0);
-    VL_SIG8(__Vtableidx1,3,0);
-    VL_SIG8(__Vtableidx2,3,0);
-    VL_SIG8(__Vtableidx3,3,0);
-    VL_SIG8(__Vclklast__TOP__clk,0,0);
-    VL_SIG8(__Vclklast__TOP__clkBus,0,0);
-    VL_SIG16(gpu__DOT____Vcellout__Fifo_instMSB__rd_data_o,15,0);
-    VL_SIG16(gpu__DOT____Vcellout__Fifo_instLSB__rd_data_o,15,0);
 }

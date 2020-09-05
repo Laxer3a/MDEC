@@ -59,6 +59,9 @@ module MemoryArbitratorFat(
 	output			resetPipelinePixelStateSpike,
 	output			resetMask,				// Reset the list of used pixel inside the block for next block processing.
 
+	output			readPairValid,
+	output [31:0]	readPairValue,
+
 	// -----------------------------------
 	// [DDR SIDE]
 	// -----------------------------------
@@ -96,10 +99,12 @@ assign	spikeBGBlock			= doBGWork & !lastsaveBGBlock;
 wire	isTexReq				= requTexCacheUpdateL  | requTexCacheUpdateR;
 // --------------------------------------------------------------
 
+// COPY FROM gpu.sv
 parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
 			MEM_CMD_FILL		= 3'b010,
 			MEM_CMD_RDBURST		= 3'b011,
 			MEM_CMD_WRBURST		= 3'b100,
+			MEM_CMD_VRAM2CPU	= 3'b101,
 			// Other command to come later...
 			MEM_CMD_NONE		= 3'b000;
 
@@ -136,6 +141,10 @@ always @(*) begin
 end
 assign ClutCacheData					= s_data32;
 // ---------------------------------------
+wire isPairRead;
+assign readPairValid = validRead & isPairRead;
+assign readPairValue = res_data[31:0];
+// ---------------------------------------
 assign resetMask						= (state == WRITE_BG);
 wire isBlendingBlock					= (isBlending && (saveBGBlock != 2'd3));
 assign resetPipelinePixelStateSpike		= ((state == WRITE_BG) && (!isBlendingBlock)) || ((state == READ_BG) && validRead);
@@ -151,10 +160,10 @@ wire fifoFULL;
 // DONE [000:READBG ][15 Bit Adr]----------------------
 // DONE [001:WRITEBG][15 Bit Adr][256 Bit][16 bit Mask]
 // DONE [010:READ8  ][15 Bit Adr]         [11][2 bit:Adr]0[2---]
-// DONE [011:WRITEPR][15 Bit Adr]    [32B][11][3 bit:Adr] [2msk]
-//      [100:READBRT][15 Bit Adr]         [Msk Read   ] + CpyBankFlag + clearOtherBank + 1'b1(23) ?
-//      [101:WRITBRT][15 Bit Adr]         [StencilRead] + writeBankOld + GPUREG_ForcePixel15 + GPU_Reg_CheckMaskBit + clearBank0 + clearBank1 + cpyIdx
-
+// DONE [011:WRITEPR][15 Bit Adr]    [32B][11][3 bit:Adr][2 msk]
+// DONE [100:READBRT][15 Bit Adr]         [Msk Read   ] + CpyBankFlag + clearOtherBank + 1'b1(23) ?
+// DONE [101:WRITBRT][15 Bit Adr]         [StencilRead] + writeBankOld + GPUREG_ForcePixel15 + GPU_Reg_CheckMaskBit + clearBank0 + clearBank1 + cpyIdx
+// DONE [110:READPR ][15 Bit Adr]         [--][3 bit:Adr][-----]
 // If FIFO FULL or waiting for read result => Consider locked by transaction.
 wire validRead;
 
@@ -172,7 +181,11 @@ parameter   WAIT_CMD			= 3'd0,
 			READ_TEX_L			= 3'd3,
 			READ_TEX_R			= 3'd4,
 			WRITE_BG			= 3'd5,
-			READ_BG_START		= 3'd6;
+			READ_BG_START		= 3'd6,
+			READ_PIX2			= 3'd7;
+
+// MEM SIDE
+parameter	READ_PAIR			= 3'b110;
 			
 reg [2:0]   state;
 reg [2:0]   nextState;
@@ -180,7 +193,8 @@ reg [2:0]   nextState;
 assign isTexL    = (state     == READ_TEX_L);
 assign isTexR    = (state     == READ_TEX_R);
 assign isCLUT    = (state     == READ_CLUT );
-wire   resetRead = (nextState == WAIT_CMD  ) && (isTexL | isTexR | isCLUT | (state == READ_BG));
+assign isPairRead= (state     == READ_PIX2 );
+wire   resetRead = (nextState == WAIT_CMD  ) && (isTexL | isTexR | isCLUT | isPairRead | (state == READ_BG));
 
 reg [289:0] command;
 reg         writeFIFO;
@@ -196,6 +210,20 @@ begin
 	if ((!fifoFULL) && ((state == WAIT_CMD) || (state == READ_BG_START))) begin
 		if (memoryWriteCommand[2:0] != 0) begin
 			case (memoryWriteCommand[2:0])
+			MEM_CMD_VRAM2CPU:
+			begin
+				command =	{ 
+							// 11 + 3 + 2
+							  11'dx, memoryWriteCommand[6:4], 2'dx
+							// 224 + 32 
+							, 256'dx // 32 Bit Data
+							// 15 bit (14:0)
+							, memoryWriteCommand[21:7] 
+							// 3 Bit
+							, READ_PAIR
+							};	// 11 Bit : Ignore, 3 Bit : Adr sub block, 2 bit : pixel mask. 
+				nextState = READ_PIX2;
+			end
 			MEM_CMD_PIXEL2VRAM:
 			begin
 				command =	{ 
@@ -322,6 +350,11 @@ begin
 					nextState = WAIT_CMD;
 				end
 			end
+			READ_PIX2 : begin
+				if (validRead) begin
+					nextState = WAIT_CMD;
+				end
+			end
 			/*
 			WAIT_CMD:			nextState = WAIT_CMD;
 			*/
@@ -385,7 +418,7 @@ wire hasCommand = !rdEmpty;
 parameter	CMD_32BYTE		= 2'd1,
 			CMD_8BYTE		= 2'd0,
 			CMD_4BYTE		= 2'd2;
-			
+
 reg [1:0]	commandSize;
 reg			waitRead;
 reg			resetWait;
@@ -404,9 +437,10 @@ always @(*) begin
 	resetWait			= 0;
 	
 	case (cmdExec[2:0])
-	3'd2   : commandSize = CMD_8BYTE;
-	3'd3   : commandSize = CMD_4BYTE;
-	default: commandSize = CMD_32BYTE;
+	3'd2   : commandSize = CMD_8BYTE;	// _,_,2,_,_,_,_,_
+	3'd3   : commandSize = CMD_4BYTE;	// _,_,_,3,_,_,_,_
+	3'd6   : commandSize = CMD_4BYTE;	// _,_,_,_,_,_,6,_
+	default: commandSize = CMD_32BYTE;	// 0,1,_,_,4,5,_,7
 	endcase
 	
 	case (cmdExec[2:0]) 
@@ -560,7 +594,7 @@ assign o_dataOut	= (cmdExec[2:0] != 3'b101) ? cmdExec[273: 18] : currVVPixelWFin
 assign o_writeMask	= (cmdExec[2:0] != 3'b101) ? cmdMask          : currVVPixelWFinalSel;
 assign o_adr		= cmdExec[17:3];
 // Access 4/8 byte or 32 byte.
-assign o_subadr		= ((cmdExec[2:0] == 3'b010) || (cmdExec[2:0] == 3'b011)) ? cmdExec[278:276] : 3'd0;
+assign o_subadr		= ((cmdExec[2:0] == 3'b010) || (cmdExec[2:0] == 3'b011) || (cmdExec[2:0] == READ_PAIR)) ? cmdExec[278:276] : 3'd0;
 assign o_commandSize= commandSize;
 
 // DONE [000:READBG ][15 Bit Adr]----------------------
@@ -571,7 +605,6 @@ assign o_commandSize= commandSize;
 //      [101:WRITBRT][15 Bit Adr]         [StencilRead] + writeBankOld + GPUREG_ForcePixel15 + GPU_Reg_CheckMaskBit + clearBank0 + clearBank1 + cpyIdx
 //       110
 //       111
-
 wire resEmpty;
 
 // FIFO is 256, depth 1.

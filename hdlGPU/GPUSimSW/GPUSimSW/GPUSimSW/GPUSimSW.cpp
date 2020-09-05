@@ -107,7 +107,7 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	bool useScan = false;
+	bool useScan = true;
 
 	const int   useScanRange			= false;
 	const int	scanStartCycle			= 30;
@@ -176,7 +176,7 @@ int main(int argcount, char** args)
 		pScan->addPlugin(new ValueChangeDump_Plugin("gpuLogFat.vcd"));
 	}
 
-#if 0
+#if 1
 	enum DEMO {
 		NO_TEXTURE,
 		TEXTURE_TRUECOLOR_BLENDING,
@@ -186,9 +186,10 @@ int main(int argcount, char** args)
 		USE_AVOCADO_DATA,
 		PALETTE_FAIL_LATEST,
 		POLY_FAIL,
+		COPY_TORAM
 	};
 
-	DEMO demo = USE_AVOCADO_DATA;
+	DEMO demo = COPY_TORAM;
 
 	if (demo == TEXTURE_TRUECOLOR_BLENDING) {
 		// Load Gradient128x64.png at [0,0] in VRAM as true color 1555 (bit 15 = 0).
@@ -197,7 +198,7 @@ int main(int argcount, char** args)
 	}
 
 	if (demo == COPY_CMD) {
-		loadImageToVRAM(mod,"BG.png",buffer,0,0,true);
+		loadImageToVRAM(mod,"Airship.png",buffer,0,0,true);
 		memcpy(refBuffer,buffer,1024*1024);
 		backupFromStencil(mod,refStencil);
 
@@ -556,7 +557,7 @@ int main(int argcount, char** args)
 		break;
 	case USE_AVOCADO_DATA:
 	{
-		FILE* binSrc = fopen("W:\\JPSX\\Avocado\\FF7Station2","rb");
+		FILE* binSrc = fopen("W:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");
 		// ----- Read VRAM
 		u16* buff16 = (u16*)buffer;
 		fread(buffer,sizeof(u16),1024*512,binSrc);
@@ -688,6 +689,15 @@ int main(int argcount, char** args)
 			}
 
 		}
+
+		/*
+		commandGenerator.resetBuffer();
+		commandGenerator.writeRaw(0xE100000E);
+		commandGenerator.writeRaw(0x64808080);
+		commandGenerator.writeRaw(0x017a00dc);
+		commandGenerator.writeRaw(0x78100000);
+		commandGenerator.writeRaw(0x002c00c8);
+		*/
 
 		fclose(binSrc);
 
@@ -933,8 +943,29 @@ int main(int argcount, char** args)
 
 	}
 	break;
+	case COPY_TORAM:
+		{
+			u8* target = buffer;
+			// Transform each pixel RGB888 into a single bit.
+			for (int py=0; py < 512; py++) {
+				for (int px=0; px < 1024; px++) {
+					int baseDst = ((px+py*1024)*2);
+					target[baseDst  ]  = px;
+					target[baseDst+1]  = py;
+				}
+			}
+		}
+
+		commandGenerator.writeRaw(0xC0000000);
+		commandGenerator.writeRaw((0)|(0<<16));
+		commandGenerator.writeRaw((2<<16) | 4); // W=4,H=2
+	break;
 	case COPY_CMD:
 	{
+		commandGenerator.writeRaw(0x80000000);
+		commandGenerator.writeRaw((256)|(256<<16));
+		commandGenerator.writeRaw(( 64)|( 64<<16));
+		commandGenerator.writeRaw((16<<16) | 16); // W=16,H=16
 #if 0
 		int from =  3;
 //		int to   = 12;
@@ -1015,7 +1046,7 @@ int main(int argcount, char** args)
 	commandGenerator.writeRaw((448<<0) | (240<<16));
 #endif
 
-#if 1
+#if 0
 // GP0(40h) - Monochrome line, opaque
 // GP0(42h) - Monochrome line, semi-transparent
 	commandGenerator.writeRaw(0x4000FFFF);
@@ -1033,6 +1064,9 @@ int main(int argcount, char** args)
 #endif
 
 #if 0
+	//
+	// TEXTURED POLYGON
+	//
 	loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,false);
 	commandGenerator.writeRaw(0x24FFFFFF);						// Polygon, 3 pts, opaque, raw texture
 	// Vertex 1
@@ -1047,6 +1081,12 @@ int main(int argcount, char** args)
 																// Vertex 3
 	commandGenerator.writeRaw(0x01200230);						// [15:0] XCoordinate, [31:16] Y Coordinate
 	commandGenerator.writeRaw(0x00001F1F);						// Texture [1F,1F]
+#endif
+
+#if 0
+	//commandGenerator.writeRaw(0xE100000F);
+
+	
 #endif
 
 	// prepairListOfGPUCommands(0); // Simple Polygon, no texture, no alpha blending.
@@ -1148,7 +1188,7 @@ int main(int argcount, char** args)
 #endif
 
 	while ((waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
-		&& (stuckState < 250000)
+		&& (stuckState < 2500)
 //		&& (clockCnt < 150000)
 	)
 	{
@@ -1329,7 +1369,7 @@ int main(int argcount, char** args)
 				mod->i_busy = 1;
 				readAdr   = baseAdr;
 				readSize  = sizeParam;
-				busyCounter = 3;
+				busyCounter = 4;
 			}
 		}
 
@@ -1345,7 +1385,8 @@ int main(int argcount, char** args)
 		mod->write		= 0;
 		mod->cpuDataIn	= 0;
 
-		if (mod->o_canWrite) {
+		// Cheat... should read system register like any normal CPU...
+		if (!mod->dbg_canWrite) {
 			// Push command inside the GPU as long as the GPU FIFO are not full
 			// and as long as we have command to push...
 			if (commandGenerator.stillHasCommand()) {
