@@ -149,7 +149,8 @@ typedef enum logic[5:0] {
     LINE_END					= 6'd47,
     FLUSH_COMPLETE_STATE		= 6'd48,
     COPY_START_LINE				= 6'd49,
-    CPY_ENDLINE					= 6'd50
+    CPY_ENDLINE					= 6'd50,
+	COPYVC_WAITFLUSH			= 6'd51
 } workState_t;
 
 //parameter
@@ -571,7 +572,7 @@ assign dbg_canWrite = isINFifoFull;
 
 wire writeFifo		= (!gpuAdrA2 & gpuSel & write) || (DMA_ACK && (GPU_REG_DMADirection == DMA_CPUtoGP0));
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
-wire readFifoOut    = gpuSel;
+wire readFifoOut    = (gpuSel & !gpuAdrA2);
 
 // Note : we do not have the problem of over transfer in FIFO IN, as DMA know transfer size.
 // But in case we still REQ and DMA was reloaded super fast, we would need to put a COUNTER in the GPU
@@ -585,7 +586,7 @@ assign DMA_REQ		= ((GPU_REG_DMADirection == DMA_CPUtoGP0) && reqDataDMAIn  && (!
                    || ((GPU_REG_DMADirection == DMA_GP0toCPU) && (!outFIFO_empty));
 
 // FIFO FTWT : Ask for next data piece when current one is read.
-wire        outFIFO_read = ((GPU_REG_DMADirection == DMA_GP0toCPU) && DMA_ACK) || readFifoOut;
+wire        outFIFO_read = (((GPU_REG_DMADirection == DMA_GP0toCPU) && DMA_ACK) || readFifoOut) && (!outFIFO_empty);
 
 // TODO : Pipeline readFifoOut (1 cycle latency)
 reg pReadFifoOut;
@@ -610,7 +611,7 @@ begin
 			if (gpuAdrA2) begin
 				cpuDataOut	=  reg1Out;
 			end else begin
-				cpuDataOut		= regGpuInfo;
+				cpuDataOut	= regGpuInfo;
 			end
 		end else begin
 			cpuDataOut	  =  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
@@ -1650,9 +1651,9 @@ wire [31:0] outFIFO_readV;
 wire outFIFO_empty;
 wire outFIFO_full;
 
-Fifo
+SSCfifo
 #(
-    .DEPTH_WIDTH	(16),
+    .DEPTH_WIDTH	(2),
     .DATA_WIDTH		(32)
 )
 FifoPixOut_inst
@@ -2173,7 +2174,7 @@ begin
     COPYVC_TOCPU:
     begin
 		if (exitSig) begin
-			nextWorkState = NOT_WORKING_DEFAULT_STATE;
+			nextWorkState = COPYVC_WAITFLUSH;
 		end
 		
 		//
@@ -2190,6 +2191,12 @@ begin
         // Data already present -> Read from both buffer possible.
         // Set gpuReadySendToCPU
     end
+	COPYVC_WAITFLUSH:
+	begin
+		if (outFIFO_empty) begin
+			nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		end
+	end
     // --------------------------------------------------------------------
     //   TRIANGLE STATE MACHINE
     // --------------------------------------------------------------------
