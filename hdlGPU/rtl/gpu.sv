@@ -16,6 +16,11 @@ module gpu
     input			clk,
     input			i_nrst,
 
+    // --------------------------------------
+    // DIP Switches to control
+	input			DIP_AllowDither,
+	input			DIP_ForceDither,
+    // --------------------------------------
 
     output			IRQRequest,
 
@@ -598,27 +603,42 @@ always @(posedge clk) begin
     end
 end
 
+//---------------------------------------------------------------
+//  Handling READ including pipelined latency for read result.
+//---------------------------------------------------------------
+reg [31:0] pDataOut;
+reg        pDataOutValid;
+reg [31:0] dataOut;
+reg        dataOutValid;
 always @(*)
 begin
 	if (pReadFifoOut /*setStencilMode == 3'd7*/) begin
-		validDataOut	= 1;
-		cpuDataOut		= outFIFO_readV;
+		dataOutValid	= 1;
+		dataOut			= outFIFO_readV;
 	end else begin
 		if (gpuSel & read) begin
-			validDataOut	= 1;
+			dataOutValid	= 1;
 			
 			// Register +4 Read
 			if (gpuAdrA2) begin
-				cpuDataOut	=  reg1Out;
+				dataOut	=  reg1Out;
 			end else begin
-				cpuDataOut	= regGpuInfo;
+				dataOut	= regGpuInfo;
 			end
 		end else begin
-			cpuDataOut	  =  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
-			validDataOut = 0;
+			dataOut		 =  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
+			dataOutValid = 0;
 		end
-    end
+	end
 end
+
+always @(posedge clk) begin
+	pDataOut		= dataOut;
+	pDataOutValid	= dataOutValid;
+end
+assign cpuDataOut	= pDataOut;
+assign validDataOut = pDataOutValid;
+//---------------------------------------------------------------
 
 assign IRQRequest = GPU_REG_IRQSet;
 
@@ -1129,7 +1149,9 @@ wire bIsPerVtxCol   		= (bIsPolyCommand | bIsLineCommand) & command[4];
 // - Rectangle never dither. ( => bIsPerVtxCol is FALSE)
 // - Line      dither if set (even for unique color)
 // - Triangle  dither if gouraud is set (textured or not) = bIsPerVtxCol
-wire bDither				= GPU_REG_DitherOn & (bIsPerVtxCol | bIsLineCommand);
+wire ditherSetup			= ( GPU_REG_DitherOn & DIP_AllowDither ) | DIP_ForceDither;
+wire bDither				= ditherSetup & (bIsPerVtxCol | bIsLineCommand);
+
 wire bOpaque        		= !bSemiTransp;
 
 // TODO : Rejection occurs with DX / DY. Not range. wire rejectVertex			= (fifoDataOutX[11] != fifoDataOutX[10]) | (fifoDataOutY[11] != fifoDataOutY[10]); // Primitive with offset out of range -1024..+1023
