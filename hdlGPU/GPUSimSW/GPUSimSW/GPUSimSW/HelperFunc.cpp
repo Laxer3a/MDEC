@@ -11,7 +11,7 @@ class Vgpu;
 // Just as array to store commands for GPU. (Sequence of 32 bit to write)
 #include "GPUCommandGen.h"
 
-#include "../../../rtl/obj_dir/Vgpu.h"
+#include "../../../rtl/obj_dir/VGPU_DDR.h"
 
 void drawCheckedBoard(unsigned char* buffer) {
 	for (int y=0; y < 512; y++) {
@@ -31,7 +31,7 @@ void drawCheckedBoard(unsigned char* buffer) {
 }
 
 
-bool ReadStencil(Vgpu* mod, int x, int y) {
+bool ReadStencil(VGPU_DDR* mod, int x, int y) {
 	int adrMem = 0;
 	unsigned char valMem;
 
@@ -40,49 +40,49 @@ bool ReadStencil(Vgpu* mod, int x, int y) {
 	if (y & 1) {
 		// Bank A for line odd.
 		switch (x & 0xF) {
-		case  0: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem[adrMem]; break;
-		case  1: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem[adrMem]; break;
-		case  2: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem[adrMem]; break;
-		case  3: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache03A__DOT__mem[adrMem]; break;
-		case  4: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache04A__DOT__mem[adrMem]; break;
-		case  5: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache05A__DOT__mem[adrMem]; break;
-		case  6: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache06A__DOT__mem[adrMem]; break;
-		case  7: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache07A__DOT__mem[adrMem]; break;
-		case  8: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache08A__DOT__mem[adrMem]; break;
-		case  9: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache09A__DOT__mem[adrMem]; break;
-		case 10: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache10A__DOT__mem[adrMem]; break;
-		case 11: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache11A__DOT__mem[adrMem]; break;
-		case 12: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache12A__DOT__mem[adrMem]; break;
-		case 13: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache13A__DOT__mem[adrMem]; break;
-		case 14: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache14A__DOT__mem[adrMem]; break;
-		case 15: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache15A__DOT__mem[adrMem]; break;
+		case  0: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem[adrMem]; break;
+		case  1: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem[adrMem]; break;
+		case  2: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem[adrMem]; break;
+		case  3: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache03A__DOT__mem[adrMem]; break;
+		case  4: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache04A__DOT__mem[adrMem]; break;
+		case  5: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache05A__DOT__mem[adrMem]; break;
+		case  6: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache06A__DOT__mem[adrMem]; break;
+		case  7: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache07A__DOT__mem[adrMem]; break;
+		case  8: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache08A__DOT__mem[adrMem]; break;
+		case  9: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache09A__DOT__mem[adrMem]; break;
+		case 10: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache10A__DOT__mem[adrMem]; break;
+		case 11: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache11A__DOT__mem[adrMem]; break;
+		case 12: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache12A__DOT__mem[adrMem]; break;
+		case 13: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache13A__DOT__mem[adrMem]; break;
+		case 14: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache14A__DOT__mem[adrMem]; break;
+		case 15: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15A__DOT__mem[adrMem]; break;
 		}
 	} else {
 		// Bank B for line even.
 		switch (x & 0xF) {
-		case  0: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache00B__DOT__mem[adrMem]; break;
-		case  1: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache01B__DOT__mem[adrMem]; break;
-		case  2: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache02B__DOT__mem[adrMem]; break;
-		case  3: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache03B__DOT__mem[adrMem]; break;
-		case  4: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache04B__DOT__mem[adrMem]; break;
-		case  5: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache05B__DOT__mem[adrMem]; break;
-		case  6: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache06B__DOT__mem[adrMem]; break;
-		case  7: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache07B__DOT__mem[adrMem]; break;
-		case  8: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache08B__DOT__mem[adrMem]; break;
-		case  9: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache09B__DOT__mem[adrMem]; break;
-		case 10: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache10B__DOT__mem[adrMem]; break;
-		case 11: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache11B__DOT__mem[adrMem]; break;
-		case 12: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache12B__DOT__mem[adrMem]; break;
-		case 13: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache13B__DOT__mem[adrMem]; break;
-		case 14: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache14B__DOT__mem[adrMem]; break;
-		case 15: valMem = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem[adrMem]; break;
+		case  0: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache00B__DOT__mem[adrMem]; break;
+		case  1: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache01B__DOT__mem[adrMem]; break;
+		case  2: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache02B__DOT__mem[adrMem]; break;
+		case  3: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache03B__DOT__mem[adrMem]; break;
+		case  4: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache04B__DOT__mem[adrMem]; break;
+		case  5: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache05B__DOT__mem[adrMem]; break;
+		case  6: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache06B__DOT__mem[adrMem]; break;
+		case  7: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache07B__DOT__mem[adrMem]; break;
+		case  8: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache08B__DOT__mem[adrMem]; break;
+		case  9: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache09B__DOT__mem[adrMem]; break;
+		case 10: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache10B__DOT__mem[adrMem]; break;
+		case 11: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache11B__DOT__mem[adrMem]; break;
+		case 12: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache12B__DOT__mem[adrMem]; break;
+		case 13: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache13B__DOT__mem[adrMem]; break;
+		case 14: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache14B__DOT__mem[adrMem]; break;
+		case 15: valMem = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem[adrMem]; break;
 		}
 	}
 
 	return (valMem&1) == 1;
 }
 
-void setStencil(Vgpu* mod, int x,int y, bool v) {
+void setStencil(VGPU_DDR* mod, int x,int y, bool v) {
 	int adrMem = 0;
 	unsigned char valMem = v ? 1 : 0;
 
@@ -91,89 +91,89 @@ void setStencil(Vgpu* mod, int x,int y, bool v) {
 	if (y & 1) {
 		// Bank A for line odd.
 		switch (x & 0xF) {
-		case  0: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem[adrMem] = valMem; break;
-		case  1: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem[adrMem] = valMem; break;
-		case  2: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem[adrMem] = valMem; break;
-		case  3: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache03A__DOT__mem[adrMem] = valMem; break;
-		case  4: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache04A__DOT__mem[adrMem] = valMem; break;
-		case  5: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache05A__DOT__mem[adrMem] = valMem; break;
-		case  6: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache06A__DOT__mem[adrMem] = valMem; break;
-		case  7: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache07A__DOT__mem[adrMem] = valMem; break;
-		case  8: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache08A__DOT__mem[adrMem] = valMem; break;
-		case  9: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache09A__DOT__mem[adrMem] = valMem; break;
-		case 10: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache10A__DOT__mem[adrMem] = valMem; break;
-		case 11: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache11A__DOT__mem[adrMem] = valMem; break;
-		case 12: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache12A__DOT__mem[adrMem] = valMem; break;
-		case 13: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache13A__DOT__mem[adrMem] = valMem; break;
-		case 14: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache14A__DOT__mem[adrMem] = valMem; break;
-		case 15: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache15A__DOT__mem[adrMem] = valMem; break;
+		case  0: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem[adrMem] = valMem; break;
+		case  1: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem[adrMem] = valMem; break;
+		case  2: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem[adrMem] = valMem; break;
+		case  3: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache03A__DOT__mem[adrMem] = valMem; break;
+		case  4: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache04A__DOT__mem[adrMem] = valMem; break;
+		case  5: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache05A__DOT__mem[adrMem] = valMem; break;
+		case  6: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache06A__DOT__mem[adrMem] = valMem; break;
+		case  7: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache07A__DOT__mem[adrMem] = valMem; break;
+		case  8: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache08A__DOT__mem[adrMem] = valMem; break;
+		case  9: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache09A__DOT__mem[adrMem] = valMem; break;
+		case 10: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache10A__DOT__mem[adrMem] = valMem; break;
+		case 11: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache11A__DOT__mem[adrMem] = valMem; break;
+		case 12: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache12A__DOT__mem[adrMem] = valMem; break;
+		case 13: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache13A__DOT__mem[adrMem] = valMem; break;
+		case 14: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache14A__DOT__mem[adrMem] = valMem; break;
+		case 15: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15A__DOT__mem[adrMem] = valMem; break;
 		}
 	} else {
 		// Bank B for line even.
 		switch (x & 0xF) {
-		case  0: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache00B__DOT__mem[adrMem] = valMem; break;
-		case  1: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache01B__DOT__mem[adrMem] = valMem; break;
-		case  2: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache02B__DOT__mem[adrMem] = valMem; break;
-		case  3: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache03B__DOT__mem[adrMem] = valMem; break;
-		case  4: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache04B__DOT__mem[adrMem] = valMem; break;
-		case  5: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache05B__DOT__mem[adrMem] = valMem; break;
-		case  6: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache06B__DOT__mem[adrMem] = valMem; break;
-		case  7: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache07B__DOT__mem[adrMem] = valMem; break;
-		case  8: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache08B__DOT__mem[adrMem] = valMem; break;
-		case  9: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache09B__DOT__mem[adrMem] = valMem; break;
-		case 10: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache10B__DOT__mem[adrMem] = valMem; break;
-		case 11: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache11B__DOT__mem[adrMem] = valMem; break;
-		case 12: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache12B__DOT__mem[adrMem] = valMem; break;
-		case 13: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache13B__DOT__mem[adrMem] = valMem; break;
-		case 14: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache14B__DOT__mem[adrMem] = valMem; break;
-		case 15: mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem[adrMem] = valMem; break;
+		case  0: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache00B__DOT__mem[adrMem] = valMem; break;
+		case  1: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache01B__DOT__mem[adrMem] = valMem; break;
+		case  2: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache02B__DOT__mem[adrMem] = valMem; break;
+		case  3: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache03B__DOT__mem[adrMem] = valMem; break;
+		case  4: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache04B__DOT__mem[adrMem] = valMem; break;
+		case  5: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache05B__DOT__mem[adrMem] = valMem; break;
+		case  6: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache06B__DOT__mem[adrMem] = valMem; break;
+		case  7: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache07B__DOT__mem[adrMem] = valMem; break;
+		case  8: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache08B__DOT__mem[adrMem] = valMem; break;
+		case  9: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache09B__DOT__mem[adrMem] = valMem; break;
+		case 10: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache10B__DOT__mem[adrMem] = valMem; break;
+		case 11: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache11B__DOT__mem[adrMem] = valMem; break;
+		case 12: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache12B__DOT__mem[adrMem] = valMem; break;
+		case 13: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache13B__DOT__mem[adrMem] = valMem; break;
+		case 14: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache14B__DOT__mem[adrMem] = valMem; break;
+		case 15: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem[adrMem] = valMem; break;
 		}
 	}
 }
 
-void backupFromStencil(Vgpu* mod, u8* refStencil) {
+void backupFromStencil(VGPU_DDR* mod, u8* refStencil) {
 	u8* pBuff= refStencil;
 	for (int n=0; n < 32; n++) {
 		u8* src = NULL;
 		if (!(n & 1)) {
 			// Bank A for line odd.
 			switch (n>>1) {
-			case  0: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem; break;
-			case  1: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem; break;
-			case  2: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem; break;
-			case  3: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache03A__DOT__mem; break;
-			case  4: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache04A__DOT__mem; break;
-			case  5: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache05A__DOT__mem; break;
-			case  6: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache06A__DOT__mem; break;
-			case  7: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache07A__DOT__mem; break;
-			case  8: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache08A__DOT__mem; break;
-			case  9: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache09A__DOT__mem; break;
-			case 10: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache10A__DOT__mem; break;
-			case 11: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache11A__DOT__mem; break;
-			case 12: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache12A__DOT__mem; break;
-			case 13: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache13A__DOT__mem; break;
-			case 14: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache14A__DOT__mem; break;
-			case 15: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache15A__DOT__mem; break;
+			case  0: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem; break;
+			case  1: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem; break;
+			case  2: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem; break;
+			case  3: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache03A__DOT__mem; break;
+			case  4: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache04A__DOT__mem; break;
+			case  5: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache05A__DOT__mem; break;
+			case  6: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache06A__DOT__mem; break;
+			case  7: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache07A__DOT__mem; break;
+			case  8: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache08A__DOT__mem; break;
+			case  9: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache09A__DOT__mem; break;
+			case 10: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache10A__DOT__mem; break;
+			case 11: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache11A__DOT__mem; break;
+			case 12: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache12A__DOT__mem; break;
+			case 13: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache13A__DOT__mem; break;
+			case 14: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache14A__DOT__mem; break;
+			case 15: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15A__DOT__mem; break;
 			}
 		} else {
 			// Bank B for line even.
 			switch (n>>1) {
-			case  0: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache00B__DOT__mem; break;
-			case  1: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache01B__DOT__mem; break;
-			case  2: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache02B__DOT__mem; break;
-			case  3: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache03B__DOT__mem; break;
-			case  4: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache04B__DOT__mem; break;
-			case  5: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache05B__DOT__mem; break;
-			case  6: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache06B__DOT__mem; break;
-			case  7: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache07B__DOT__mem; break;
-			case  8: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache08B__DOT__mem; break;
-			case  9: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache09B__DOT__mem; break;
-			case 10: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache10B__DOT__mem; break;
-			case 11: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache11B__DOT__mem; break;
-			case 12: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache12B__DOT__mem; break;
-			case 13: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache13B__DOT__mem; break;
-			case 14: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache14B__DOT__mem; break;
-			case 15: src = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem; break;
+			case  0: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache00B__DOT__mem; break;
+			case  1: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache01B__DOT__mem; break;
+			case  2: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache02B__DOT__mem; break;
+			case  3: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache03B__DOT__mem; break;
+			case  4: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache04B__DOT__mem; break;
+			case  5: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache05B__DOT__mem; break;
+			case  6: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache06B__DOT__mem; break;
+			case  7: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache07B__DOT__mem; break;
+			case  8: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache08B__DOT__mem; break;
+			case  9: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache09B__DOT__mem; break;
+			case 10: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache10B__DOT__mem; break;
+			case 11: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache11B__DOT__mem; break;
+			case 12: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache12B__DOT__mem; break;
+			case 13: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache13B__DOT__mem; break;
+			case 14: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache14B__DOT__mem; break;
+			case 15: src = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem; break;
 			}
 		}
 		memcpy(pBuff,src,16384);
@@ -181,49 +181,49 @@ void backupFromStencil(Vgpu* mod, u8* refStencil) {
 	}
 }
 
-void backupToStencil(Vgpu* mod, u8* refStencil) {
+void backupToStencil(VGPU_DDR* mod, u8* refStencil) {
 	u8* pBuff= refStencil;
 	for (int n=0; n < 32; n++) {
 		u8* dst = NULL;
 		if (!(n & 1)) {
 			// Bank A for line odd.
 			switch (n>>1) {
-			case  0: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem; break;
-			case  1: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem; break;
-			case  2: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem; break;
-			case  3: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache03A__DOT__mem; break;
-			case  4: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache04A__DOT__mem; break;
-			case  5: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache05A__DOT__mem; break;
-			case  6: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache06A__DOT__mem; break;
-			case  7: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache07A__DOT__mem; break;
-			case  8: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache08A__DOT__mem; break;
-			case  9: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache09A__DOT__mem; break;
-			case 10: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache10A__DOT__mem; break;
-			case 11: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache11A__DOT__mem; break;
-			case 12: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache12A__DOT__mem; break;
-			case 13: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache13A__DOT__mem; break;
-			case 14: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache14A__DOT__mem; break;
-			case 15: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache15A__DOT__mem; break;
+			case  0: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache00A__DOT__mem; break;
+			case  1: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache01A__DOT__mem; break;
+			case  2: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache02A__DOT__mem; break;
+			case  3: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache03A__DOT__mem; break;
+			case  4: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache04A__DOT__mem; break;
+			case  5: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache05A__DOT__mem; break;
+			case  6: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache06A__DOT__mem; break;
+			case  7: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache07A__DOT__mem; break;
+			case  8: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache08A__DOT__mem; break;
+			case  9: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache09A__DOT__mem; break;
+			case 10: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache10A__DOT__mem; break;
+			case 11: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache11A__DOT__mem; break;
+			case 12: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache12A__DOT__mem; break;
+			case 13: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache13A__DOT__mem; break;
+			case 14: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache14A__DOT__mem; break;
+			case 15: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15A__DOT__mem; break;
 			}
 		} else {
 			// Bank B for line even.
 			switch (n>>1) {
-			case  0: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache00B__DOT__mem; break;
-			case  1: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache01B__DOT__mem; break;
-			case  2: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache02B__DOT__mem; break;
-			case  3: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache03B__DOT__mem; break;
-			case  4: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache04B__DOT__mem; break;
-			case  5: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache05B__DOT__mem; break;
-			case  6: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache06B__DOT__mem; break;
-			case  7: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache07B__DOT__mem; break;
-			case  8: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache08B__DOT__mem; break;
-			case  9: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache09B__DOT__mem; break;
-			case 10: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache10B__DOT__mem; break;
-			case 11: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache11B__DOT__mem; break;
-			case 12: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache12B__DOT__mem; break;
-			case 13: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache13B__DOT__mem; break;
-			case 14: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache14B__DOT__mem; break;
-			case 15: dst = mod->gpu__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem; break;
+			case  0: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache00B__DOT__mem; break;
+			case  1: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache01B__DOT__mem; break;
+			case  2: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache02B__DOT__mem; break;
+			case  3: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache03B__DOT__mem; break;
+			case  4: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache04B__DOT__mem; break;
+			case  5: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache05B__DOT__mem; break;
+			case  6: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache06B__DOT__mem; break;
+			case  7: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache07B__DOT__mem; break;
+			case  8: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache08B__DOT__mem; break;
+			case  9: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache09B__DOT__mem; break;
+			case 10: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache10B__DOT__mem; break;
+			case 11: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache11B__DOT__mem; break;
+			case 12: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache12B__DOT__mem; break;
+			case 13: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache13B__DOT__mem; break;
+			case 14: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache14B__DOT__mem; break;
+			case 15: dst = mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem; break;
 			}
 		}
 		memcpy(dst,pBuff,16384);
@@ -231,7 +231,7 @@ void backupToStencil(Vgpu* mod, u8* refStencil) {
 	}
 }
 
-void loadImageRGB888ToVRAMAsMask(Vgpu* mod, const char* filename, unsigned char* target, int x, int y) {
+void loadImageRGB888ToVRAMAsMask(VGPU_DDR* mod, const char* filename, unsigned char* target, int x, int y) {
 	// Load PNG
 	int w,h,n;
 	unsigned char* src = stbi_load(filename, &w, &h, &n, 0);	
@@ -261,7 +261,7 @@ void loadImageRGB888ToVRAMAsMask(Vgpu* mod, const char* filename, unsigned char*
 	delete[] src;
 }
 
-void loadImageToVRAM(Vgpu* mod, const char* filename, u8* target, int x, int y, bool flagValue) {
+void loadImageToVRAM(VGPU_DDR* mod, const char* filename, u8* target, int x, int y, bool flagValue) {
 	// Load PNG
 	int w,h,n;
 	unsigned char* src = stbi_load(filename, &w, &h, &n, 0);
@@ -334,7 +334,7 @@ void loadImageToVRAMAsCommand(GPUCommandGen& commandGenerator, const char* fileN
 	delete[] src;
 }
 
-void dumpFrame(Vgpu* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask) {
+void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask) {
 	static bool first = true;
 	static unsigned char* font = NULL;
 	if (first) {

@@ -6,8 +6,8 @@
 
 #include "GPUCommandGen.h"
 
-class Vgpu;
-#include "../../../rtl/obj_dir/Vgpu.h"
+class VGPU_DDR;
+#include "../../../rtl/obj_dir/VGPU_DDR.h"
 
 // My own scanner to generate VCD file.
 #define VCSCANNER_IMPL
@@ -22,20 +22,20 @@ class Vgpu;
 #include "MiniFB.h"
 
 extern void loadImageToVRAMAsCommand(GPUCommandGen& commandGenerator, const char* fileName, int x, int y, bool imgDefaultFlag);
-extern void loadImageToVRAM(Vgpu* mod, const char* filename, u8* target, int x, int y, bool flagValue);
-extern void dumpFrame(Vgpu* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask);
-extern void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan);
+extern void loadImageToVRAM(VGPU_DDR* mod, const char* filename, u8* target, int x, int y, bool flagValue);
+extern void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask);
+extern void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan);
 extern void addEnumIntoScanner(VCScanner* pScan);
 extern void drawCheckedBoard(unsigned char* buffer);
-extern void backupFromStencil(Vgpu* mod, u8* refStencil);
-extern void backupToStencil(Vgpu* mod, u8* refStencil);
-extern bool ReadStencil(Vgpu* mod, int x, int y);
-extern void setStencil(Vgpu* mod, int x,int y, bool v);
+extern void backupFromStencil(VGPU_DDR* mod, u8* refStencil);
+extern void backupToStencil(VGPU_DDR* mod, u8* refStencil);
+extern bool ReadStencil(VGPU_DDR* mod, int x, int y);
+extern void setStencil(VGPU_DDR* mod, int x,int y, bool v);
 
 void Convert16To32(u8* buffer, u8* data);
 void commandDecoder(u32* pStream, u32 size, struct mfb_window* window);
 
-bool verifyStencilVRAM(Vgpu* mod, u16* buffer) {
+bool verifyStencilVRAM(VGPU_DDR* mod, u16* buffer) {
 	for (int y=0; y < 512; y++) {
 		for (int x=0; x < 1024; x++) {
 			bool stencil = ReadStencil(mod, x,y);
@@ -107,7 +107,7 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	bool useScan = true;
+	bool useScan = false;
 
 	const int   useScanRange			= false;
 	const int	scanStartCycle			= 30;
@@ -116,7 +116,7 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// Export Buffer as PNG ?
 	// ------------------------------------------------------------------
-	const bool  useScreenShot				= false;
+	const bool  useScreenShot				= true;
 	const bool useMaskDump					= false;
 	const int  startRange					= 300;
 	const int  endRange						= 400;
@@ -143,7 +143,7 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// [Instance of verilated GPU & custom VCD Generator]
 	// ------------------------------------------------------------------
-	Vgpu* mod		= new Vgpu();
+	VGPU_DDR* mod		= new VGPU_DDR();
 	VCScanner*	pScan = new VCScanner();
 				pScan->init(2000);
 
@@ -160,9 +160,18 @@ int main(int argcount, char** args)
 	mod->i_nrst = 1;
 
 	// Not busy by default...
-	mod->i_busy        = 0;
-	mod->i_dataInValid = 0;
-	for (int n=0; n < 8; n++) { mod->i_dataIn[n] = 0; }
+	mod->i_busyMem				        = 0;
+	mod->i_dataValidMem					= 0;
+	mod->i_dataMem						= 0;
+	// input			i_dataValidMem,
+	// input  [63:0]	i_dataMem
+	// input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
+	// output [16:0]	o_targetAddr,
+	// output [ 2:0]	o_burstLength,
+	// output			o_writeEnableMem,		//
+	// output			o_readEnableMem,		//
+	// output [63:0]	o_dataMem,
+	// output [7:0]	o_byteEnableMem,
 
 	/*	
 		I decided to setup the textures as GPU commands,
@@ -189,7 +198,7 @@ int main(int argcount, char** args)
 		COPY_TORAM
 	};
 
-	DEMO demo = COPY_TORAM;
+	DEMO demo = USE_AVOCADO_DATA;
 
 	if (demo == TEXTURE_TRUECOLOR_BLENDING) {
 		// Load Gradient128x64.png at [0,0] in VRAM as true color 1555 (bit 15 = 0).
@@ -322,6 +331,21 @@ int main(int argcount, char** args)
 	switch (demo) {
 	case NO_TEXTURE:
 	{
+		/*
+		commandGenerator.writeRaw(0x0200FFFF);
+		commandGenerator.writeRaw(0x00000000); // At 0,0
+		commandGenerator.writeRaw(0x00100010); // H:16,W:16
+		*/
+
+		commandGenerator.writeRaw(0x30FF0000);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x0000FF00);
+		commandGenerator.writeRaw(0x0000000F);
+		commandGenerator.writeRaw(0x000000FF);
+		commandGenerator.writeRaw(0x000F000F);
+
+
+		/*
 		commandGenerator.writeRaw(0x380000b2);
 		commandGenerator.writeRaw((192<<0) | (240<<16));
 		commandGenerator.writeRaw(0x00008cb2);
@@ -330,6 +354,7 @@ int main(int argcount, char** args)
 		commandGenerator.writeRaw((320<<0) | (368<<16));
 		commandGenerator.writeRaw(0x000000b2);
 		commandGenerator.writeRaw((448<<0) | (240<<16));
+		*/
 	}
 	break;
 	case TEXTURE_TRUECOLOR_BLENDING:
@@ -557,7 +582,7 @@ int main(int argcount, char** args)
 		break;
 	case USE_AVOCADO_DATA:
 	{
-		FILE* binSrc = fopen("W:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");
+		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\JumpingFlashMenu","rb");
 		// ----- Read VRAM
 		u16* buff16 = (u16*)buffer;
 		fread(buffer,sizeof(u16),1024*512,binSrc);
@@ -1188,30 +1213,44 @@ int main(int argcount, char** args)
 #endif
 
 	while ((waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
-		&& (stuckState < 2500)
+//		&& (stuckState < 2500)
 //		&& (clockCnt < 150000)
 	)
 	{
 		// By default consider stuck...
 		stuckState++;
 
+	mod->i_busyMem				        = 0;
+	mod->i_dataValidMem					= 0;
+	mod->i_dataMem						= 0;
+	// input			i_dataValidMem,
+	// input  [63:0]	i_dataMem
+	// input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
+	// output [16:0]	o_targetAddr,
+	// output [ 2:0]	o_burstLength,
+	// output			o_writeEnableMem,		//
+	// output			o_readEnableMem,		//
+	// output [63:0]	o_dataMem,
+	// output [7:0]	o_byteEnableMem,
+
+
 		if (log) {
 			// If some work is done, reset stuckState.
-			if (mod->gpu__DOT__currState     != prevCommandParseState) { 
-				VCMember* pCurrState = pScan->findMemberFullPath("gpu.currState");
-				printf("NEW STATE : %s\n", pCurrState->getEnum()[mod->gpu__DOT__currState].outputString);
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
+				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
+				printf("NEW STATE : %s\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString);
 	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
-				stuckState = 0; prevCommandParseState = mod->gpu__DOT__currState; 
+				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
 				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
-					printf("\t[%i] COMMAND : %x\n",currentCommandID,mod->gpu__DOT__command);
+					printf("\t[%i] COMMAND : %x\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command);
 					currentCommandID++;				// Increment current command ID.
 				}
 			}
-			if (mod->gpu__DOT__currWorkState != prevCommandWorkState)  {
-				VCMember* pCurrWorkState = pScan->findMemberFullPath("gpu.currWorkState");
-				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->gpu__DOT__currWorkState].outputString);
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState != prevCommandWorkState)  {
+				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
+				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
 	//			printf("\t[%i] NEW WORK STATE : %i\n",currentCommandID-1,mod->gpu__DOT__currWorkState);
-				/*stuckState = 0;*/ prevCommandWorkState = mod->gpu__DOT__currWorkState;  
+				/*stuckState = 0;*/ prevCommandWorkState = mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState;  
 			}
 		
 			//
@@ -1227,7 +1266,9 @@ int main(int argcount, char** args)
 			}
 		}
 
-		if (mod->gpu__DOT__currState == 0) {
+		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 && 
+			// Wait for Memory fifo to be empty...
+			(mod->GPU_DDR__DOT__gpu_inst__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__empty == 1)) {
 			waitCount++; 
 		} else {
 			waitCount = 0; 
@@ -1300,8 +1341,13 @@ int main(int argcount, char** args)
 		static bool isRead = false;
 		static int readAdr = 0;
 		static int readSize= 0;
+		enum ESTATE {
+			DEFAULT = 0,
+
+		};
 
 		if (busyCounter) {
+			/*
 			busyCounter--;
 			if (busyCounter == 1) {
 				mod->i_dataInValid = 1;
@@ -1324,14 +1370,106 @@ int main(int argcount, char** args)
 			}
 
 			mod->eval();
+			*/
 		}
 
-		// Request
-		if (mod->o_command == 1 && (mod->i_busy == 0)) {
+		/*
+			output [16:0]	o_targetAddr,				DDRAM_ADDR
+			output [ 2:0]	o_burstLength,				DDRAM_BURST_CNT (FIXED)
+			input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
+			output			o_writeEnableMem,		//
+			output			o_readEnableMem,		//
+			output [63:0]	o_dataMem,
+			output [7:0]	o_byteEnableMem,
+			input			i_dataValidMem,
+			input  [63:0]	i_dataMem
+
+		*/
+
+		// Write Request
+		// 
+		static bool beginTransaction = true;
+		static int  burstSize        = 0;
+		static int  burstAdr         = 0;
+
+		if (mod->o_writeEnableMem == 1 /* && (mod->i_busyMem == 0)*/) {
+			if (beginTransaction) {
+				burstSize = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				beginTransaction = false;
+			} else {
+				burstAdr  += 1;
+				burstSize--;
+				if (burstSize == 1) {
+					beginTransaction = true;
+				}
+			}
+
+			int baseAdr = burstAdr << 3;
+			if (baseAdr != (mod->o_targetAddr<<3)) {
+				printf("WRITE ERROR !\n");
+			}
+
+
+			int selPix = mod->o_byteEnableMem;
+
+			if (selPix &  1) { buffer[baseAdr  ] =  mod->o_dataMem      & 0xFF; }
+			if (selPix &  2) { buffer[baseAdr+1] = (mod->o_dataMem>> 8) & 0xFF; }
+			if (selPix &  4) { buffer[baseAdr+2] = (mod->o_dataMem>>16) & 0xFF; }
+			if (selPix &  8) { buffer[baseAdr+3] = (mod->o_dataMem>>24) & 0xFF; }
+
+			if (selPix & 16) { buffer[baseAdr+4] = (mod->o_dataMem>>32) & 0xFF; }
+			if (selPix & 32) { buffer[baseAdr+5] = (mod->o_dataMem>>40) & 0xFF; }
+			if (selPix & 64) { buffer[baseAdr+6] = (mod->o_dataMem>>48) & 0xFF; }
+			if (selPix &128) { buffer[baseAdr+7] = (mod->o_dataMem>>56) & 0xFF; }
+		}
+
+		// Override...
+		mod->i_dataValidMem = 0;
+		static bool transactionRead = false;
+		if (mod->o_readEnableMem == 1 || transactionRead/* && (mod->i_busyMem == 0)*/) {
+			if (!transactionRead) {
+				burstSize = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				transactionRead = true;
+			} else {
+				burstAdr  += 1;
+				burstSize--;
+				if (burstSize == 1) {
+					transactionRead = false;
+				}
+			}
+
+			int baseAdr = burstAdr << 3;
+			if (baseAdr != (mod->o_targetAddr<<3)) {
+				printf("READ ERROR !\n");
+			}
+
+			mod->i_dataValidMem = 1;
+
+			int selPix = mod->o_byteEnableMem;
+
+			u64 result = 0;
+
+			if (selPix &  1) { result |= ((u64)buffer[baseAdr+0])<<0;  }
+			if (selPix &  2) { result |= ((u64)buffer[baseAdr+1])<<8;  }
+			if (selPix &  4) { result |= ((u64)buffer[baseAdr+2])<<16; }
+			if (selPix &  8) { result |= ((u64)buffer[baseAdr+3])<<24; }
+
+			if (selPix & 16) { result |= ((u64)buffer[baseAdr+4])<<32; }
+			if (selPix & 32) { result |= ((u64)buffer[baseAdr+5])<<40; }
+			if (selPix & 64) { result |= ((u64)buffer[baseAdr+6])<<48; }
+			if (selPix &128) { result |= ((u64)buffer[baseAdr+7])<<56; }
+
+			mod->i_dataMem      = result;
+
+			mod->eval();
+		}
+			/*
 			// Can do busy stuff if needed...
 			int msk;
 			int baseAdr;
-			int sizeParam;
+			int sizeParam = 2; // 64 bit always.
 
 			switch (mod->o_commandSize) {
 			case 0:	// 8 Byte
@@ -1365,13 +1503,13 @@ int main(int argcount, char** args)
 				busyCounter = 0;
 			} else {
 				// Read command... gives back result in 3 cycles...
-				isRead = true;
-				mod->i_busy = 1;
-				readAdr   = baseAdr;
-				readSize  = sizeParam;
-				busyCounter = 4;
+				isRead			= true;
+				mod->i_busyMem	= 1;
+				readAdr			= baseAdr;
+				readSize		= sizeParam;
+				busyCounter		= 4;
 			}
-		}
+			*/
 
 		mod->clk    = 1;
 		mod->eval();
@@ -1379,21 +1517,20 @@ int main(int argcount, char** args)
 		// -----------------------------------------
 		//   [REGISTER SETUP OF GPU FROM BUS]
 		// -----------------------------------------
-		mod->write		= 0;
-		mod->gpuSel		= 0;
-		mod->gpuAdrA2	= 0;
-		mod->write		= 0;
-		mod->cpuDataIn	= 0;
+		mod->i_write		= 0;
+		mod->i_gpuSel		= 0;
+		mod->i_gpuAdrA2		= 0;
+		mod->i_cpuDataIn	= 0;
 
 		// Cheat... should read system register like any normal CPU...
-		if (!mod->dbg_canWrite) {
+		if (!mod->o_dbg_canWrite) {
 			// Push command inside the GPU as long as the GPU FIFO are not full
 			// and as long as we have command to push...
 			if (commandGenerator.stillHasCommand()) {
-				mod->gpuSel		= 1;
-				mod->gpuAdrA2	= 0;
-				mod->write		= 1;
-				mod->cpuDataIn	= commandGenerator.getRawCommand();
+				mod->i_gpuSel		= 1;
+				mod->i_gpuAdrA2		= 0;
+				mod->i_write		= 1;
+				mod->i_cpuDataIn	= commandGenerator.getRawCommand();
 				// printf("Send Command : %i\n",mod->cpuDataIn);
 			}
 		}
@@ -1411,12 +1548,12 @@ int main(int argcount, char** args)
 		if ((clockCnt>>1) % screenShotmoduloSpeed == 0 && useScreenShot) {
 //			if ((mod->mydebugCnt >= startRange) && (mod->mydebugCnt <= endRange)) {
 				static int frameCount = 0;
-				frameCount = mod->mydebugCnt;
+				frameCount = mod->o_mydebugCnt;
 				char strBuf[100];
 				sprintf_s(strBuf,100,"movie/output%i.png",frameCount);
 				char strBuf2[100];
 				sprintf_s(strBuf2,100,"movie/output%i_msk.png",frameCount);
-				dumpFrame(mod, strBuf,strBuf2,buffer,mod->mydebugCnt, useMaskDump);
+				dumpFrame(mod, strBuf,strBuf2,buffer,mod->o_mydebugCnt, useMaskDump);
 				frameCount++;
 //			}
 		}

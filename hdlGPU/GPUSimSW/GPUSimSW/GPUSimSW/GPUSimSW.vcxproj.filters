@@ -33,12 +33,6 @@
     <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\rtl\obj_dir\Vgpu.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\rtl\obj_dir\Vgpu__Syms.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="ConsoleApplication5.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -59,6 +53,12 @@
     </ClCompile>
     <ClCompile Include="MiniFB\WinMiniFB.c">
       <Filter>Source Files\MiniFB</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Syms.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

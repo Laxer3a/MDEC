@@ -99,6 +99,20 @@ assign	spikeBGBlock			= doBGWork & !lastsaveBGBlock;
 wire	isTexReq				= requTexCacheUpdateL  | requTexCacheUpdateR;
 // --------------------------------------------------------------
 
+
+// --------------------------------------------------------------
+//   COMMAND TYPE
+// --------------------------------------------------------------
+parameter   WAIT_CMD			= 3'd0,
+			READ_BG				= 3'd1,
+			READ_CLUT			= 3'd2,
+			READ_TEX_L			= 3'd3,
+			READ_TEX_R			= 3'd4,
+			WRITE_BG			= 3'd5,
+			READ_BG_START		= 3'd6,
+			READ_PIX2			= 3'd7;
+
+
 // COPY FROM gpu.sv
 parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
 			MEM_CMD_FILL		= 3'b010,
@@ -109,15 +123,22 @@ parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
 			MEM_CMD_NONE		= 3'b000;
 
 // ---------------------------------------
+wire fifoFULL;
+wire validRead;
+// ---------------------------------------
 //   write back to Tex$
 wire   isTexL,isTexR;
 wire [255:0] res_data;
 assign TexCacheData				= res_data[63:0];
 assign TexCacheWrite			= validRead & (isTexL|isTexR); // ACK down
+reg  [16:0] backupTexAdr;
 assign adrTexCacheWrite			= backupTexAdr; 		// Write happened when ACK to ZERO (after data
 assign updateTexCacheCompleteL	= validRead & isTexL;	// Normally was done 1 cycle sooner
 assign updateTexCacheCompleteR	= validRead & isTexR;	// Normally was done 1 cycle sooner
 // ---------------------------------------
+reg [2:0]   state;
+reg [2:0]   nextState;
+
 wire	isCLUT;
 reg [2:0] idxCnt;
 wire	lastCLUT				= (idxCnt==3'd7);
@@ -153,8 +174,6 @@ assign importBGBlockSingleClock			= (state == READ_BG) && validRead;
 assign importedBGBlock					= res_data;
 // ---------------------------------------
 
-wire fifoFULL;
-
 // FIFO CMD :
 //       Bit0=Write
 // DONE [000:READBG ][15 Bit Adr]----------------------
@@ -165,30 +184,17 @@ wire fifoFULL;
 // DONE [101:WRITBRT][15 Bit Adr]         [StencilRead] + writeBankOld + GPUREG_ForcePixel15 + GPU_Reg_CheckMaskBit + clearBank0 + clearBank1 + cpyIdx
 // DONE [110:READPR ][15 Bit Adr]         [--][3 bit:Adr][-----]
 // If FIFO FULL or waiting for read result => Consider locked by transaction.
-wire validRead;
 
 assign saveLoadOnGoing = fifoFULL | (state != WAIT_CMD);
 
 wire [16:0] adrTexRead = requTexCacheUpdateL ? adrTexCacheUpdateL : adrTexCacheUpdateR;
-reg  [16:0] backupTexAdr;
 
 // --------------------------------------------------
 // [CONVERT GPU COMMAND AND PACK INTO FIFO]
 // --------------------------------------------------
-parameter   WAIT_CMD			= 3'd0,
-			READ_BG				= 3'd1,
-			READ_CLUT			= 3'd2,
-			READ_TEX_L			= 3'd3,
-			READ_TEX_R			= 3'd4,
-			WRITE_BG			= 3'd5,
-			READ_BG_START		= 3'd6,
-			READ_PIX2			= 3'd7;
-
 // MEM SIDE
 parameter	READ_PAIR			= 3'b110;
 			
-reg [2:0]   state;
-reg [2:0]   nextState;
 
 assign isTexL    = (state     == READ_TEX_L);
 assign isTexR    = (state     == READ_TEX_R);

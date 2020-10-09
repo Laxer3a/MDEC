@@ -23,8 +23,6 @@ module CVCopyState(
 	output			o_wbSel
 );
 
-reg [7:0] dbg_stateCount;
-
 parameter	X_TRI_NEXT		= 3'd1,
 			X_ASIS			= 3'd0,
 			X_CV_START		= 3'd6;
@@ -85,7 +83,9 @@ reg [2:0] nextX;
 reg [2:0] nextY;
 assign o_nextX = nextX;
 assign o_nextY = nextY;
-assign o_pushNextCycle = pushNextCycle;
+
+wire goNextStep;
+wire sread;
 
 wire nextStateIsEnd	= (next     == END);
 wire currStateIsEnd	= (subState == END);
@@ -101,13 +101,11 @@ always @(posedge clk) begin
 		subState = END;
 //		readSet  = 1'b0;
 		pActive  = 1'b0;
-		dbg_stateCount = 8'd0;
 		reqRead	 = 1'b0;
 	end else begin
 		// READACK WILL ALWAYS BE ACCEPTED, BECAUSE WE ISSUE READ WHEN FIFO IS NOT FULL !
 		if (goNextStep) begin
 			subState = next;
-			dbg_stateCount = dbg_stateCount + 1'b1;
 		end
 	end
 	
@@ -170,15 +168,16 @@ wire isCurrentStateWriter	= ((ctrl != S1) && (ctrl != S3) && (!currStateIsEnd)) 
 // We can go to the next step when : 
 // - FIFO space is available for NEXT command result.
 // - That we received data for current command or do not need one. (control is S5)
-wire goNextStep				= (canPushI /* || (active && (!isCurrentStateWriter)) */) && ((ctrl == S5) || readACK || flagStart);
+assign goNextStep				= (canPushI /* || (active && (!isCurrentStateWriter)) */) && ((ctrl == S5) || readACK || flagStart);
 
 // Allow to push when transition (=receive data or no need to receive data)
 // Some state do NOT require to write data (S1 and S3), so we do not write in those case.
 // But in some special cases if S1 and S3 are the LAST executing state, we allow them to push the data (with garbage in it)
 wire pushNextCycle			= goNextStep && isCurrentStateWriter;
+assign o_pushNextCycle      = pushNextCycle;
 
 // EXCEPT that we ISSUE READ ONLY IF current command is NOT S5.
-wire sread					= (canPushI && ((pReadAck || reqRead) && (ctrl != S5)));
+assign sread				= (canPushI && ((pReadAck || reqRead) && (ctrl != S5)));
 assign read					= sread;
 
 assign o_aSelABDX = aSelABDX;
