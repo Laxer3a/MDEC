@@ -78,21 +78,22 @@ parameter	CMD_32BYTE		= 2'd1,
 	
 	
 	// --------------- State Machine ------------------
-	typedef enum logic[3:0] {
-		DEFAULT_STATE		=4'd0,
-		READ_STATE1         =4'd1,
-		READ_STATE2         =4'd2,
-		WRITE_STATE1        =4'd3,
-		WRITE_STATE2        =4'd4,
-		
-		UNDEF_STATE         =4'd7
+	typedef enum logic[2:0] {
+		DEFAULT_STATE		=3'd0,
+		READ_STATE1         =3'd1,
+		WRITE_STATE1        =3'd2,
+		WAIT_RECEIVE_READ   =3'd3
 	} state_t;
 	state_t currState, nextState;
 	always @(posedge i_clk) begin currState = (!i_nRst) ? DEFAULT_STATE : nextState; end
 	
+	reg   [1:0] blkCounterEmit;
+	reg   [1:0] blkCounterRecv;
 	
 	// On cycle 0, when PSX requst mem to DDR,
 	reg readSigDDR, writeSigDDR;
+	
+	wire lastRequest = blkCounterEmit==lastCounter;
 	
 	always @(*) begin
 		readSigDDR		= 1'b0;
@@ -107,51 +108,48 @@ parameter	CMD_32BYTE		= 2'd1,
 		default/*DEFAULT_STATE included*/: begin
 			if (i_command) begin
 				nextState	= i_writeElseRead ? WRITE_STATE1 : READ_STATE1;
-				readSigDDR	= !i_writeElseRead;
-				writeSigDDR	= i_writeElseRead;
+				// CANT DO readSigDDR => Adr not loaded YET !!!!
 			end
 		end
 		
 		// Continue to emit the READ SETUP for multiple clock until we get ACK by DDR.
 		READ_STATE1: begin
-			readSigDDR	= 1'b1;
-			if (i_busyMem == 0) begin nextState = READ_STATE2; end // change of state will deassert readSigDDR.
+			if (i_busyMem == 0) begin
+				readSigDDR	= 1; // Request Read when memory not busy.
+				if (lastRequest) begin nextState = WAIT_RECEIVE_READ; end
+			end
 		end
-		
-		// Now receiving READ RESULT
-		READ_STATE2: begin
-			if (i_dataValidMem && (blkCounter==lastCounter)) begin
+
+		WAIT_RECEIVE_READ: begin
+			if (i_dataValidMem && (blkCounterRecv==lastCounter)) begin
 				nextState = DEFAULT_STATE;
 			end
 		end
 		
+		
 		WRITE_STATE1: begin
-			writeSigDDR = 1'b1;
-			if (blkCounter==lastCounter) begin nextState = DEFAULT_STATE; end
+			if (i_busyMem == 0) begin
+				writeSigDDR = 1'b1;
+				if (lastRequest) begin nextState = DEFAULT_STATE; end
+			end
 		end
 
-		
 		endcase
 	end
 	
 	reg [255:0] dataInOut;
 	reg  [15:0] dataMask;
-	reg   [1:0] blkCounter;	// Block
 	reg         is32Bit;
 	reg         isUnAlign;
 	reg			isWrite;
 	reg	  [1:0] lastCounter;
-	
-	wire validREAD = i_dataValidMem && (currState == READ_STATE2);
-	wire validWRITE= (i_busyMem==0) && writeSigDDR;
-	
 	
 	reg [14:0] burstAdr;
 	reg  [2:0] burstAdrSub;
 	always @(posedge i_clk) begin
 	   if ( (nextState == WRITE_STATE1 || nextState == READ_STATE1) && currState==DEFAULT_STATE ) begin
 		 burstAdr    = i_targetAddr;
-		 burstAdrSub = i_subAddr; 
+		 burstAdrSub = i_subAddr;
 	   end
 	end
 
@@ -167,7 +165,7 @@ parameter	CMD_32BYTE		= 2'd1,
 		isWrite	  = i_command && i_writeElseRead;
 		
 		// Delay of one cycle when doing transition from end of read burst to next command.
-		dataToPSXValid = (currState == READ_STATE2) && (nextState == DEFAULT_STATE);
+		dataToPSXValid = (currState == WAIT_RECEIVE_READ) && (nextState == DEFAULT_STATE);
 		
 		if (isWrite) begin
 			dataInOut = i_dataClient;
@@ -187,8 +185,8 @@ parameter	CMD_32BYTE		= 2'd1,
 		end
 		
 		// Write to the correct section when we read data.
-		if (validREAD) begin
-			case (blkCounter)
+		if (i_dataValidMem) begin
+			case (blkCounterRecv)
 			// Handle the case of reformatting the data to 32 bit on an odd adr.
 			2'd0   : dataInOut[ 63:  0] = (is32Bit && isUnAlign) ? { 32'd0 , i_dataMem[63:32] } : i_dataMem;
 			2'd1   : dataInOut[127: 64] = i_dataMem;
@@ -204,16 +202,18 @@ parameter	CMD_32BYTE		= 2'd1,
 	always @(posedge i_clk)
 	begin
 		if (i_command) begin
-			blkCounter = 2'd0;
+			blkCounterEmit <= 2'd0;
+			blkCounterRecv <= 2'd0;
 
 			case (i_commandSize)
-			CMD_8BYTE : lastCounter = 2'd0;
-			CMD_32BYTE: lastCounter = 2'd3;
-			CMD_4BYTE : lastCounter = 2'd0;
-			default   : lastCounter = 2'd0;
+			CMD_8BYTE : lastCounter <= 2'd0;
+			CMD_32BYTE: lastCounter <= 2'd3;
+			CMD_4BYTE : lastCounter <= 2'd0;
+			default   : lastCounter <= 2'd0;
 			endcase
 		end else begin
-			blkCounter = blkCounter + { 1'b0 , (validREAD | validWRITE) }; 
+			blkCounterRecv <= blkCounterRecv + { 1'b0 , i_dataValidMem           }; // Increment when receive READ value.
+			blkCounterEmit <= blkCounterEmit + { 1'b0 , writeSigDDR | readSigDDR }; // Increment on READ/WRITE request. 
 		end
 	end
 
@@ -234,7 +234,7 @@ parameter	CMD_32BYTE		= 2'd1,
 	reg [63:0] dataOutDDR;
 	always @(*)
 	begin
-		case (blkCounter)
+		case (blkCounterEmit)
 		// Handle the case of reformatting the data to 32 bit on an odd adr.
 		2'd0   : dataOutDDR = dataInOut[ 63:  0];
 		2'd1   : dataOutDDR = dataInOut[127: 64];
@@ -247,19 +247,18 @@ parameter	CMD_32BYTE		= 2'd1,
 	// Used for a single cycle when start burst, so direct signals from PSX request.
 	// -------------------------------------------------------------------------------------
 
-	wire [1:0] lowPart			= burstAdrSub[2:1] + blkCounter;
+	wire [1:0] lowPart			= burstAdrSub[2:1] + blkCounterEmit;
 	assign o_targetAddr			= { burstAdr, lowPart };
 	
 	assign o_burstLength		= (i_commandSize == CMD_32BYTE) ? 3'd4 : 3'd1;
 	
-	assign o_readEnableMem		= readSigDDR;
-	//assign o_writeEnableMem		= writeSigDDR;
+	assign o_readEnableMem		= readSigDDR;	// Already set only in (currState==READ_STATE1)
 	assign o_writeEnableMem		= writeSigDDR && (currState==WRITE_STATE1);
 	
 	reg [7:0] mask;
 	always @(*)
 	begin
-		case (blkCounter)
+		case (blkCounterEmit)
 		// Handle the case of reformatting the data to 32 bit on an odd adr.
 		2'd0   : mask = { dataMask[ 3],dataMask[ 3],dataMask[ 2],dataMask[ 2],dataMask[ 1],dataMask[ 1],dataMask[ 0],dataMask[ 0] };
 		2'd1   : mask = { dataMask[ 7],dataMask[ 7],dataMask[ 6],dataMask[ 6],dataMask[ 5],dataMask[ 5],dataMask[ 4],dataMask[ 4] };

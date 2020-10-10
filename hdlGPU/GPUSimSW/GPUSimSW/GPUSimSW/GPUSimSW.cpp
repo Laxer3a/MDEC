@@ -120,10 +120,10 @@ int main(int argcount, char** args)
 	const bool useMaskDump					= false;
 	const int  startRange					= 300;
 	const int  endRange						= 400;
-	const int	screenShotmoduloSpeed		= 0xFFF; // 4096 cycles.
+	const int	screenShotmoduloSpeed		= 0xFFFF; // 65K cycles.
 
 	// Put background for debug.
-	const bool	useCheckedBoard				= false;
+	const bool	useCheckedBoard				= true;
 
 	// ------------------------------------------------------------------
 	// Fake VRAM PSX
@@ -145,7 +145,7 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	VGPU_DDR* mod		= new VGPU_DDR();
 	VCScanner*	pScan = new VCScanner();
-				pScan->init(2000);
+				pScan->init(4000);
 
 	registerVerilatedMemberIntoScanner(mod, pScan);
 	addEnumIntoScanner(pScan);
@@ -163,6 +163,10 @@ int main(int argcount, char** args)
 	mod->i_busyMem				        = 0;
 	mod->i_dataValidMem					= 0;
 	mod->i_dataMem						= 0;
+
+	mod->i_DIP_AllowDither = 1;
+	mod->i_DIP_ForceDither = 0;
+
 	// input			i_dataValidMem,
 	// input  [63:0]	i_dataMem
 	// input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
@@ -199,11 +203,16 @@ int main(int argcount, char** args)
 	};
 
 	DEMO demo = USE_AVOCADO_DATA;
+	// NO_TEXTURE;
 
 	if (demo == TEXTURE_TRUECOLOR_BLENDING) {
 		// Load Gradient128x64.png at [0,0] in VRAM as true color 1555 (bit 15 = 0).
 		// => Generate GPU upload stream. Will be used as TEXTURE SOURCE for TRUE COLOR TEXTURING.
-		loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,false);
+		loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,true);
+	}
+
+	if (demo == NO_TEXTURE) {
+		loadImageToVRAM(mod,"TileTest.png",buffer,0,0,true);
 	}
 
 	if (demo == COPY_CMD) {
@@ -331,19 +340,31 @@ int main(int argcount, char** args)
 	switch (demo) {
 	case NO_TEXTURE:
 	{
-		/*
+		// fill rect
 		commandGenerator.writeRaw(0x0200FFFF);
-		commandGenerator.writeRaw(0x00000000); // At 0,0
+		commandGenerator.writeRaw(0x00000010); // At 0,0
 		commandGenerator.writeRaw(0x00100010); // H:16,W:16
-		*/
 
+
+#if 1
+		// TRIANGLE
 		commandGenerator.writeRaw(0x30FF0000);
 		commandGenerator.writeRaw(0x00000000);
 		commandGenerator.writeRaw(0x0000FF00);
-		commandGenerator.writeRaw(0x0000000F);
+		commandGenerator.writeRaw(0x0000010F);
 		commandGenerator.writeRaw(0x000000FF);
-		commandGenerator.writeRaw(0x000F000F);
+		commandGenerator.writeRaw(0x010F010F);
+#endif
 
+		// TRIANGLE BLEND
+#if 0
+		commandGenerator.writeRaw(0x32FF0000);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x0000FF00);
+		commandGenerator.writeRaw(0x000000F0);
+		commandGenerator.writeRaw(0x000000FF);
+		commandGenerator.writeRaw(0x00F000F0);
+#endif
 
 		/*
 		commandGenerator.writeRaw(0x380000b2);
@@ -364,16 +385,16 @@ int main(int argcount, char** args)
 #if 1
 		commandGenerator.writeRaw(0x27AABBCC);						// Polygon, 3 pts, opaque, raw texture
 		// Vertex 1
-		commandGenerator.writeRaw(0x01100100);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
+		commandGenerator.writeRaw(0x00550050);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
 		commandGenerator.writeRaw(0xFFF30000);						// [31:16]Color LUT : NONE, value ignored
 																	// [15:8,7:0] Texture [0,0]
 		// Vertex 2
-		commandGenerator.writeRaw(0x00100180);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
+		commandGenerator.writeRaw(0x00050090);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
 		commandGenerator.writeRaw(((
 			0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11)			// [31:16] Texture at 0(4x64),0 ******4BPP******
 			)<<16 )                  | 0x001F);						// [15:8,7:0] Texture [1F,0]
 																	// Vertex 3
-		commandGenerator.writeRaw(0x01200230);						// [15:0] XCoordinate, [31:16] Y Coordinate
+		commandGenerator.writeRaw(0x00600115);						// [15:0] XCoordinate, [31:16] Y Coordinate
 		commandGenerator.writeRaw(0x00001F1F);						// Texture [1F,1F]
 #else
 		commandGenerator.writeRaw(0x30AABBCC);
@@ -582,7 +603,19 @@ int main(int argcount, char** args)
 		break;
 	case USE_AVOCADO_DATA:
 	{
-		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\JumpingFlashMenu","rb");
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");		// RECT TEXT FAIL
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerMenu","rb");		// FAIL EARLY
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerGame","rb");		// FAIL EARLY
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeScore","rb");			// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\StarOceanMenu","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Rectangles","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\MegamanInGame","rb");		// FAIL WEIRD ALL ALONG. (QUAD ?)
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman_Menu","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman1","rb");		// GOOD COMPLETE
+		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\JumpingFlashMenu","rb");		// GOOD COMPLETE
+		
+			
 		// ----- Read VRAM
 		u16* buff16 = (u16*)buffer;
 		fread(buffer,sizeof(u16),1024*512,binSrc);
@@ -1212,17 +1245,15 @@ int main(int argcount, char** args)
 		= true;
 #endif
 
-	while ((waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
+	while (
+//		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 //		&& (stuckState < 2500)
-//		&& (clockCnt < 150000)
+		(clockCnt < 900000)
 	)
 	{
 		// By default consider stuck...
 		stuckState++;
 
-	mod->i_busyMem				        = 0;
-	mod->i_dataValidMem					= 0;
-	mod->i_dataMem						= 0;
 	// input			i_dataValidMem,
 	// input  [63:0]	i_dataMem
 	// input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
@@ -1402,6 +1433,7 @@ int main(int argcount, char** args)
 				burstSize--;
 				if (burstSize == 1) {
 					beginTransaction = true;
+					burstSize = 0;
 				}
 			}
 
@@ -1425,46 +1457,6 @@ int main(int argcount, char** args)
 		}
 
 		// Override...
-		mod->i_dataValidMem = 0;
-		static bool transactionRead = false;
-		if (mod->o_readEnableMem == 1 || transactionRead/* && (mod->i_busyMem == 0)*/) {
-			if (!transactionRead) {
-				burstSize = mod->o_burstLength;
-				burstAdr   = mod->o_targetAddr;
-				transactionRead = true;
-			} else {
-				burstAdr  += 1;
-				burstSize--;
-				if (burstSize == 1) {
-					transactionRead = false;
-				}
-			}
-
-			int baseAdr = burstAdr << 3;
-			if (baseAdr != (mod->o_targetAddr<<3)) {
-				printf("READ ERROR !\n");
-			}
-
-			mod->i_dataValidMem = 1;
-
-			int selPix = mod->o_byteEnableMem;
-
-			u64 result = 0;
-
-			if (selPix &  1) { result |= ((u64)buffer[baseAdr+0])<<0;  }
-			if (selPix &  2) { result |= ((u64)buffer[baseAdr+1])<<8;  }
-			if (selPix &  4) { result |= ((u64)buffer[baseAdr+2])<<16; }
-			if (selPix &  8) { result |= ((u64)buffer[baseAdr+3])<<24; }
-
-			if (selPix & 16) { result |= ((u64)buffer[baseAdr+4])<<32; }
-			if (selPix & 32) { result |= ((u64)buffer[baseAdr+5])<<40; }
-			if (selPix & 64) { result |= ((u64)buffer[baseAdr+6])<<48; }
-			if (selPix &128) { result |= ((u64)buffer[baseAdr+7])<<56; }
-
-			mod->i_dataMem      = result;
-
-			mod->eval();
-		}
 			/*
 			// Can do busy stuff if needed...
 			int msk;
@@ -1513,6 +1505,54 @@ int main(int argcount, char** args)
 
 		mod->clk    = 1;
 		mod->eval();
+
+		static bool transactionRead = false;
+		if (transactionRead) {
+
+			//
+			// WARNING REUSE ADR SET AT CYCLE BEFORE
+			//
+			int	baseAdr = burstAdr<<3;
+
+			mod->i_dataValidMem = 1;
+
+			int selPix = mod->o_byteEnableMem;
+
+			u64 result = 0;
+
+			if (selPix &  1) { result |= ((u64)buffer[baseAdr+0])<<0;  }
+			if (selPix &  2) { result |= ((u64)buffer[baseAdr+1])<<8;  }
+			if (selPix &  4) { result |= ((u64)buffer[baseAdr+2])<<16; }
+			if (selPix &  8) { result |= ((u64)buffer[baseAdr+3])<<24; }
+
+			if (selPix & 16) { result |= ((u64)buffer[baseAdr+4])<<32; }
+			if (selPix & 32) { result |= ((u64)buffer[baseAdr+5])<<40; }
+			if (selPix & 64) { result |= ((u64)buffer[baseAdr+6])<<48; }
+			if (selPix &128) { result |= ((u64)buffer[baseAdr+7])<<56; }
+
+			mod->i_dataMem      = result;
+
+			mod->eval();
+			//
+			// INCREMENT FOR NEXT READ.
+			//
+			burstAdr  += 1;
+			burstSize--;
+			if (burstSize == 0) {
+				transactionRead = false;
+			}
+		} else {
+			mod->i_dataValidMem = 0;
+			mod->eval();
+		}
+
+		if (mod->o_readEnableMem == 1/* && (mod->i_busyMem == 0)*/) {
+			if (!transactionRead) {
+				burstSize = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				transactionRead = true;
+			}
+		}
 
 		// -----------------------------------------
 		//   [REGISTER SETUP OF GPU FROM BUS]
