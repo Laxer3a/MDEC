@@ -116,11 +116,11 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// Export Buffer as PNG ?
 	// ------------------------------------------------------------------
-	const bool  useScreenShot				= true;
+	const bool  useScreenShot				= false;
 	const bool useMaskDump					= false;
 	const int  startRange					= 300;
 	const int  endRange						= 400;
-	const int	screenShotmoduloSpeed		= 0xFFFF; // 65K cycles.
+	const int	screenShotmoduloSpeed		= 0x0FFF; // 65K cycles.
 
 	// Put background for debug.
 	const bool	useCheckedBoard				= true;
@@ -146,6 +146,15 @@ int main(int argcount, char** args)
 	VGPU_DDR* mod		= new VGPU_DDR();
 	VCScanner*	pScan = new VCScanner();
 				pScan->init(4000);
+
+	// ------------------ Register debug info into VCD ------------------
+	int currentCommandID      =  0;
+	u8 error = 0;
+
+	// Follow commands.
+	pScan->addMemberFullPath("COMMAND_ID", WIRE, BIN, 32, &currentCommandID, -1, 0);
+	pScan->addMemberFullPath("ERROR",      WIRE, BIN,  1, &error           , -1, 0);
+	// ------------------------------------------------------------------
 
 	registerVerilatedMemberIntoScanner(mod, pScan);
 	addEnumIntoScanner(pScan);
@@ -603,17 +612,17 @@ int main(int argcount, char** args)
 		break;
 	case USE_AVOCADO_DATA:
 	{
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");		// RECT TEXT FAIL
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");		// GLITCH TOP OF BOX.
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerMenu","rb");		// FAIL EARLY
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerGame","rb");		// FAIL EARLY
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeScore","rb");			// GOOD COMPLETE
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\StarOceanMenu","rb");		// GOOD COMPLETE
+		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\StarOceanMenu","rb");		// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");		// GOOD COMPLETE
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Rectangles","rb");		// GOOD COMPLETE
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\MegamanInGame","rb");		// FAIL WEIRD ALL ALONG. (QUAD ?)
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Rectangles","rb");			// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\MegamanInGame","rb");		// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman_Menu","rb");		// GOOD COMPLETE
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman1","rb");		// GOOD COMPLETE
-		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\JumpingFlashMenu","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman1","rb");			// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\JumpingFlashMenu","rb");	// GOOD COMPLETE
 		
 			
 		// ----- Read VRAM
@@ -697,20 +706,6 @@ int main(int argcount, char** args)
 						commandGenerator.writeRaw(operand);
 						if (isLine) {
 							printf("commandGenerator.writeRaw(0x%08x);\n",operand);
-							/*
-								GP0(50h) - Shaded line, opaque
-								GP0(52h) - Shaded line, semi-transparent
-								GP0(58h) - Shaded Poly-line, opaque
-								GP0(5Ah) - Shaded Poly-line, semi-transparent
-
-								  1st   Color1+Command    (CcBbGgRrh)
-								  2nd   Vertex1           (YyyyXxxxh)
-								  3rd   Color2            (00BbGgRrh)
-								  4th   Vertex2           (YyyyXxxxh)
-								 (...)  ColorN            (00BbGgRrh) (poly-line only)
-								 (...)  VertexN           (YyyyXxxxh) (poly-line only)
-								 (Last) Termination Code  (55555555h) (poly-line only)
-							*/
 							switch (lineCnt)
 							{
 							case 0:
@@ -1219,7 +1214,7 @@ int main(int argcount, char** args)
 	int stuckState = 0;
 	int prevCommandParseState = -1;
 	int prevCommandWorkState  = -1;
-	int currentCommandID      =  0;
+
 
 	bool NoHW = false;
 
@@ -1248,7 +1243,7 @@ int main(int argcount, char** args)
 	while (
 //		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 //		&& (stuckState < 2500)
-		(clockCnt < 900000)
+		(clockCnt < (140000*2))
 	)
 	{
 		// By default consider stuck...
@@ -1264,12 +1259,13 @@ int main(int argcount, char** args)
 	// output [63:0]	o_dataMem,
 	// output [7:0]	o_byteEnableMem,
 
+		bool savePic = false;
 
 		if (log) {
 			// If some work is done, reset stuckState.
 			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
 				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
-				printf("NEW STATE : %s\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString);
+				printf("NEW STATE : %s @%i (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString,clockCnt >> 1,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
 	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
 				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
 				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
@@ -1278,6 +1274,7 @@ int main(int argcount, char** args)
 				}
 			}
 			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState != prevCommandWorkState)  {
+				savePic = true;
 				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
 				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
 	//			printf("\t[%i] NEW WORK STATE : %i\n",currentCommandID-1,mod->gpu__DOT__currWorkState);
@@ -1417,45 +1414,6 @@ int main(int argcount, char** args)
 
 		*/
 
-		// Write Request
-		// 
-		static bool beginTransaction = true;
-		static int  burstSize        = 0;
-		static int  burstAdr         = 0;
-
-		if (mod->o_writeEnableMem == 1 /* && (mod->i_busyMem == 0)*/) {
-			if (beginTransaction) {
-				burstSize = mod->o_burstLength;
-				burstAdr   = mod->o_targetAddr;
-				beginTransaction = false;
-			} else {
-				burstAdr  += 1;
-				burstSize--;
-				if (burstSize == 1) {
-					beginTransaction = true;
-					burstSize = 0;
-				}
-			}
-
-			int baseAdr = burstAdr << 3;
-			if (baseAdr != (mod->o_targetAddr<<3)) {
-				printf("WRITE ERROR !\n");
-			}
-
-
-			int selPix = mod->o_byteEnableMem;
-
-			if (selPix &  1) { buffer[baseAdr  ] =  mod->o_dataMem      & 0xFF; }
-			if (selPix &  2) { buffer[baseAdr+1] = (mod->o_dataMem>> 8) & 0xFF; }
-			if (selPix &  4) { buffer[baseAdr+2] = (mod->o_dataMem>>16) & 0xFF; }
-			if (selPix &  8) { buffer[baseAdr+3] = (mod->o_dataMem>>24) & 0xFF; }
-
-			if (selPix & 16) { buffer[baseAdr+4] = (mod->o_dataMem>>32) & 0xFF; }
-			if (selPix & 32) { buffer[baseAdr+5] = (mod->o_dataMem>>40) & 0xFF; }
-			if (selPix & 64) { buffer[baseAdr+6] = (mod->o_dataMem>>48) & 0xFF; }
-			if (selPix &128) { buffer[baseAdr+7] = (mod->o_dataMem>>56) & 0xFF; }
-		}
-
 		// Override...
 			/*
 			// Can do busy stuff if needed...
@@ -1506,6 +1464,56 @@ int main(int argcount, char** args)
 		mod->clk    = 1;
 		mod->eval();
 
+		// Write Request
+		// 
+		static bool beginTransaction = true;
+		static int  burstSize        = 0;
+		static int  burstSizeRead    = 0;
+		static int  burstAdr         = 0;
+
+		if (mod->o_writeEnableMem == 1 /* && (mod->i_busyMem == 0)*/) {
+			if (beginTransaction) {
+				burstSize = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				if ((clockCnt>>1) > 130000) {
+//					printf("  START BURST [%i] @ burstAdr %08x @Cycle %i \n", burstSize, burstAdr<<3, clockCnt>>1);
+				}
+				beginTransaction = false;
+			} else {
+				burstAdr  += 1;
+				burstSize--;
+				if ((clockCnt>>1) > 100000) {
+//					printf("  NEXT  BURST [%i] @ burstAdr %08x @Cycle %i \n", burstSize, burstAdr<<3, clockCnt>>1);
+				}
+				if (burstSize == 1) {
+					beginTransaction = true;
+					burstSize = 0;
+				}
+			}
+
+			int baseAdr = burstAdr << 3;
+			if (baseAdr != (mod->o_targetAddr<<3)) {
+				printf("WRITE ERROR !\n");
+				error = 1;
+				// pScan->shutdown();
+			}
+
+
+			int selPix = mod->o_byteEnableMem;
+
+			if (selPix &  1) { buffer[baseAdr  ] =  mod->o_dataMem      & 0xFF; }
+			if (selPix &  2) { buffer[baseAdr+1] = (mod->o_dataMem>> 8) & 0xFF; }
+			if (selPix &  4) { buffer[baseAdr+2] = (mod->o_dataMem>>16) & 0xFF; }
+			if (selPix &  8) { buffer[baseAdr+3] = (mod->o_dataMem>>24) & 0xFF; }
+
+			if (selPix & 16) { buffer[baseAdr+4] = (mod->o_dataMem>>32) & 0xFF; }
+			if (selPix & 32) { buffer[baseAdr+5] = (mod->o_dataMem>>40) & 0xFF; }
+			if (selPix & 64) { buffer[baseAdr+6] = (mod->o_dataMem>>48) & 0xFF; }
+			if (selPix &128) { buffer[baseAdr+7] = (mod->o_dataMem>>56) & 0xFF; }
+		} else {
+			error = 0;
+		}
+
 		static bool transactionRead = false;
 		if (transactionRead) {
 
@@ -1537,8 +1545,8 @@ int main(int argcount, char** args)
 			// INCREMENT FOR NEXT READ.
 			//
 			burstAdr  += 1;
-			burstSize--;
-			if (burstSize == 0) {
+			burstSizeRead--;
+			if (burstSizeRead == 0) {
 				transactionRead = false;
 			}
 		} else {
@@ -1548,7 +1556,7 @@ int main(int argcount, char** args)
 
 		if (mod->o_readEnableMem == 1/* && (mod->i_busyMem == 0)*/) {
 			if (!transactionRead) {
-				burstSize = mod->o_burstLength;
+				burstSizeRead = mod->o_burstLength;
 				burstAdr   = mod->o_targetAddr;
 				transactionRead = true;
 			}
@@ -1576,16 +1584,16 @@ int main(int argcount, char** args)
 		}
 
 		if (useScan) {
-			if (!useScanRange || (useScanRange && ((clockCnt>>1) >= scanStartCycle) && ((clockCnt>>1) <= scanEndCycle))) {
+//			if (!useScanRange || (useScanRange && ((clockCnt>>1) >= scanStartCycle) && ((clockCnt>>1) <= scanEndCycle))) {
 				pScan->eval(clockCnt);
-			}
+//			}
 		}
 
 		// ----
 		// PNG SCREEN SHOT PER CYCLE IF NEEDED.
 		// ----
 		clockCnt++;
-		if ((clockCnt>>1) % screenShotmoduloSpeed == 0 && useScreenShot) {
+		if (((clockCnt>>1) % screenShotmoduloSpeed == 0 && useScreenShot) || savePic) {
 //			if ((mod->mydebugCnt >= startRange) && (mod->mydebugCnt <= endRange)) {
 				static int frameCount = 0;
 				frameCount = mod->o_mydebugCnt;

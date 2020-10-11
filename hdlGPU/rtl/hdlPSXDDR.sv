@@ -89,6 +89,7 @@ parameter	CMD_32BYTE		= 2'd1,
 	
 	reg   [1:0] blkCounterEmit;
 	reg   [1:0] blkCounterRecv;
+	reg   [1:0] regSize;
 	
 	// On cycle 0, when PSX requst mem to DDR,
 	reg readSigDDR, writeSigDDR;
@@ -204,7 +205,7 @@ parameter	CMD_32BYTE		= 2'd1,
 		if (i_command) begin
 			blkCounterEmit <= 2'd0;
 			blkCounterRecv <= 2'd0;
-
+			regSize		   <= i_commandSize;
 			case (i_commandSize)
 			CMD_8BYTE : lastCounter <= 2'd0;
 			CMD_32BYTE: lastCounter <= 2'd3;
@@ -250,7 +251,9 @@ parameter	CMD_32BYTE		= 2'd1,
 	wire [1:0] lowPart			= burstAdrSub[2:1] + blkCounterEmit;
 	assign o_targetAddr			= { burstAdr, lowPart };
 	
-	assign o_burstLength		= (i_commandSize == CMD_32BYTE) ? 3'd4 : 3'd1;
+	// TRICK TO KEEP SIZE THE SAME AT THE CYCLE WE RECEIVE THE COMMAND AND DURING THE TRANSACTION.
+	wire [1:0] size             = (currState == DEFAULT_STATE) ? i_commandSize : regSize;
+	assign o_burstLength		= (size == CMD_32BYTE) ? 3'd4 : 3'd1;
 	
 	assign o_readEnableMem		= readSigDDR;	// Already set only in (currState==READ_STATE1)
 	assign o_writeEnableMem		= writeSigDDR && (currState==WRITE_STATE1);
