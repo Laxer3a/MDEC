@@ -698,8 +698,8 @@ begin
                                             , 1'dx
                                             };
     // CPU 2 VRAM : [16,16,2,15,...]
-    MEM_CMD_PIXEL2VRAM:    parameters = 	{ { WRPixelL15 , LPixel[14:0] }									// [55:40] LEFT PIXEL
-                                            , { WRPixelR15 , RPixel[14:0] }									// [39:24] RIGHT PIXEL !!!! (REVERSED CONVENTION !!!)
+    MEM_CMD_PIXEL2VRAM:    parameters = 	{ { WRPixelR15 , RPixel[14:0] }									// [55:40] RIGHT PIXEL
+                                            , { WRPixelL15 , LPixel[14:0] }									// [39:24] LEFT PIXEL
                                             , cmd1ValidR, cmd1ValidL										// [23:22]
                                             , { scrY[8:0], pixelX[9:4] }									// [21: 7]
                                             , pixelX[3:1]													// [ 6: 4]
@@ -3363,8 +3363,8 @@ wire signed [PREC+8:0] roundComp = { 9'd0, 1'b1, 10'd0}; // PRECM1'd0
 wire signed [PREC+8:0] offR = (distXV0*RSX) + (distYV0*RSY) + roundComp;
 wire signed [PREC+8:0] offG = (distXV0*GSX) + (distYV0*GSY) + roundComp;
 wire signed [PREC+8:0] offB = (distXV0*BSX) + (distYV0*BSY) + roundComp;
-wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) /* + roundComp*/;
-wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) /* + roundComp*/;
+wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) + roundComp;
+wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) + roundComp;
 
 wire signed [8:0] pixRL = RegR0 + offR[PREC+8:PREC]; // TODO Here ?
 wire signed [8:0] pixGL = RegG0 + offG[PREC+8:PREC];
