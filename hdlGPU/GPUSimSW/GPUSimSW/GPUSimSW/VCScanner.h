@@ -87,8 +87,8 @@ public:
 	bool init		(int maxmemberCount);
 	void shutdown	();
 
-	bool addMember			(const char* name, VCTYPE typeMember, VCFORMAT formatMember, int width, void* memoryLocation, int depth = -1, int strideDepth = 0);
-	bool addMemberFullPath	(const char* name, VCTYPE typeMember, VCFORMAT formatMember, int width, void* memoryLocation, int depth = -1, int strideDepth = 0);
+	bool addMember				(const char* name, VCTYPE typeMember, VCFORMAT formatMember, int width, void* memoryLocation, int depth = -1, int strideDepth = 0);
+	bool addMemberFullPath		(const char* name, VCTYPE typeMember, VCFORMAT formatMember, int width, void* memoryLocation, int depth = -1, int strideDepth = 0);
 	VCMember*	findMemberFullPath(const char* name);
 	
 	bool pushOwner	(const char* name);
@@ -481,7 +481,8 @@ bool VCScanner::addMember	(const char* name, VCTYPE typeMember, VCFORMAT formatM
 			VCAssert(width <= (64*32), "BIGGER THAN 64*32 BIT NOT SUPPORTED"); // Not yet supported.
 
 			alloc->sizeBit	= width;
-			alloc->sizeByte	= closestPow2((width + 7) >> 3);
+			int byteSize = (width + 7) >> 3;
+			alloc->sizeByte	= ((byteSize + 3)>>2)<<2; // rounded to 32 bit block.
 			alloc->depth    = depth;
 
 			alloc->format	= formatMember;

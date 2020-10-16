@@ -6,8 +6,8 @@
 
 #include "GPUCommandGen.h"
 
-class Vgpu;
-#include "../../../rtl/obj_dir/Vgpu.h"
+class VGPU_DDR;
+#include "../../../rtl/obj_dir/VGPU_DDR.h"
 
 // My own scanner to generate VCD file.
 #define VCSCANNER_IMPL
@@ -22,20 +22,20 @@ class Vgpu;
 #include "MiniFB.h"
 
 extern void loadImageToVRAMAsCommand(GPUCommandGen& commandGenerator, const char* fileName, int x, int y, bool imgDefaultFlag);
-extern void loadImageToVRAM(Vgpu* mod, const char* filename, u8* target, int x, int y, bool flagValue);
-extern void dumpFrame(Vgpu* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask);
-extern void registerVerilatedMemberIntoScanner(Vgpu* mod, VCScanner* pScan);
+extern void loadImageToVRAM(VGPU_DDR* mod, const char* filename, u8* target, int x, int y, bool flagValue);
+extern void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask);
+extern void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan);
 extern void addEnumIntoScanner(VCScanner* pScan);
 extern void drawCheckedBoard(unsigned char* buffer);
-extern void backupFromStencil(Vgpu* mod, u8* refStencil);
-extern void backupToStencil(Vgpu* mod, u8* refStencil);
-extern bool ReadStencil(Vgpu* mod, int x, int y);
-extern void setStencil(Vgpu* mod, int x,int y, bool v);
+extern void backupFromStencil(VGPU_DDR* mod, u8* refStencil);
+extern void backupToStencil(VGPU_DDR* mod, u8* refStencil);
+extern bool ReadStencil(VGPU_DDR* mod, int x, int y);
+extern void setStencil(VGPU_DDR* mod, int x,int y, bool v);
 
 void Convert16To32(u8* buffer, u8* data);
 void commandDecoder(u32* pStream, u32 size, struct mfb_window* window);
 
-bool verifyStencilVRAM(Vgpu* mod, u16* buffer) {
+bool verifyStencilVRAM(VGPU_DDR* mod, u16* buffer) {
 	for (int y=0; y < 512; y++) {
 		for (int x=0; x < 1024; x++) {
 			bool stencil = ReadStencil(mod, x,y);
@@ -120,7 +120,7 @@ int main(int argcount, char** args)
 	const bool useMaskDump					= false;
 	const int  startRange					= 300;
 	const int  endRange						= 400;
-	const int	screenShotmoduloSpeed		= 0xFFF; // 4096 cycles.
+	const int	screenShotmoduloSpeed		= 0x0FFF; // 65K cycles.
 
 	// Put background for debug.
 	const bool	useCheckedBoard				= false;
@@ -143,9 +143,18 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// [Instance of verilated GPU & custom VCD Generator]
 	// ------------------------------------------------------------------
-	Vgpu* mod		= new Vgpu();
+	VGPU_DDR* mod		= new VGPU_DDR();
 	VCScanner*	pScan = new VCScanner();
-				pScan->init(2000);
+				pScan->init(4000);
+
+	// ------------------ Register debug info into VCD ------------------
+	int currentCommandID      =  0;
+	u8 error = 0;
+
+	// Follow commands.
+	pScan->addMemberFullPath("COMMAND_ID", WIRE, BIN, 32, &currentCommandID, -1, 0);
+	pScan->addMemberFullPath("ERROR",      WIRE, BIN,  1, &error           , -1, 0);
+	// ------------------------------------------------------------------
 
 	registerVerilatedMemberIntoScanner(mod, pScan);
 	addEnumIntoScanner(pScan);
@@ -159,6 +168,24 @@ int main(int argcount, char** args)
 	}
 	mod->i_nrst = 1;
 
+	// Not busy by default...
+	mod->i_busyMem				        = 0;
+	mod->i_dataValidMem					= 0;
+	mod->i_dataMem						= 0;
+
+	mod->i_DIP_AllowDither = 1;
+	mod->i_DIP_ForceDither = 0;
+
+	// input			i_dataValidMem,
+	// input  [63:0]	i_dataMem
+	// input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
+	// output [16:0]	o_targetAddr,
+	// output [ 2:0]	o_burstLength,
+	// output			o_writeEnableMem,		//
+	// output			o_readEnableMem,		//
+	// output [63:0]	o_dataMem,
+	// output [7:0]	o_byteEnableMem,
+
 	/*	
 		I decided to setup the textures as GPU commands,
 		this will allow you to extract the information more easily for simulation on another platform.
@@ -168,9 +195,10 @@ int main(int argcount, char** args)
 	GPUCommandGen	commandGenerator;
 
 	if (useScan) {
-		pScan->addPlugin(new ValueChangeDump_Plugin("gpuLog2.vcd"));
+		pScan->addPlugin(new ValueChangeDump_Plugin("gpuLogFat.vcd"));
 	}
 
+#if 1
 	enum DEMO {
 		NO_TEXTURE,
 		TEXTURE_TRUECOLOR_BLENDING,
@@ -180,19 +208,24 @@ int main(int argcount, char** args)
 		USE_AVOCADO_DATA,
 		PALETTE_FAIL_LATEST,
 		POLY_FAIL,
+		COPY_TORAM
 	};
 
-	DEMO demo = USE_AVOCADO_DATA;
+	DEMO demo = TEXTURE_TRUECOLOR_BLENDING; // NO_TEXTURE; // USE_AVOCADO_DATA;
+	// ;
 
 	if (demo == TEXTURE_TRUECOLOR_BLENDING) {
 		// Load Gradient128x64.png at [0,0] in VRAM as true color 1555 (bit 15 = 0).
 		// => Generate GPU upload stream. Will be used as TEXTURE SOURCE for TRUE COLOR TEXTURING.
-		// loadImageToVRAMAsCommand(commandGenerator,"Gradient128x64.png",0,0,false);
-		loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,false);
+		// loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,true);
+	}
+
+	if (demo == NO_TEXTURE) {
+		// loadImageToVRAM(mod,"TileTest.png",buffer,0,0,true);
 	}
 
 	if (demo == COPY_CMD) {
-		loadImageToVRAM(mod,"BG.png",buffer,0,0,true);
+		loadImageToVRAM(mod,"Airship.png",buffer,0,0,true);
 		memcpy(refBuffer,buffer,1024*1024);
 		backupFromStencil(mod,refStencil);
 
@@ -316,6 +349,33 @@ int main(int argcount, char** args)
 	switch (demo) {
 	case NO_TEXTURE:
 	{
+		// fill rect
+//		commandGenerator.writeRaw(0x0200FFFF);
+//		commandGenerator.writeRaw(0x00000010); // At 0,0
+//		commandGenerator.writeRaw(0x00100010); // H:16,W:16
+
+
+#if 1
+		// TRIANGLE
+		commandGenerator.writeRaw(0x30FF0000);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x0000FF00);
+		commandGenerator.writeRaw(0x0000000F);
+		commandGenerator.writeRaw(0x000000FF);
+		commandGenerator.writeRaw(0x000F0000);
+#endif
+
+		// TRIANGLE BLEND
+#if 0
+		commandGenerator.writeRaw(0x32FF0000);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x0000FF00);
+		commandGenerator.writeRaw(0x000000F0);
+		commandGenerator.writeRaw(0x000000FF);
+		commandGenerator.writeRaw(0x00F000F0);
+#endif
+
+		/*
 		commandGenerator.writeRaw(0x380000b2);
 		commandGenerator.writeRaw((192<<0) | (240<<16));
 		commandGenerator.writeRaw(0x00008cb2);
@@ -324,26 +384,56 @@ int main(int argcount, char** args)
 		commandGenerator.writeRaw((320<<0) | (368<<16));
 		commandGenerator.writeRaw(0x000000b2);
 		commandGenerator.writeRaw((448<<0) | (240<<16));
+		*/
 	}
 	break;
 	case TEXTURE_TRUECOLOR_BLENDING:
 	{
-		commandGenerator.writeRaw(0xE6000001);						// Set Bit mask, no check.
+		commandGenerator.writeRaw(0xE6000000);						// Set Bit mask, no check.
 
 #if 1
-		commandGenerator.writeRaw(0x27AABBCC);						// Polygon, 3 pts, opaque, raw texture
+		/*
+		commandGenerator.writeRaw(0x7FFF001F); // 01
+		commandGenerator.writeRaw(0x7C007C1F); // 23
+		commandGenerator.writeRaw(0x000003E0); // 45
+		commandGenerator.writeRaw(0x03E07C00); // 67
+		commandGenerator.writeRaw(0x7FFF0000); // 89
+		commandGenerator.writeRaw(0x03E07FFF); // AB
+		commandGenerator.writeRaw(0x7FFF0000); // CD
+		commandGenerator.writeRaw(0x00007C00); // EF
+		*/
+		
+		// 4x4 pixel texture upload.
+		commandGenerator.writeRaw(0xA0000000); // Copy rect from CPU to VRAM
+		commandGenerator.writeRaw(0x00000000); // to 0,0
+		commandGenerator.writeRaw(0x00040004); // Size 4,4
+
+		commandGenerator.writeRaw(0xFC00801F); // 01
+		commandGenerator.writeRaw(0x8000FFFF); // 23
+
+		commandGenerator.writeRaw(0xFC1FFFFF); // 45
+		commandGenerator.writeRaw(0x8000FFFF); // 67
+
+		commandGenerator.writeRaw(0xFFFFFFFF); // 89
+		commandGenerator.writeRaw(0xFFF0FFF0); // AB
+
+		commandGenerator.writeRaw(0xFFFFFFFF); // CD
+		commandGenerator.writeRaw(0xFFF1FFF1); // EF
+
+		//---------------
+		//   Tri, textured
+		//---------------
+		commandGenerator.writeRaw(0x25AABBCC);                        // Polygon, 3 pts, opaque, raw texture
 		// Vertex 1
-		commandGenerator.writeRaw(0x01100100);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
-		commandGenerator.writeRaw(0xFFF30000);						// [31:16]Color LUT : NONE, value ignored
-																	// [15:8,7:0] Texture [0,0]
+		commandGenerator.writeRaw(0x00550050);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
+		commandGenerator.writeRaw(0xFFF30000);                        // [31:16]Color LUT : NONE, value ignored
+																// [15:8,7:0] Texture [0,0]
 		// Vertex 2
-		commandGenerator.writeRaw(0x00100180);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
-		commandGenerator.writeRaw(((
-			0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11)			// [31:16] Texture at 0(4x64),0 ******4BPP******
-			)<<16 )                  | 0x001F);						// [15:8,7:0] Texture [1F,0]
-																	// Vertex 3
-		commandGenerator.writeRaw(0x01200230);						// [15:0] XCoordinate, [31:16] Y Coordinate
-		commandGenerator.writeRaw(0x00001F1F);						// Texture [1F,1F]
+		commandGenerator.writeRaw(0x00050090);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
+		commandGenerator.writeRaw((( 0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11) )<<16 ) | 0x0004);                        // [15:8,7:0] Texture [4,0]
+		// Vertex 3
+		commandGenerator.writeRaw(0x00800155);                        // [15:0] XCoordinate, [31:16] Y Coordinate
+		commandGenerator.writeRaw(0x00000404);                        // Texture [4,4]
 #else
 		commandGenerator.writeRaw(0x30AABBCC);
 		commandGenerator.writeRaw(0x01100100);
@@ -551,7 +641,19 @@ int main(int argcount, char** args)
 		break;
 	case USE_AVOCADO_DATA:
 	{
-		FILE* binSrc = fopen("W:\\JPSX\\Avocado\\FF7Station2","rb");
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");		// GLITCH TOP OF BOX.
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerMenu","rb");		// FAIL EARLY
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerGame","rb");		// FAIL EARLY
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeScore","rb");			// GOOD COMPLETE
+		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\StarOceanMenu","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Rectangles","rb");			// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\MegamanInGame","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman_Menu","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman1","rb");			// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\JumpingFlashMenu","rb");	// GOOD COMPLETE
+		
+			
 		// ----- Read VRAM
 		u16* buff16 = (u16*)buffer;
 		fread(buffer,sizeof(u16),1024*512,binSrc);
@@ -633,20 +735,6 @@ int main(int argcount, char** args)
 						commandGenerator.writeRaw(operand);
 						if (isLine) {
 							printf("commandGenerator.writeRaw(0x%08x);\n",operand);
-							/*
-								GP0(50h) - Shaded line, opaque
-								GP0(52h) - Shaded line, semi-transparent
-								GP0(58h) - Shaded Poly-line, opaque
-								GP0(5Ah) - Shaded Poly-line, semi-transparent
-
-								  1st   Color1+Command    (CcBbGgRrh)
-								  2nd   Vertex1           (YyyyXxxxh)
-								  3rd   Color2            (00BbGgRrh)
-								  4th   Vertex2           (YyyyXxxxh)
-								 (...)  ColorN            (00BbGgRrh) (poly-line only)
-								 (...)  VertexN           (YyyyXxxxh) (poly-line only)
-								 (Last) Termination Code  (55555555h) (poly-line only)
-							*/
 							switch (lineCnt)
 							{
 							case 0:
@@ -683,6 +771,15 @@ int main(int argcount, char** args)
 			}
 
 		}
+
+		/*
+		commandGenerator.resetBuffer();
+		commandGenerator.writeRaw(0xE100000E);
+		commandGenerator.writeRaw(0x64808080);
+		commandGenerator.writeRaw(0x017a00dc);
+		commandGenerator.writeRaw(0x78100000);
+		commandGenerator.writeRaw(0x002c00c8);
+		*/
 
 		fclose(binSrc);
 
@@ -928,8 +1025,29 @@ int main(int argcount, char** args)
 
 	}
 	break;
+	case COPY_TORAM:
+		{
+			u8* target = buffer;
+			// Transform each pixel RGB888 into a single bit.
+			for (int py=0; py < 512; py++) {
+				for (int px=0; px < 1024; px++) {
+					int baseDst = ((px+py*1024)*2);
+					target[baseDst  ]  = px;
+					target[baseDst+1]  = py;
+				}
+			}
+		}
+
+		commandGenerator.writeRaw(0xC0000000);
+		commandGenerator.writeRaw((0)|(0<<16));
+		commandGenerator.writeRaw((2<<16) | 4); // W=4,H=2
+	break;
 	case COPY_CMD:
 	{
+		commandGenerator.writeRaw(0x80000000);
+		commandGenerator.writeRaw((256)|(256<<16));
+		commandGenerator.writeRaw(( 64)|( 64<<16));
+		commandGenerator.writeRaw((16<<16) | 16); // W=16,H=16
 #if 0
 		int from =  3;
 //		int to   = 12;
@@ -982,6 +1100,76 @@ int main(int argcount, char** args)
 	}
 	
 	commandGenerator.writeRaw(0); // NOP
+#endif
+
+#if 0
+	// FILL TEST
+	commandGenerator.writeRaw(0x028000FF); // Red + Half Blue
+	commandGenerator.writeRaw(0x00000000); // 0,0
+	commandGenerator.writeRaw(0x00100010); // 16,16
+#endif
+
+#if 0
+	// RECT FILL TEST
+	commandGenerator.writeRaw(0x6000FF00); // Green, Rect (Variable Size)
+	commandGenerator.writeRaw(0x00080008); // [8,8]
+	commandGenerator.writeRaw(0x00100010); // 16x16
+#endif
+
+#if 0
+	// GENERIC POLYGON FILL
+	commandGenerator.writeRaw(0x380000b2);
+	commandGenerator.writeRaw((192<<0) | (240<<16));
+	commandGenerator.writeRaw(0x00008cb2);
+	commandGenerator.writeRaw((320<<0) | (112<<16));
+	commandGenerator.writeRaw(0x00008cb2);
+	commandGenerator.writeRaw((320<<0) | (368<<16));
+	commandGenerator.writeRaw(0x000000b2);
+	commandGenerator.writeRaw((448<<0) | (240<<16));
+#endif
+
+#if 0
+// GP0(40h) - Monochrome line, opaque
+// GP0(42h) - Monochrome line, semi-transparent
+	commandGenerator.writeRaw(0x4000FFFF);
+	commandGenerator.writeRaw(0x00000000);
+	commandGenerator.writeRaw(0x00100010);
+
+	commandGenerator.writeRaw(0x40FF0000);
+	commandGenerator.writeRaw(0x00000000);
+	commandGenerator.writeRaw(0x00400010);
+#endif
+
+#if 0
+	// Test CPU->VRAM
+	loadImageToVRAMAsCommand(commandGenerator,"Gradient128x64.png",0,0,false);
+#endif
+
+#if 0
+	//
+	// TEXTURED POLYGON
+	//
+	loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,false);
+	commandGenerator.writeRaw(0x24FFFFFF);						// Polygon, 3 pts, opaque, raw texture
+	// Vertex 1
+	commandGenerator.writeRaw(0x01100100);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
+	commandGenerator.writeRaw(0xFFF30000);						// [31:16]Color LUT : NONE, value ignored
+																// [15:8,7:0] Texture [0,0]
+	// Vertex 2
+	commandGenerator.writeRaw(0x00100180);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
+	commandGenerator.writeRaw(((
+		0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11)			// [31:16] Texture at 0(4x64),0 ******4BPP******
+		)<<16 )                  | 0x001F);						// [15:8,7:0] Texture [1F,0]
+																// Vertex 3
+	commandGenerator.writeRaw(0x01200230);						// [15:0] XCoordinate, [31:16] Y Coordinate
+	commandGenerator.writeRaw(0x00001F1F);						// Texture [1F,1F]
+#endif
+
+#if 0
+	//commandGenerator.writeRaw(0xE100000F);
+
+	
+#endif
 
 	// prepairListOfGPUCommands(0); // Simple Polygon, no texture, no alpha blending.
 	// prepairListOfGPUCommands(1);	// Simple Polygon, true color texture, no alpha blending.
@@ -1055,7 +1243,7 @@ int main(int argcount, char** args)
 	int stuckState = 0;
 	int prevCommandParseState = -1;
 	int prevCommandWorkState  = -1;
-	int currentCommandID      =  0;
+
 
 	bool NoHW = false;
 
@@ -1081,31 +1269,45 @@ int main(int argcount, char** args)
 		= true;
 #endif
 
-	while ((waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
-		&& (stuckState < 50000)
-//		&& (clockCnt < 150000)
+	while (
+//		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
+//		&& (stuckState < 2500)
+		(clockCnt < (200000))
 	)
 	{
 		// By default consider stuck...
 		stuckState++;
 
+	// input			i_dataValidMem,
+	// input  [63:0]	i_dataMem
+	// input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
+	// output [16:0]	o_targetAddr,
+	// output [ 2:0]	o_burstLength,
+	// output			o_writeEnableMem,		//
+	// output			o_readEnableMem,		//
+	// output [63:0]	o_dataMem,
+	// output [7:0]	o_byteEnableMem,
+
+		bool savePic = false;
+
 		if (log) {
 			// If some work is done, reset stuckState.
-			if (mod->gpu__DOT__currState     != prevCommandParseState) { 
-				VCMember* pCurrState = pScan->findMemberFullPath("gpu.currState");
-				printf("NEW STATE : %s\n", pCurrState->getEnum()[mod->gpu__DOT__currState].outputString);
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
+				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
+				printf("NEW STATE : %s @%i (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString,clockCnt >> 1,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
 	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
-				stuckState = 0; prevCommandParseState = mod->gpu__DOT__currState; 
+				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
 				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
-					printf("\t[%i] COMMAND : %x\n",currentCommandID,mod->gpu__DOT__command);
+					printf("\t[%i] COMMAND : %x\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command);
 					currentCommandID++;				// Increment current command ID.
 				}
 			}
-			if (mod->gpu__DOT__currWorkState != prevCommandWorkState)  {
-				VCMember* pCurrWorkState = pScan->findMemberFullPath("gpu.currWorkState");
-				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->gpu__DOT__currWorkState].outputString);
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState != prevCommandWorkState)  {
+//				savePic = true;
+				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
+				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
 	//			printf("\t[%i] NEW WORK STATE : %i\n",currentCommandID-1,mod->gpu__DOT__currWorkState);
-				/*stuckState = 0;*/ prevCommandWorkState = mod->gpu__DOT__currWorkState;  
+				/*stuckState = 0;*/ prevCommandWorkState = mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState;  
 			}
 		
 			//
@@ -1121,7 +1323,9 @@ int main(int argcount, char** args)
 			}
 		}
 
-		if (mod->gpu__DOT__currState == 0) {
+		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 && 
+			// Wait for Memory fifo to be empty...
+			(mod->GPU_DDR__DOT__gpu_inst__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__empty == 1)) {
 			waitCount++; 
 		} else {
 			waitCount = 0; 
@@ -1145,6 +1349,7 @@ int main(int argcount, char** args)
 		// Cycle 2. Read 4 byte until counter reach 0.
 		//			Set ACK to ZERO when reach last element.
 		//-------------------------------------------------------------------------------------
+		/*
 		static int cnt = 0;
 		int workAdr;
 		static bool firstRW = false;
@@ -1154,8 +1359,8 @@ int main(int argcount, char** args)
 		static int from = sFrom;
 		static int to = sTo;
 		static int l = sL;
-
-		if (waitComplete) {
+		*/
+//		if (waitComplete) {
 			/*
 			if (mod->gpu__DOT__currWorkState == 0) {
 				waitComplete = false;
@@ -1187,136 +1392,245 @@ int main(int argcount, char** args)
 				currentItemCheckCount = 0;
 			}
 			*/
-		}
+//		}
 
-		if (mod->req_o == 1) {
-			if (mod->ack_i == 0) {
-				cnt = mod->cnt_o + 1;
-				mod->ack_i = 1;
-				//				printf("Start\n");
-				firstRW = (cnt==8);
-			} else {
-				if (firstRW) {
-					firstRW = false;
-					// TEST HERE !!!!
+		static int busyCounter = 0;
+		static bool isRead = false;
+		static int readAdr = 0;
+		static int readSize= 0;
+		enum ESTATE {
+			DEFAULT = 0,
 
-					// Reach last element...
-					/*
-					if (mod->adr_o != adrStorage[currentItemCheckCount++]) {
-						printf("ERROR %i %i %i\n", from, to, l);
-						char buff[500];
-						sprintf(buff, "%i_%i_%i.error.txt", from, to, l);
-						FILE* f = fopen(buff, "wb");
-						fprintf(f, buff);
-						fclose(f);
-					}
+		};
 
-					if (adrStorageCount == currentItemCheckCount && (!stop)) {
-						waitComplete = true;
-					}
-					*/
+		if (busyCounter) {
+			/*
+			busyCounter--;
+			if (busyCounter == 1) {
+				mod->i_dataInValid = 1;
 
-					// If test complete -> Push new command into GPU.
-					/*
-						Can put the full test suite... Computer run for days...
-						- Release build
-						- No VCD Log
-						- Detect log when read/write discrepancy occurs.
-						- Send mail ?
+				// Clear
+				for (int n=0; n < 8; n++) { mod->i_dataIn[n] = 0; }
 
-						- Width 
-					*/
-				}
-
-				if (mod->wrt_o == 1) {
-					// Write mode...
-					// Let's see...
-					workAdr = mod->adr_o;
-					//					printf("(W) [%x] = %x [Sel:%x]\n",workAdr,mod->dat_o,mod->sel_o);
-					cnt--;
-					if (mod->adr_o & 3) {
-						// Must be a multiple of 4
-						assert(false);
-					}
-
-					if (workAdr > 1024*1024) {
-						printf("Write outside of VRAM");
-						while (1) {
-						}
-					}
-
-					if (mod->sel_o &  1) { buffer[workAdr  ] =  mod->dat_o      & 0xFF; }
-					if (mod->sel_o &  2) { buffer[workAdr+1] = (mod->dat_o>> 8) & 0xFF; }
-					if (mod->sel_o &  4) { buffer[workAdr+2] = (mod->dat_o>>16) & 0xFF; }
-					if (mod->sel_o &  8) { buffer[workAdr+3] = (mod->dat_o>>24) & 0xFF; }
-
-					if (cnt == 0) {
-						// Release Bus.
-						mod->ack_i = 0;
-						//						printf("End Write\n");
-					}
-				} else {
-					cnt--;
-
-					workAdr = mod->adr_o;
-
-					// Must be a multiple of 4
-					mod->dat_i = buffer[workAdr] | (buffer[workAdr+1]<<8) | (buffer[workAdr+2]<<16) | (buffer[workAdr+3]<<24); 
-
-					//					printf("(R) [%x]=>%x\n",workAdr,mod->dat_i);
-
-					if (cnt == 0) {
-						//						printf("End Read\n");
-						mod->ack_i = 0;
-						stuckState = 0;
-					}
+				for (int n=0; n < readSize; n++) {
+					mod->i_dataIn[n] = buffer[readAdr  ] | (buffer[readAdr+1]<<8) | (buffer[readAdr+2]<<16) | (buffer[readAdr+3]<<24);
+					readAdr += 4;
 				}
 			}
+
+			if (busyCounter == 0) {
+				mod->i_busy = 0;
+				mod->i_dataInValid = 0;
+				for (int n=0; n < 8; n++) {
+					mod->i_dataIn[n] = 0; // Clean just for cleaning purpose
+				}
+			}
+
+			mod->eval();
+			*/
 		}
+
+		/*
+			output [16:0]	o_targetAddr,				DDRAM_ADDR
+			output [ 2:0]	o_burstLength,				DDRAM_BURST_CNT (FIXED)
+			input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
+			output			o_writeEnableMem,		//
+			output			o_readEnableMem,		//
+			output [63:0]	o_dataMem,
+			output [7:0]	o_byteEnableMem,
+			input			i_dataValidMem,
+			input  [63:0]	i_dataMem
+
+		*/
+
+		// Override...
+			/*
+			// Can do busy stuff if needed...
+			int msk;
+			int baseAdr;
+			int sizeParam = 2; // 64 bit always.
+
+			switch (mod->o_commandSize) {
+			case 0:	// 8 Byte
+				msk = mod->o_writeMask & 0xF;
+				baseAdr = (mod->o_adr<<5) + (mod->o_subadr<<2); // 8 byte
+				sizeParam = 2;
+				break;
+			case 1: // 32 Byte
+				msk		= mod->o_writeMask;
+				baseAdr = mod->o_adr<<5; // 32 byte
+				sizeParam = 8;
+				break;
+			case 2: // 4 Byte
+				msk = mod->o_writeMask & 0x3;
+				baseAdr = (mod->o_adr<<5) + (mod->o_subadr<<2); // 4 byte
+				sizeParam = 1;
+				break;
+			}
+
+			if (mod->o_write) {
+				int selPix = mod->o_writeMask;
+				for (int n=0; n < sizeParam; n++) {
+					if (selPix &  1) { buffer[baseAdr  ] =  mod->o_dataOut[n]      & 0xFF; }
+					if (selPix &  1) { buffer[baseAdr+1] = (mod->o_dataOut[n]>> 8) & 0xFF; }
+					if (selPix &  2) { buffer[baseAdr+2] = (mod->o_dataOut[n]>>16) & 0xFF; }
+					if (selPix &  2) { buffer[baseAdr+3] = (mod->o_dataOut[n]>>24) & 0xFF; }
+					baseAdr += 4;
+					selPix >>= 2;
+				}
+
+				busyCounter = 0;
+			} else {
+				// Read command... gives back result in 3 cycles...
+				isRead			= true;
+				mod->i_busyMem	= 1;
+				readAdr			= baseAdr;
+				readSize		= sizeParam;
+				busyCounter		= 4;
+			}
+			*/
 
 		mod->clk    = 1;
 		mod->eval();
 
+		// Write Request
+		// 
+		static bool beginTransaction = true;
+		static int  burstSize        = 0;
+		static int  burstSizeRead    = 0;
+		static int  burstAdr         = 0;
+
+		if (mod->o_writeEnableMem == 1 /* && (mod->i_busyMem == 0)*/) {
+			if (beginTransaction) {
+				burstSize = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				if ((clockCnt>>1) > 130000) {
+//					printf("  START BURST [%i] @ burstAdr %08x @Cycle %i \n", burstSize, burstAdr<<3, clockCnt>>1);
+				}
+				beginTransaction = (burstSize <= 1);
+			} else {
+				burstAdr  += 1;
+				burstSize--;
+				if ((clockCnt>>1) > 100000) {
+//					printf("  NEXT  BURST [%i] @ burstAdr %08x @Cycle %i \n", burstSize, burstAdr<<3, clockCnt>>1);
+				}
+				if (burstSize == 1) {
+					beginTransaction = true;
+					burstSize = 0;
+				}
+			}
+
+			int baseAdr = burstAdr << 3;
+			if (baseAdr != (mod->o_targetAddr<<3)) {
+				printf("WRITE ERROR !\n");
+				error = 1;
+				// pScan->shutdown();
+			}
+
+
+			int selPix = mod->o_byteEnableMem;
+
+			if (selPix &  1) { buffer[baseAdr  ] =  mod->o_dataMem      & 0xFF; }
+			if (selPix &  2) { buffer[baseAdr+1] = (mod->o_dataMem>> 8) & 0xFF; }
+			if (selPix &  4) { buffer[baseAdr+2] = (mod->o_dataMem>>16) & 0xFF; }
+			if (selPix &  8) { buffer[baseAdr+3] = (mod->o_dataMem>>24) & 0xFF; }
+
+			if (selPix & 16) { buffer[baseAdr+4] = (mod->o_dataMem>>32) & 0xFF; }
+			if (selPix & 32) { buffer[baseAdr+5] = (mod->o_dataMem>>40) & 0xFF; }
+			if (selPix & 64) { buffer[baseAdr+6] = (mod->o_dataMem>>48) & 0xFF; }
+			if (selPix &128) { buffer[baseAdr+7] = (mod->o_dataMem>>56) & 0xFF; }
+		} else {
+			error = 0;
+		}
+
+		static bool transactionRead = false;
+		if (transactionRead) {
+
+			//
+			// WARNING REUSE ADR SET AT CYCLE BEFORE
+			//
+			int	baseAdr = burstAdr<<3;
+
+			mod->i_dataValidMem = 1;
+
+			int selPix = mod->o_byteEnableMem;
+
+			u64 result = 0;
+
+			if (selPix &  1) { result |= ((u64)buffer[baseAdr+0])<<0;  }
+			if (selPix &  2) { result |= ((u64)buffer[baseAdr+1])<<8;  }
+			if (selPix &  4) { result |= ((u64)buffer[baseAdr+2])<<16; }
+			if (selPix &  8) { result |= ((u64)buffer[baseAdr+3])<<24; }
+
+			if (selPix & 16) { result |= ((u64)buffer[baseAdr+4])<<32; }
+			if (selPix & 32) { result |= ((u64)buffer[baseAdr+5])<<40; }
+			if (selPix & 64) { result |= ((u64)buffer[baseAdr+6])<<48; }
+			if (selPix &128) { result |= ((u64)buffer[baseAdr+7])<<56; }
+
+			mod->i_dataMem      = result;
+
+			mod->eval();
+			//
+			// INCREMENT FOR NEXT READ.
+			//
+			burstAdr  += 1;
+			burstSizeRead--;
+			if (burstSizeRead == 0) {
+				transactionRead = false;
+			}
+		} else {
+			mod->i_dataValidMem = 0;
+			mod->eval();
+		}
+
+		if (mod->o_readEnableMem == 1/* && (mod->i_busyMem == 0)*/) {
+			if (!transactionRead) {
+				burstSizeRead = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				transactionRead = true;
+			}
+		}
+
 		// -----------------------------------------
 		//   [REGISTER SETUP OF GPU FROM BUS]
 		// -----------------------------------------
-		mod->write		= 0;
-		mod->gpuSel		= 0;
-		mod->gpuAdrA2	= 0;
-		mod->write		= 0;
-		mod->cpuDataIn	= 0;
+		mod->i_write		= 0;
+		mod->i_gpuSel		= 0;
+		mod->i_gpuAdrA2		= 0;
+		mod->i_cpuDataIn	= 0;
 
-		if (mod->o_canWrite) {
+		// Cheat... should read system register like any normal CPU...
+		if (mod->o_dbg_canWrite) {
 			// Push command inside the GPU as long as the GPU FIFO are not full
 			// and as long as we have command to push...
 			if (commandGenerator.stillHasCommand()) {
-				mod->gpuSel		= 1;
-				mod->gpuAdrA2	= 0;
-				mod->write		= 1;
-				mod->cpuDataIn	= commandGenerator.getRawCommand();
+				mod->i_gpuSel		= 1;
+				mod->i_gpuAdrA2		= 0;
+				mod->i_write		= 1;
+				mod->i_cpuDataIn	= commandGenerator.getRawCommand();
 				// printf("Send Command : %i\n",mod->cpuDataIn);
 			}
 		}
 
 		if (useScan) {
-			if (!useScanRange || (useScanRange && ((clockCnt>>1) >= scanStartCycle) && ((clockCnt>>1) <= scanEndCycle))) {
+//			if (!useScanRange || (useScanRange && ((clockCnt>>1) >= scanStartCycle) && ((clockCnt>>1) <= scanEndCycle))) {
 				pScan->eval(clockCnt);
-			}
+//			}
 		}
 
 		// ----
 		// PNG SCREEN SHOT PER CYCLE IF NEEDED.
 		// ----
 		clockCnt++;
-		if ((clockCnt>>1) % screenShotmoduloSpeed == 0 && useScreenShot) {
+		if (((clockCnt>>1) % screenShotmoduloSpeed == 0 && useScreenShot) || savePic) {
 //			if ((mod->mydebugCnt >= startRange) && (mod->mydebugCnt <= endRange)) {
 				static int frameCount = 0;
-				frameCount = mod->mydebugCnt;
+				frameCount = mod->o_mydebugCnt;
 				char strBuf[100];
 				sprintf_s(strBuf,100,"movie/output%i.png",frameCount);
 				char strBuf2[100];
 				sprintf_s(strBuf2,100,"movie/output%i_msk.png",frameCount);
-				dumpFrame(mod, strBuf,strBuf2,buffer,mod->mydebugCnt, useMaskDump);
+				dumpFrame(mod, strBuf,strBuf2,buffer,mod->o_mydebugCnt, useMaskDump);
 				frameCount++;
 //			}
 		}
@@ -2711,8 +3025,8 @@ void drawTriangle(int v0Idx, int v1Idx, int v2Idx, struct mfb_window *window)
 			int offR  = (distX*uxR + distY*vyR) + (1<<(PREC-1));
 			int offG  = (distX*uxG + distY*vyG) + (1<<(PREC-1));
 			int offB  = (distX*uxB + distY*vyB) + (1<<(PREC-1));
-			int offU  = (distX*uxU + distY*vyU) + (1<<(PREC-1));
-			int offV  = (distX*uxV + distY*vyV) + (1<<(PREC-1));
+			int offU  = (distX*uxU + distY*vyU) /* + (1<<(PREC-1))*/;
+			int offV  = (distX*uxV + distY*vyV) /* + (1<<(PREC-1))*/;
 			int   compiRL   = v0.r +  (offR>>PREC);
 			int   compiGL   = v0.g +  (offG>>PREC);
 			int   compiBL   = v0.b +  (offB>>PREC);

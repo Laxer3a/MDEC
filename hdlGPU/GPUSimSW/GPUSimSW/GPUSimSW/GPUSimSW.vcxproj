@@ -155,8 +155,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\rtl\obj_dir\Vgpu.cpp" />
-    <ClCompile Include="..\..\..\rtl\obj_dir\Vgpu__Syms.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Syms.cpp" />
     <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp" />
     <ClCompile Include="ConsoleApplication5.cpp" />
     <ClCompile Include="GPUCommandGen.cpp" />

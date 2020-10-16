@@ -16,23 +16,35 @@ module gpu
     input			clk,
     input			i_nrst,
 
-    input			gpuAdrA2, // Called A2 because multiple of 4
-    input			gpuSel,
-    output			o_canWrite,
+    // --------------------------------------
+    // DIP Switches to control
+	input			DIP_AllowDither,
+	input			DIP_ForceDither,
+    // --------------------------------------
 
     output			IRQRequest,
 
+	// Outside->GPU
+	// - Data valid on ACK.
+	// GPU->Outside
+	// - Data valid on REQ.
+	//
+	output			DMA_REQ,
+	input			DMA_ACK,
+	
     // Video output...
 //	output	[7:0]	red,
 //	output	[7:0]	green,
 //	output	[7:0]	blue,
 //	output          owritePixelL,
 //	output          owritePixelR,
-// output	[31:0]	mydebugCnt,
+	output	[31:0]	mydebugCnt,
+	output          dbg_canWrite,
 
-    //
-    // Temporary Memory Interface
-    //
+    // --------------------------------------
+    // Memory Interface
+    // --------------------------------------
+	/*
     output [19:0]   adr_o,   // ADR_O() address
     input  [31:0]   dat_i,   // DAT_I() data in
     output [31:0]   dat_o,   // DAT_O() data out
@@ -41,7 +53,21 @@ module gpu
     output			wrt_o,
     output			req_o,
     input			ack_i,
+	*/
+	input			 clkBus,
+    output           o_command,        // 0 = do nothing, 1 Perform a read or write to memory.
+    input            i_busy,           // Memory busy 1 => can not use.
+    output   [1:0]   o_commandSize,    // 0 = 8 byte, 1 = 32 byte. (Support for write ?)
+    
+    output           o_write,          // 0=READ / 1=WRITE 
+    output [ 14:0]   o_adr,            // 1 MB memory splitted into 32768 block of 32 byte.
+    output   [2:0]   o_subadr,         // Block of 8 or 4 byte into a 32 byte block.
+    output  [15:0]   o_writeMask,
 
+    input  [255:0]   i_dataIn,
+    input            i_dataInValid,
+    output [255:0]   o_dataOut,
+	
     /*
     output			hSync,
     output			vSync, // cSync pin exist in real HW : hSync | vSync most likely
@@ -56,12 +82,26 @@ module gpu
     output	[15:0]	oStencilOut,
     */
 
+    // --------------------------------------
+	//   CPU Bus
+    // --------------------------------------
+    input			gpuAdrA2, // Called A2 because multiple of 4
+    input			gpuSel,
     input			write,
     input			read,
     input 	[31:0]	cpuDataIn,
     output reg [31:0]	cpuDataOut,
     output reg			validDataOut
 );
+
+// Notes: Manually sending/reading data by software (non-DMA) is ALWAYS possible, regardless of the GP1(04h) setting. The GP1(04h) setting does affect the meaning of GPUSTAT.25.
+
+typedef enum logic[1:0] {
+	DMA_DirOff		= 2'd0,
+	DMA_FIFO		= 2'd1,
+	DMA_CPUtoGP0	= 2'd2,
+	DMA_GP0toCPU	= 2'd3
+} DMADirection;
 
 typedef enum logic[5:0] {
     NOT_WORKING_DEFAULT_STATE	= 6'd0,
@@ -114,7 +154,8 @@ typedef enum logic[5:0] {
     LINE_END					= 6'd47,
     FLUSH_COMPLETE_STATE		= 6'd48,
     COPY_START_LINE				= 6'd49,
-    CPY_ENDLINE					= 6'd50
+    CPY_ENDLINE					= 6'd50,
+	COPYVC_WAITFLUSH			= 6'd51
 } workState_t;
 
 //parameter
@@ -205,13 +246,14 @@ parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
             MEM_CMD_FILL		= 3'b010,
             MEM_CMD_RDBURST		= 3'b011,
             MEM_CMD_WRBURST		= 3'b100,
+			MEM_CMD_VRAM2CPU	= 3'b101,
             // Other command to come later...
             MEM_CMD_NONE		= 3'b000;
 
 wire isFifoFullLSB, isFifoFullMSB,isFifoEmptyLSB, isFifoEmptyMSB;
-wire isFifoFull;
-wire isFifoEmpty;
-wire isFifoNotEmpty;
+wire isINFifoFull;
+wire isFifoEmpty32;
+wire isFifoNotEmpty32;
 wire rstInFIFO;
 
 // ----------------------------- Parsing Stage -----------------------------------
@@ -245,7 +287,7 @@ reg               GPU_REG_VideoMode;
 reg               GPU_REG_VerticalResolution;
 reg         [1:0] GPU_REG_HorizResolution;
 reg               GPU_REG_HorizResolution368;
-reg         [1:0] GPU_REG_DMADirection;
+DMADirection      GPU_REG_DMADirection;
 reg			[9:0] GPU_REG_DispAreaX;
 reg			[8:0] GPU_REG_DispAreaY;
 reg			[11:0] GPU_REG_RangeX0;
@@ -413,7 +455,6 @@ wire	isNegYAxis;
 reg		resetXCounter;
 wire	endVertical;
 
-reg			changeX;
 nextX_t selNextX;
 nextY_t selNextY;
 wire signed [11:0]	nextLineX;
@@ -519,7 +560,7 @@ reg	 [ 6:0] counterXDst;
 
 
 // ------------------ Debug Stuff --------------
-/*
+
 reg [31:0] rdebugCnt;
 always @(posedge clk)
 begin
@@ -530,40 +571,88 @@ begin
     end
 end
 assign mydebugCnt =rdebugCnt;
-*/
+assign dbg_canWrite = !isINFifoFull;
+
 // ---------------------------------------------
 
-wire writeFifo		= !gpuAdrA2 & gpuSel & write;
+// [FIFO Signal for the VRAM Read to CPU]
+wire outFIFO_empty;
+wire outFIFO_full;
+
+wire writeFifo		= (!gpuAdrA2 & gpuSel & write) || (DMA_ACK && (GPU_REG_DMADirection == DMA_CPUtoGP0));
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
-assign o_canWrite	= !isFifoFull;
-always @(*)
-begin
-    cpuDataOut	  =  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
-    validDataOut = 0;
-    if (gpuSel & read) begin
-        // Register +4 Read
-        if (gpuAdrA2) begin
-            cpuDataOut	=  reg1Out;
-        end else begin
-            if (setStencilMode == 3'd7) begin
-                // [TODO VRAM->CPU]
-                validDataOut	= 1;
-                cpuDataOut		= regGpuInfo;
-            end else begin
-                validDataOut	= 1;
-                cpuDataOut		= regGpuInfo;
-            end
-        end
+wire readFifoOut    = (gpuSel & !gpuAdrA2);
+
+// Note : we do not have the problem of over transfer in FIFO IN, as DMA know transfer size.
+// But in case we still REQ and DMA was reloaded super fast, we would need to put a COUNTER in the GPU
+// that would compute size based on command parameters instead of this check...
+wire reqDataDMAIn	= (currWorkState == COPYCV_START) || (currWorkState == COPYCV_COPY);
+wire reqDataDMAOut  = (currWorkState == COPYVC_TOCPU);
+//                      CPU to VRAM transfer + in transfer state + FIFO has space to store data.
+//                      => Should not overtransfer because DMA knows size.
+assign DMA_REQ		= ((GPU_REG_DMADirection == DMA_CPUtoGP0) && reqDataDMAIn  && (!isINFifoFull))
+//                      VRAM to CPU transfer + has data ready for DMA.
+                   || ((GPU_REG_DMADirection == DMA_GP0toCPU) && (!outFIFO_empty));
+
+// FIFO FTWT : Ask for next data piece when current one is read.
+wire        outFIFO_read = (((GPU_REG_DMADirection == DMA_GP0toCPU) && DMA_ACK) || readFifoOut) && (!outFIFO_empty);
+
+// TODO : Pipeline readFifoOut (1 cycle latency)
+reg pReadFifoOut;
+always @(posedge clk) begin
+    if (i_nrst == 0) begin
+        pReadFifoOut = 1'd0;
+    end else begin
+		pReadFifoOut = outFIFO_read;
     end
 end
+
+wire [31:0] outFIFO_readV;
+
+//---------------------------------------------------------------
+//  Handling READ including pipelined latency for read result.
+//---------------------------------------------------------------
+reg [31:0] pDataOut;
+reg        pDataOutValid;
+reg [31:0] dataOut;
+reg        dataOutValid;
+always @(*)
+begin
+	if (pReadFifoOut /*setStencilMode == 3'd7*/) begin
+		dataOutValid	= 1;
+		dataOut			= outFIFO_readV;
+	end else begin
+		if (gpuSel & read) begin
+			dataOutValid	= 1;
+			
+			// Register +4 Read
+			if (gpuAdrA2) begin
+				dataOut	=  reg1Out;
+			end else begin
+				dataOut	= regGpuInfo;
+			end
+		end else begin
+			dataOut		 =  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
+			dataOutValid = 0;
+		end
+	end
+end
+
+always @(posedge clk) begin
+	pDataOut		= dataOut;
+	pDataOutValid	= dataOutValid;
+end
+assign cpuDataOut	= pDataOut;
+assign validDataOut = pDataOutValid;
+//---------------------------------------------------------------
 
 assign IRQRequest = GPU_REG_IRQSet;
 
 wire [31:0] fifoDataOut;
-assign isFifoFull     = isFifoFullLSB  | isFifoFullMSB;
-assign isFifoEmpty    = isFifoEmptyLSB & isFifoEmptyMSB;
-assign isFifoNotEmpty = !isFifoEmpty;
-assign rstInFIFO      = rstGPU | rstCmd;
+assign isINFifoFull     = isFifoFullLSB  | isFifoFullMSB;
+assign isFifoEmpty32    = isFifoEmptyLSB | isFifoEmptyMSB;
+assign isFifoNotEmpty32 = !isFifoEmpty32;
+assign rstInFIFO        = rstGPU | rstCmd;
 
 wire readLFifo, readMFifo;
 wire readFifoLSB	= readFifo | readLFifo;
@@ -601,6 +690,13 @@ wire		writeBankOld = performSwitch & (cpyBank ^ (!xCopyDirectionIncr));
 always @(*)
 begin
     case (memoryCommand)
+	MEM_CMD_VRAM2CPU:      parameters = 	{ 16'dx															// [55:40] IGNORE, SAME AS MEM_CMD_PIXEL2VRAM
+                                            , 16'dx															// [39:24] IGNORE
+                                            , 2'dx															// [23:22]
+                                            , { scrY[8:0], pixelX[9:4] }									// [21: 7]
+                                            , pixelX[3:1]													// [ 6: 4]
+                                            , 1'dx
+                                            };
     // CPU 2 VRAM : [16,16,2,15,...]
     MEM_CMD_PIXEL2VRAM:    parameters = 	{ { WRPixelL15 , LPixel[14:0] }									// [55:40] LEFT PIXEL
                                             , { WRPixelR15 , RPixel[14:0] }									// [39:24] RIGHT PIXEL !!!! (REVERSED CONVENTION !!!)
@@ -639,7 +735,7 @@ begin
                                             , GPU_REG_ForcePixel15MaskSet									// [   4]
                                             , writeBankOld									/* Old Bank */	// [   3]
                                             };
-    default: parameters = 53'd0;
+    default: parameters = 53'dx;
     endcase
 end
 
@@ -683,11 +779,60 @@ Fifo_instLSB
     .empty_o		(isFifoEmptyLSB)
 );
 
-// TODO GPU DMA Stuff
-wire gpuReadyReceiveDMA, gpuReceiveCmdReady, dmaDataRequest;
-reg  gpuReadySendToCPU;
-assign gpuReceiveCmdReady	= !isFifoFull;
-assign gpuReadyReceiveDMA	= !isFifoFull;
+reg		dmaDataRequest;												// Bit 25
+wire	gpuReadySendToCPU	= (!outFIFO_empty) 
+								/* && copyVCActive DONT USE IT*/;	// Bit 27
+		/* Specs says that Gets set after sending GP0(C0h) and its parameters.
+		   So we could rely on the state machine... BUT in the case we push data and the state machine ends, the last DATA state in the FIFO ain't visible
+		   anymore to outside. Very dangerous.
+		   
+		   Moreover, that FIFO is only for the C0 command ANYWAY. So we just use the FLAG outFIFO_empty and it is OK.
+		*/
+								
+wire	gpuReadyReceiveDMA	= !isINFifoFull;						// Bit 28
+
+/*
+	- Notes: Manually sending/reading data by software (non-DMA) is ALWAYS possible, 
+	  regardless of the GP1(04h) setting. The GP1(04h) setting does affect the meaning of GPUSTAT.25.
+	  
+	- Non-DMA transfers seem to be working at any time, but GPU-DMA Transfers seem to be working ONLY during V-Blank 
+	  (outside of V-Blank, portions of the data appear to be skipped, and the following words arrive at wrong addresses), 
+	  unknown if it's possible to change that by whatever configuration settings...? 
+	  That problem appears ONLY for continous DMA aka VRAM transfers (linked-list DMA aka Ordering Table works even outside V-Blank).
+	  
+	- Status Bit
+		25    DMA / Data Request, meaning depends on GP1(04h) DMA Direction:
+			  When GP1(04h)=0=Off          ---> Always zero (0)
+			  When GP1(04h)=1=FIFO         ---> FIFO State  (0=Full, 1=Not Full)
+			  When GP1(04h)=2=CPUtoGP0     ---> Same as GPUSTAT.28
+			  When GP1(04h)=3=GPUREADtoCPU ---> Same as GPUSTAT.27
+		
+			This is the DMA Request bit, however, the bit is also useful for non-DMA transfers, especially in the FIFO State mode.
+			
+		26    Ready to receive Cmd Word   (0=No, 1=Ready)  ;GP0(...) ;via GP0
+			Gets set when the GPU wants to receive a command. 
+			If the bit is cleared, then the GPU does either want to receive data, or it is busy with a command execution (and doesn't want to receive anything).
+			
+		27    Ready to send VRAM to CPU   (0=No, 1=Ready)  ;GP0(C0h) ;via GPUREAD
+			Gets set after sending GP0(C0h) and its parameters, and stays set until all data words are received; used as DMA request in DMA Mode 3.
+			
+		28    Ready to receive DMA Block  (0=No, 1=Ready)  ;GP0(...) ;via GP0
+			Normally, this bit gets cleared when the command execution is busy 
+			(ie. once when the command and all of its parameters are received), however, for Polygon and Line Rendering commands, 
+			the bit gets cleared immediately after receiving the command word (ie. before receiving the vertex parameters). 
+			The bit is used as DMA request in DMA Mode 2, accordingly, the DMA would probably hang if the Polygon/Line parameters 
+			are transferred in a separate DMA block (ie. the DMA probably starts ONLY on command words).
+			
+		29-30 DMA Direction (0=Off, 1=?, 2=CPUtoGP0, 3=GPUREADtoCPU)    ;GP1(04h).0-1
+ */
+always @(*) begin
+	case (GPU_REG_DMADirection)
+	DMA_DirOff   : dmaDataRequest = 1'b0;
+	DMA_FIFO     : dmaDataRequest = !isINFifoFull;
+	DMA_CPUtoGP0 : dmaDataRequest = gpuReadyReceiveDMA;	// Follow No$ specs, delegate signal logic to GPUSTAT.28 interpretation.
+	DMA_GP0toCPU : dmaDataRequest = gpuReadySendToCPU;	// Follow No$ specs, delegate signal logic to GPUSTAT.27 interpretation.
+	endcase
+end
 
 assign reg1Out = {
                     // Default : 1480.2.000h
@@ -699,7 +844,7 @@ assign reg1Out = {
 
                     // default 4
                     gpuReadySendToCPU,				// 27
-                    gpuReceiveCmdReady,				// 26
+                    !isINFifoFull,					// 26 GPU Receive Command Ready (ready when input FIFO is not FULL)
                     dmaDataRequest,					// 25
                     GPU_REG_IRQSet,					// 24
 
@@ -851,7 +996,7 @@ begin
         GPU_REG_CurrentInterlaceField <= 1; // Odd field by default (bit 14 = 1 on reset)
         GPU_REG_IRQSet				<= 0;
         GPU_REG_DisplayDisabled		<= 1;
-        GPU_REG_DMADirection		<= 2'b00; // Off
+        GPU_REG_DMADirection		<= DMA_DirOff; // Off
         GPU_REG_IsInterlaced		<= 0;
         GPU_REG_BufferRGB888		<= 0;
         GPU_REG_VideoMode			<= 0;
@@ -941,7 +1086,7 @@ begin
             GPU_REG_DisplayDisabled		<= cpuDataIn[0];
         end
         if (setDmaDir) begin
-            GPU_REG_DMADirection		<= cpuDataIn[1:0];
+            GPU_REG_DMADirection		<= DMADirection'(cpuDataIn[1:0]);
         end
         if (setDispArea) begin
             GPU_REG_DispAreaX			<= cpuDataIn[ 9: 0];
@@ -976,9 +1121,9 @@ end
 
 // [Command Type]
 wire bIsBase0x				= (command[7:5]==3'b000);
-wire bIsBase01			= (command[4:0]==5'd1  );
-wire bIsBase02			= (command[4:0]==5'd2  );
-wire bIsBase1F			= (command[4:0]==5'd31 );
+wire bIsBase01				= (command[4:0]==5'd1  );
+wire bIsBase02				= (command[4:0]==5'd2  );
+wire bIsBase1F				= (command[4:0]==5'd31 );
 
 wire bIsPolyCommand			= (command[7:5]==3'b001);
 wire bIsRectCommand			= (command[7:5]==3'b011);
@@ -1010,7 +1155,9 @@ wire bIsPerVtxCol   		= (bIsPolyCommand | bIsLineCommand) & command[4];
 // - Rectangle never dither. ( => bIsPerVtxCol is FALSE)
 // - Line      dither if set (even for unique color)
 // - Triangle  dither if gouraud is set (textured or not) = bIsPerVtxCol
-wire bDither				= GPU_REG_DitherOn & (bIsPerVtxCol | bIsLineCommand);
+wire ditherSetup			= ( GPU_REG_DitherOn & DIP_AllowDither ) | DIP_ForceDither;
+wire bDither				= ditherSetup & (bIsPerVtxCol | bIsLineCommand);
+
 wire bOpaque        		= !bSemiTransp;
 
 // TODO : Rejection occurs with DX / DY. Not range. wire rejectVertex			= (fifoDataOutX[11] != fifoDataOutX[10]) | (fifoDataOutY[11] != fifoDataOutY[10]); // Primitive with offset out of range -1024..+1023
@@ -1089,6 +1236,8 @@ assign adrXDst = xCopyDirectionIncr ? counterXDst[5:0] : OppAdrXDst[5:0];
 
 reg  [15:0] maskLeft;
 reg  [15:0] maskRight;
+wire [3:0]  rightPos = RegX0[3:0] + RegSizeW[3:0];
+wire [3:0]  sxe16    = rightPos + 4'b1111;
 always @(*)
 begin
     case (RegX0[3:0])
@@ -1109,14 +1258,8 @@ begin
     4'hE: maskLeft = 16'b1100_0000_0000_0000;
  default: maskLeft = 16'b1000_0000_0000_0000;
     endcase
-end
-
-wire [3:0] rightPos = RegX0[3:0] + RegSizeW[3:0];
-wire [3:0] sxe16	= rightPos + 4'b1111;
-
-always @(*)
-begin
-    case (rightPos)
+    
+	case (rightPos)
     // Special case : lastSegment is actually the PREVIOUS segment. Empty segment never occurs because of computation.
     // The END (EXCLUDED) pixel from the segment is the beginning of a new chunk that will be never loaded.
     // See computation of 'lengthBlockSrcHM1'
@@ -1177,11 +1320,11 @@ wire isLongLine				= RegSizeW[9] | RegSizeW[10]; // At least >= 512
 reg dir;
 reg memW0,memW1,memW2;
 
-wire 				extIX		= dir & changeX;
+wire 				extIX		= dir;
 always @(*)
 begin
     case (selNextX)
-        X_TRI_NEXT:		nextPixelX	= pixelX + { {10{extIX}}, changeX, 1'b0 };	// -2,0,+2
+        X_TRI_NEXT:		nextPixelX	= pixelX + { {10{extIX}}, 2'b10 };	// -2,0,+2
         X_LINE_START:	nextPixelX	= RegX0;
         X_LINE_NEXT:	nextPixelX	= nextLineX; // Optimize and merge with case 0
         X_TRI_BBLEFT:	nextPixelX	= { minTriDAX0[11:1], 1'b0 };
@@ -1446,14 +1589,11 @@ wire isNewBlockPixel;
 
 assign readLFifo = readL;
 assign readMFifo = readM;
-
-
 // --------------------------------------------------------------------------------------------
 //   [END] CPU TO VRAM STATE SIGNALS & REGISTERS
 // --------------------------------------------------------------------------------------------
 
 reg				stencilReadSigW; // USED ONLY WHEN READING THE STENCIL ON TARGET BEFORE A WRITE LATER.
-
 wire 			reachEdgeTriScan = (((pixelX > maxXTri) & !dir) || ((pixelX < minXTri) & dir));
 
 wire allowNextRead = (!isLastSegment) | isLongLine;
@@ -1461,6 +1601,103 @@ wire isPalettePrimitive = (!GPU_REG_TexFormat[1]) & bUseTexture;
 wire validCLUTLoad = rClutLoading & isPalettePrimitive; // Format is 0 or 1 and clut load is required.
 wire updateClutCacheComplete;
 reg  requClutCacheUpdate;
+
+
+// --------------------------------------------------------------------------------------------
+//   VRAM TO CPU : STATE SIGNALS & REGISTERS
+// --------------------------------------------------------------------------------------------
+
+wire copyVCActive = (currWorkState == COPYVC_TOCPU);
+wire exitSig;
+wire [2:0] cvs_nextX, cvs_nextY;
+
+wire [1:0] aSelABDX;
+wire       bSelAB;
+wire       wbSel;
+wire       pushNextCycle;
+
+wire       memReadPairValid;
+wire [31:0] memReadPairValue;
+
+reg [31:0] pairPixelToCPU;
+reg [15:0] DPixelReg;
+
+wire nextPairIsLineLast = (nextPixelX == XE);
+wire currPairIsLineLast = (pixelX     == XE);
+wire readPairFromVRAM;
+
+// [Sub State machine for VC Copy command]
+CVCopyState CVCopyState_Inst(
+	.clk			(clk),
+	.nRst			(i_nrst),
+	
+	.active			(copyVCActive),
+	.isWidthNot1	(WidthNot1),
+	.xb_0			(RegX0[0]),
+	.wb_0			(RegSizeW[0]),
+	
+	.canPush			(!outFIFO_full),
+	.endVertical		(endVertical),
+	.nextPairIsLineLast	(nextPairIsLineLast),
+	.currPairIsLineLast	(currPairIsLineLast),
+	.readACK			(memReadPairValid),
+	
+	.o_nextX		(cvs_nextX),
+	.o_nextY		(cvs_nextY),
+	.read			(readPairFromVRAM),
+	.exitSig		(exitSig),
+	.o_aSelABDX		(aSelABDX),
+	.o_bSelAB		(bSelAB),
+	.o_pushNextCycle(pushNextCycle),
+	.o_wbSel		(wbSel)
+);
+
+reg pipeToFIFOOut;
+always @(posedge clk)
+begin
+	// A Part
+	case (aSelABDX)
+	/*SELA_A = */2'd0: pairPixelToCPU[15:0] = memReadPairValue[15:0];
+	/*SELA_B = */2'd1: pairPixelToCPU[15:0] = memReadPairValue[31:16];
+	/*SELA_D = */2'd2: pairPixelToCPU[15:0] = DPixelReg;
+	/*SELA__ = */2'd3: begin /*Nothing*/ end
+	endcase
+	
+	// B Part
+	if (wbSel) begin
+		pairPixelToCPU[31:16] = bSelAB ? memReadPairValue[31:16] : memReadPairValue[15:0];
+	end
+	
+	if (memReadPairValid) begin
+		DPixelReg = memReadPairValue[31:16];
+	end
+	pipeToFIFOOut = pushNextCycle;
+end
+
+SSCfifo
+#(
+    .DEPTH_WIDTH	(2),
+    .DATA_WIDTH		(32)
+)
+FifoPixOut_inst
+(
+    .clk			(clk ),
+    .rst			(rstInFIFO),
+
+    .wr_data_i		(pairPixelToCPU),
+    .wr_en_i		(pipeToFIFOOut),
+
+    .rd_data_o		(outFIFO_readV),
+    .rd_en_i		(outFIFO_read),
+
+    .full_o			(outFIFO_full),
+    .empty_o		(outFIFO_empty)
+);
+
+//--------------------------------------------------------------------
+
+wire signed [21:0]	DET;
+wire isValidHorizontalTriBbox;
 
 always @(*)
 begin
@@ -1487,7 +1724,6 @@ begin
     writePixelR					= 0;
 //	readStencil					= 0;
 //	writeStencil2				= 2'b00;
-    changeX						= 0;
     assignRectSetup				= 0;
 
 //  setEnteredTriangle			= 0; // Disabled due to optimization.
@@ -1890,7 +2126,7 @@ begin
             end else begin
                 // [MIDDLE OR FIRST SEGMENT]
                 //    PRELOAD NEXT SEGMENT...
-                if (nextPixelX == XE) begin
+                if (nextPairIsLineLast) begin
                     /* LAST SEGMENT PATTERN
                         W=0	W=0	W=1		W=1
                         X=0	X=1	X=0		X=1
@@ -1917,7 +2153,6 @@ begin
                     readL = 1'b1;
                     readM = 1'b1;
                 end
-                changeX		= 1;
                 selNextX	= X_TRI_NEXT;
             end
         end
@@ -1930,8 +2165,11 @@ begin
         // [PREAD COMMAND: [100][Index 5 bit] -> Next cycle have 16 bit through special port.
         // Use BSTORE Command for burst loading.
 //		stencilSourceAdr        = 0;
-        nextWorkState = TMP_2;
-
+        nextWorkState	= COPYVC_TOCPU;
+        selNextX		= X_CV_START;
+        selNextY		= Y_CV_ZERO;
+		loadNext	= 1;
+		
         /*
             Start : Request First Block. (X[3] is block ID (0/1))
                     If ((XLeft & 7)==7)
@@ -1961,10 +2199,30 @@ begin
     end
     COPYVC_TOCPU:
     begin
+		if (exitSig) begin
+			nextWorkState = COPYVC_WAITFLUSH;
+		end
+		
+		//
+		// Done by sub state machine module...
+		//
+		
+		memoryCommand = readPairFromVRAM ? MEM_CMD_VRAM2CPU : MEM_CMD_NONE;
+
+		selNextX	= nextX_t'(cvs_nextX);
+		selNextY	= nextY_t'(cvs_nextY);
+		loadNext	= 1;
+		
         // Detect edge transition... waiting for data received...
         // Data already present -> Read from both buffer possible.
         // Set gpuReadySendToCPU
     end
+	COPYVC_WAITFLUSH:
+	begin
+		if (outFIFO_empty) begin
+			nextWorkState = NOT_WORKING_DEFAULT_STATE;
+		end
+	end
     // --------------------------------------------------------------------
     //   TRIANGLE STATE MACHINE
     // --------------------------------------------------------------------
@@ -2032,6 +2290,9 @@ begin
     begin
 		// [TODO] That test could be put outside and checked EARLY --> RECT could skip to RECT_START 3 cycle earlier. Safe for now.
 		//        Did that before but did not checked whole condition --> FF7 Station failed some tiles.
+		
+		// validCLUTLoad is when CLUT reloading was set
+		// isPalettePrimitive & rPalette4Bit & CLUTIs8BPP is when nothing changed, EXCEPT WE WENT FROM 4 BIT TO 8 BIT !
         if (validCLUTLoad || (isPalettePrimitive & rPalette4Bit & CLUTIs8BPP)) begin
             // Not using signal updateClutCacheComplete but could... rely on transaction only.
             if (saveLoadOnGoing == 0) begin // Wait for an on going memory transaction to complete.
@@ -2147,7 +2408,6 @@ begin
 
                     // Go to next pair whatever, as long as request is asking for new pair...
                     // normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
-                    changeX		= 1;
                     loadNext	= 1;
                     selNextX	= X_TRI_NEXT;
                 end
@@ -2163,7 +2423,6 @@ begin
                         nextWorkState	= SCAN_LINE_CATCH_END;
                     end else begin
                         // Continue to search for VALID PIXELS...
-                        changeX			= 1;
                         selNextX		= X_TRI_NEXT;
                         selNextY		= reachEdgeTriScan ? Y_TRI_NEXT : Y_ASIS;
                         // Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
@@ -2181,7 +2440,6 @@ begin
     SCAN_LINE_CATCH_END:
     begin
         if (isValidPixelL || isValidPixelR) begin
-            changeX			= 1;
             loadNext		= 1;
             selNextX		= X_TRI_NEXT;
         end else begin
@@ -2218,7 +2476,6 @@ begin
 
                     // Go to next pair whatever, as long as request is asking for new pair...
                     // normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
-                    changeX		= 1;
                     loadNext	= 1;
                     selNextX	= X_TRI_NEXT;
                 end
@@ -2429,7 +2686,7 @@ begin
                 // Condition with 'FifoDataValid' necessary :
                 // => If not done, state machine skip the 4th vertex loading to load directly 4th texture without loading the coordinates. (fifo not valid as we waited for primitive to complete)
                 nextCondUseFIFO		= 1;
-                nextLogicalState	= FifoDataValid ? UV_LOAD : VERTEX_LOAD;
+                nextLogicalState	= UV_LOAD;
             end else begin
                 // End command if it is a terminator line or 2 vertex line only
                 // Or a 4 point polygon or 3 point polygon.
@@ -2474,9 +2731,9 @@ begin
                     //
                     nextCondUseFIFO		= (/*issue.*/issuePrimitive == NO_ISSUE); //	TODO ??? OLD COMMENT Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
                     if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-                        nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
+                        nextLogicalState	= bIsPerVtxCol ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
                     end else begin
-                        nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
+                        nextLogicalState	= bIsPerVtxCol ? COLOR_LOAD        : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
                     end
                 end
             end
@@ -2524,7 +2781,7 @@ begin
                 // Allow to complete UV LOAD of last vertex and go to COMPLETE
                 // only if we can push the triangle and that the incoming FIFO data is valid.
                 nextCondUseFIFO		= !(canIssueWork & FifoDataValid);	// Instead of FIFO state, it uses
-                nextLogicalState	=  (canIssueWork & FifoDataValid) ? WAIT_COMMAND_COMPLETE : UV_LOAD;	// For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
+				nextLogicalState	=  canIssueWork ? WAIT_COMMAND_COMPLETE : UV_LOAD; // For now, no optimization of the state machine, FIFO data or not : DEFAULT_STATE.
             end else begin
 
                 //
@@ -2535,29 +2792,9 @@ begin
                 //
                 nextCondUseFIFO		= (/*issue.*/issuePrimitive == NO_ISSUE); //	TODO ??? OLD COMMENT Fix, proposed multiline support ((issuePrimitive == NO_ISSUE) | !bIsLineCommand); // 1 before line, !bIsLineCommand is a hack. Because...
                 if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-                    nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
+                    nextLogicalState	= bIsPerVtxCol ? COLOR_LOAD_GARAGE : VERTEX_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
                 end else begin
-                    nextLogicalState	= (FifoDataValid & bIsPerVtxCol) ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
-                end
-
-                if (bIsPerVtxCol) begin
-                    if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-                        nextCondUseFIFO		= 0;
-                        nextLogicalState	= COLOR_LOAD_GARAGE; // Next Vertex or stay current vertex until loaded.
-                    end else begin
-                        nextCondUseFIFO		= 1;
-                        nextLogicalState	= FifoDataValid ? COLOR_LOAD : UV_LOAD; // Next Vertex or stay current vertex until loaded.
-                    end
-                end else begin
-                    // Same here : MUST CHECK 'FifoDataValid' to force reading the values in another cycle...
-                    // Can not issue if data is not valid.
-                    if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-                        nextCondUseFIFO		= 0;
-                        nextLogicalState	= VERTEX_LOAD_GARAGE;	// Next Vertex stuff...
-                    end else begin
-                        nextCondUseFIFO		= 1;
-                        nextLogicalState	= VERTEX_LOAD;	// Next Vertex stuff...
-                    end
+                    nextLogicalState	= bIsPerVtxCol ? COLOR_LOAD : VERTEX_LOAD; // Next Vertex or stay current vertex until loaded.
                 end
             end
         end
@@ -2588,11 +2825,11 @@ end
 
 // WE Read from the FIFO when FIFO has data, but also when the GPU is not busy rendering, else we stop loading commands...
 // By blocking the state machine, we also block all the controls more easily. (Vertex loading, command issue, etc...)
-wire canReadFIFO			= isFifoNotEmpty & canIssueWork;
+wire canReadFIFO			= isFifoNotEmpty32 & canIssueWork;
 assign readFifo				= (nextCondUseFIFO & canReadFIFO);
-assign nextState			= ((!nextCondUseFIFO) | readFifo) ? nextLogicalState : currState;
+wire authorizeNextState     = ((!nextCondUseFIFO) | readFifo);
+assign nextState			= authorizeNextState ? nextLogicalState : currState;
 assign issuePrimitiveReal	= canIssueWork ? /*issue.*/issuePrimitive : NO_ISSUE;
-
 
 StencilCache StencilCacheInstance(
     .clk					(clk),
@@ -2761,7 +2998,7 @@ begin
     if (FifoDataValid) begin
         if (isV0 & /*issue.*/loadVertices) RegX0 = fifoDataOutX;
         if (isV0 & /*issue.*/loadVertices) RegY0 = fifoDataOutY;
-        if (isV0 & /*issue.*/loadUV	   ) RegU0 = fifoDataOutUR;
+        if (isV0 & /*issue.*/loadUV	     ) RegU0 = fifoDataOutUR;
         if (isV0 & /*issue.*/loadUV      ) RegV0 = fifoDataOutVG;
         if ((isV0|/*issue.*/loadAllRGB) & /*issue.*/loadRGB) begin
             RegR0 = loadComponentR;
@@ -2880,7 +3117,7 @@ assign				isRightPLXmaxTri= LPixelX <= maxTriDAX1; // PIXEL IS INCLUSIVE
 wire				isRightPRXmaxTri= RPixelX <= maxTriDAX1; // PIXEL IS INCLUSIVE
 
 wire				isValidHorizontal			= isTopInside     & isBottomInside;
-wire				isValidHorizontalTriBbox	= isTopInsideBBox & isBottomInsideBBox;
+assign				isValidHorizontalTriBbox	= isTopInsideBBox & isBottomInsideBBox;
 
 // Test Current Pixel For Line primitive : Check vertically against the DRAW AREA and select the pixel in the PAIR (odd/even) that match the result of the pixel we want to test.
 assign				isLineRightPix			= ( pixelX[0] & isLeftPRXInside & isRightPRXInside);
@@ -2970,10 +3207,10 @@ wire signed [11:0]	nega	= -a;
 
 wire signed [21:0]	DETP1	= a*d;
 wire signed [21:0]	DETP2	= b*negc;			// -b*c -> b*negc
-wire signed [21:0]	DET		= DETP1 + DETP2;	// Same as (a*d) - (b*c)
+assign				DET		= DETP1 + DETP2;	// Same as (a*d) - (b*c)
 
 reg signed [11:0]	mulFA,mulFB;
-reg  signed [8:0]	v0C,v1C,v2C;
+reg  signed [9:0]	v0C,v1C,v2C;
 
 reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6;
 reg       vecID2,vecID3,vecID4,vecID5,vecID6;
@@ -2995,11 +3232,11 @@ end
 always @(*)
 begin
     case (compoID)
-    default:	begin v0C = RegR0;           v1C = RegR1;           v2C = RegR2;           end
-    3'd2:		begin v0C = RegG0;           v1C = RegG1;           v2C = RegG2;           end
-    3'd3:		begin v0C = RegB0;           v1C = RegB1;           v2C = RegB2;           end
-    3'd4:		begin v0C = { 1'b0, RegU0 }; v1C = { 1'b0, RegU1 }; v2C = { 1'b0, RegU2 }; end
-    3'd5:		begin v0C = { 1'b0, RegV0 }; v1C = { 1'b0, RegV1 }; v2C = { 1'b0, RegV2 }; end
+    default:	begin v0C = { 1'b0, RegR0 }; v1C = { 1'b0, RegR1 }; v2C = { 1'b0, RegR2 }; end
+    3'd2:		begin v0C = { 1'b0, RegG0 }; v1C = { 1'b0, RegG1 }; v2C = { 1'b0, RegG2 }; end
+    3'd3:		begin v0C = { 1'b0, RegB0 }; v1C = { 1'b0, RegB1 }; v2C = { 1'b0, RegB2 }; end
+    3'd4:		begin v0C = { 2'b0, RegU0 }; v1C = { 2'b0, RegU1 }; v2C = { 2'b0, RegU2 }; end
+    3'd5:		begin v0C = { 2'b0, RegV0 }; v1C = { 2'b0, RegV1 }; v2C = { 2'b0, RegV2 }; end
     endcase
 
     if (vecID) begin
@@ -3008,9 +3245,9 @@ begin
         mulFA = d;   	mulFB = negb;
     end
 end
-wire signed [9:0]   negv0c  = -{ 1'b0 ,v0C };
-wire signed [9:0]	C20i	= bIsLineCommand ? 10'd0 : ({ 1'b0 ,v2C } + negv0c);
-wire signed [9:0]	C10i	=  { 1'b0 ,v1C } + negv0c; // -512..+511
+wire signed [10:0]  negv0c  = -{1'b0,v0C};
+wire signed [10:0]	C20i	= bIsLineCommand ? 11'd0 : ({ 1'b0 ,v2C } + negv0c);
+wire signed [10:0]	C10i	=  { 1'b0 ,v1C } + negv0c; // -512..+511
 
 wire signed [20:0] inputDivA	= mulFA * C20i; // -2048..+2047 x -512..+511 = Signed 21 bit.
 wire signed [20:0] inputDivB	= mulFB * C10i;
@@ -3126,10 +3363,10 @@ wire signed [PREC+8:0] roundComp = { 9'd0, 1'b1, 10'd0}; // PRECM1'd0
 wire signed [PREC+8:0] offR = (distXV0*RSX) + (distYV0*RSY) + roundComp;
 wire signed [PREC+8:0] offG = (distXV0*GSX) + (distYV0*GSY) + roundComp;
 wire signed [PREC+8:0] offB = (distXV0*BSX) + (distYV0*BSY) + roundComp;
-wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) + roundComp;
-wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) + roundComp;
+wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) /* + roundComp*/;
+wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) /* + roundComp*/;
 
-wire signed [8:0] pixRL = RegR0 + offR[PREC+8:PREC];
+wire signed [8:0] pixRL = RegR0 + offR[PREC+8:PREC]; // TODO Here ?
 wire signed [8:0] pixGL = RegG0 + offG[PREC+8:PREC];
 wire signed [8:0] pixBL = RegB0 + offB[PREC+8:PREC];
 wire signed [7:0] pixUL = RegU0 + offU[PREC+7:PREC];
@@ -3232,11 +3469,12 @@ CLUT_Cache CLUT_CacheInst(
 // wire            dataArrived;
 // wire			dataConsumed;
 
-wire  [5:0]    XPosClut           = {1'b0,rClutPacketCount} + RegCLUT[5:0];
+wire  [5:0]    XPosClut           = {1'b0, nextClutPacket/*rClutPacketCount*/} + RegCLUT[5:0];
 wire  [14:0]   adrClutCacheUpdate = { RegCLUT[14:6] , XPosClut };
 
-MemoryArbitrator MemoryArbitratorInstance(
+MemoryArbitratorFat MemoryArbitratorInstance(
     .gpuClk					(clk),
+	.busClk					(clkBus),
     .i_nRst					(i_nrst),
 
     // ---TODO Describe all fifo command ---
@@ -3314,10 +3552,27 @@ MemoryArbitrator MemoryArbitratorInstance(
     .resetPipelinePixelStateSpike		(resetPipelinePixelStateSpike),
     .resetMask							(resetMask),
 
+	// Read 32 value direct port for VRAM->CPU
+	.readPairValid						(memReadPairValid),
+	.readPairValue						(memReadPairValue),
+
     // -----------------------------------
     // [Fake Memory SIDE]
     // -----------------------------------
+	.o_command							(o_command		),        // 0 = do nothing, 1 Perform a read or write to memory.
+	.i_busy								(i_busy			),           // Memory busy 1 => can not use.
+	.o_commandSize						(o_commandSize	),    // 0 = 8 byte, 1 = 32 byte. (Support for write ?)
 
+	.o_write							(o_write		),          // 0=READ / 1=WRITE 
+	.o_adr								(o_adr			),            // 1 MB memory splitted into 32768 block of 32 byte.
+	.o_subadr							(o_subadr		),         // Block of 8 or 4 byte into a 32 byte block.
+	.o_writeMask						(o_writeMask	),
+
+	.i_dataIn							(i_dataIn		),
+	.i_dataInValid						(i_dataInValid	),
+	.o_dataOut                          (o_dataOut		)
+
+	/*
     .adr_o					(adr_o),   // ADR_O() address
     .dat_i					(dat_i),   // DAT_I() data in
     .dat_o					(dat_o),   // DAT_O() data out
@@ -3326,6 +3581,7 @@ MemoryArbitrator MemoryArbitratorInstance(
     .wrt_o					(wrt_o),
     .req_o					(req_o),
     .ack_i					(ack_i)
+	*/
 );
 
 GPUBackend GPUBackendInstance(

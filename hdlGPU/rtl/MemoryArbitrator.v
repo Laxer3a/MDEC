@@ -153,7 +153,7 @@ parameter	DEFAULT_STATE	= 4'b0000,
 			WRITE_BURST		= 4'b1001;
 
 // TODO : Put those constant into single constant file...
-			parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
+parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
 			MEM_CMD_FILL		= 3'b010,
 			MEM_CMD_RDBURST		= 3'b011,
 			MEM_CMD_WRBURST		= 3'b100,
@@ -284,7 +284,7 @@ begin
 		regSaveLoadOnGoing	= 1'b0;
 		bankID		= 1'b0;
 		VVIndex		= 4'd0;
-		ClearBankIDs = 2'd0;
+		ClearBankIDs= 2'd0;
 		WStencil	= 16'd0;
 	end else begin
 		currState	= nextState;
