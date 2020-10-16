@@ -158,18 +158,21 @@ parameter	CMD_32BYTE		= 2'd1,
 	//-----------------------------------------------------
 	//  Load values when a PSX command is received.
 	//-----------------------------------------------------
+	wire bIs32Bit = i_command && (i_commandSize == CMD_4BYTE);
+	wire bUnalign = i_command && i_subAddr[0];
 	always @(posedge i_clk)
 	begin
 		// Store the values for writing to DDR.
-		is32Bit   = i_command && (i_commandSize == CMD_4BYTE);
-		isUnAlign = i_command && i_subAddr[0];
-		isWrite	  = i_command && i_writeElseRead;
+		is32Bit   = bIs32Bit;
+		isUnAlign = bUnalign;
 		
 		// Delay of one cycle when doing transition from end of read burst to next command.
 		dataToPSXValid = (currState == WAIT_RECEIVE_READ) && (nextState == DEFAULT_STATE);
 		
-		if (isWrite) begin
-			dataInOut = i_dataClient;
+		if (i_command && i_writeElseRead) begin
+			dataInOut[ 31: 0] = i_dataClient[ 31: 0];
+			dataInOut[ 63:32] = (bUnalign & bIs32Bit)? i_dataClient[31:0] : i_dataClient[63:32];
+			dataInOut[255:64] = i_dataClient[255:64];
 		end
 		
 		// Set Mask (we don't check isWrite to simplify logic but dataMask is used only with Write)

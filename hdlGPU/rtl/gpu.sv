@@ -571,7 +571,7 @@ begin
     end
 end
 assign mydebugCnt =rdebugCnt;
-assign dbg_canWrite = isINFifoFull;
+assign dbg_canWrite = !isINFifoFull;
 
 // ---------------------------------------------
 
@@ -2998,7 +2998,7 @@ begin
     if (FifoDataValid) begin
         if (isV0 & /*issue.*/loadVertices) RegX0 = fifoDataOutX;
         if (isV0 & /*issue.*/loadVertices) RegY0 = fifoDataOutY;
-        if (isV0 & /*issue.*/loadUV	   ) RegU0 = fifoDataOutUR;
+        if (isV0 & /*issue.*/loadUV	     ) RegU0 = fifoDataOutUR;
         if (isV0 & /*issue.*/loadUV      ) RegV0 = fifoDataOutVG;
         if ((isV0|/*issue.*/loadAllRGB) & /*issue.*/loadRGB) begin
             RegR0 = loadComponentR;
@@ -3210,7 +3210,7 @@ wire signed [21:0]	DETP2	= b*negc;			// -b*c -> b*negc
 assign				DET		= DETP1 + DETP2;	// Same as (a*d) - (b*c)
 
 reg signed [11:0]	mulFA,mulFB;
-reg  signed [8:0]	v0C,v1C,v2C;
+reg  signed [9:0]	v0C,v1C,v2C;
 
 reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6;
 reg       vecID2,vecID3,vecID4,vecID5,vecID6;
@@ -3232,11 +3232,11 @@ end
 always @(*)
 begin
     case (compoID)
-    default:	begin v0C = RegR0;           v1C = RegR1;           v2C = RegR2;           end
-    3'd2:		begin v0C = RegG0;           v1C = RegG1;           v2C = RegG2;           end
-    3'd3:		begin v0C = RegB0;           v1C = RegB1;           v2C = RegB2;           end
-    3'd4:		begin v0C = { 1'b0, RegU0 }; v1C = { 1'b0, RegU1 }; v2C = { 1'b0, RegU2 }; end
-    3'd5:		begin v0C = { 1'b0, RegV0 }; v1C = { 1'b0, RegV1 }; v2C = { 1'b0, RegV2 }; end
+    default:	begin v0C = { 1'b0, RegR0 }; v1C = { 1'b0, RegR1 }; v2C = { 1'b0, RegR2 }; end
+    3'd2:		begin v0C = { 1'b0, RegG0 }; v1C = { 1'b0, RegG1 }; v2C = { 1'b0, RegG2 }; end
+    3'd3:		begin v0C = { 1'b0, RegB0 }; v1C = { 1'b0, RegB1 }; v2C = { 1'b0, RegB2 }; end
+    3'd4:		begin v0C = { 2'b0, RegU0 }; v1C = { 2'b0, RegU1 }; v2C = { 2'b0, RegU2 }; end
+    3'd5:		begin v0C = { 2'b0, RegV0 }; v1C = { 2'b0, RegV1 }; v2C = { 2'b0, RegV2 }; end
     endcase
 
     if (vecID) begin
@@ -3245,9 +3245,9 @@ begin
         mulFA = d;   	mulFB = negb;
     end
 end
-wire signed [9:0]   negv0c  = -{ 1'b0 ,v0C };
-wire signed [9:0]	C20i	= bIsLineCommand ? 10'd0 : ({ 1'b0 ,v2C } + negv0c);
-wire signed [9:0]	C10i	=  { 1'b0 ,v1C } + negv0c; // -512..+511
+wire signed [10:0]  negv0c  = -{1'b0,v0C};
+wire signed [10:0]	C20i	= bIsLineCommand ? 11'd0 : ({ 1'b0 ,v2C } + negv0c);
+wire signed [10:0]	C10i	=  { 1'b0 ,v1C } + negv0c; // -512..+511
 
 wire signed [20:0] inputDivA	= mulFA * C20i; // -2048..+2047 x -512..+511 = Signed 21 bit.
 wire signed [20:0] inputDivB	= mulFB * C10i;
@@ -3363,10 +3363,10 @@ wire signed [PREC+8:0] roundComp = { 9'd0, 1'b1, 10'd0}; // PRECM1'd0
 wire signed [PREC+8:0] offR = (distXV0*RSX) + (distYV0*RSY) + roundComp;
 wire signed [PREC+8:0] offG = (distXV0*GSX) + (distYV0*GSY) + roundComp;
 wire signed [PREC+8:0] offB = (distXV0*BSX) + (distYV0*BSY) + roundComp;
-wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) + roundComp;
-wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) + roundComp;
+wire signed [PREC+8:0] offU = (distXV0*USX) + (distYV0*USY) /* + roundComp*/;
+wire signed [PREC+8:0] offV = (distXV0*VSX) + (distYV0*VSY) /* + roundComp*/;
 
-wire signed [8:0] pixRL = RegR0 + offR[PREC+8:PREC];
+wire signed [8:0] pixRL = RegR0 + offR[PREC+8:PREC]; // TODO Here ?
 wire signed [8:0] pixGL = RegG0 + offG[PREC+8:PREC];
 wire signed [8:0] pixBL = RegB0 + offB[PREC+8:PREC];
 wire signed [7:0] pixUL = RegU0 + offU[PREC+7:PREC];
