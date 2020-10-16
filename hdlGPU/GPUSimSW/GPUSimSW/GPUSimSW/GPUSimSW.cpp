@@ -123,7 +123,7 @@ int main(int argcount, char** args)
 	const int	screenShotmoduloSpeed		= 0x0FFF; // 65K cycles.
 
 	// Put background for debug.
-	const bool	useCheckedBoard				= true;
+	const bool	useCheckedBoard				= false;
 
 	// ------------------------------------------------------------------
 	// Fake VRAM PSX
@@ -211,17 +211,17 @@ int main(int argcount, char** args)
 		COPY_TORAM
 	};
 
-	DEMO demo = USE_AVOCADO_DATA;
-	// NO_TEXTURE;
+	DEMO demo = TEXTURE_TRUECOLOR_BLENDING; // NO_TEXTURE; // USE_AVOCADO_DATA;
+	// ;
 
 	if (demo == TEXTURE_TRUECOLOR_BLENDING) {
 		// Load Gradient128x64.png at [0,0] in VRAM as true color 1555 (bit 15 = 0).
 		// => Generate GPU upload stream. Will be used as TEXTURE SOURCE for TRUE COLOR TEXTURING.
-		loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,true);
+		// loadImageToVRAM(mod,"Gradient128x64.png",buffer,0,0,true);
 	}
 
 	if (demo == NO_TEXTURE) {
-		loadImageToVRAM(mod,"TileTest.png",buffer,0,0,true);
+		// loadImageToVRAM(mod,"TileTest.png",buffer,0,0,true);
 	}
 
 	if (demo == COPY_CMD) {
@@ -350,9 +350,9 @@ int main(int argcount, char** args)
 	case NO_TEXTURE:
 	{
 		// fill rect
-		commandGenerator.writeRaw(0x0200FFFF);
-		commandGenerator.writeRaw(0x00000010); // At 0,0
-		commandGenerator.writeRaw(0x00100010); // H:16,W:16
+//		commandGenerator.writeRaw(0x0200FFFF);
+//		commandGenerator.writeRaw(0x00000010); // At 0,0
+//		commandGenerator.writeRaw(0x00100010); // H:16,W:16
 
 
 #if 1
@@ -360,9 +360,9 @@ int main(int argcount, char** args)
 		commandGenerator.writeRaw(0x30FF0000);
 		commandGenerator.writeRaw(0x00000000);
 		commandGenerator.writeRaw(0x0000FF00);
-		commandGenerator.writeRaw(0x0000010F);
+		commandGenerator.writeRaw(0x0000000F);
 		commandGenerator.writeRaw(0x000000FF);
-		commandGenerator.writeRaw(0x010F010F);
+		commandGenerator.writeRaw(0x000F0000);
 #endif
 
 		// TRIANGLE BLEND
@@ -389,22 +389,51 @@ int main(int argcount, char** args)
 	break;
 	case TEXTURE_TRUECOLOR_BLENDING:
 	{
-		commandGenerator.writeRaw(0xE6000001);						// Set Bit mask, no check.
+		commandGenerator.writeRaw(0xE6000000);						// Set Bit mask, no check.
 
 #if 1
-		commandGenerator.writeRaw(0x27AABBCC);						// Polygon, 3 pts, opaque, raw texture
+		/*
+		commandGenerator.writeRaw(0x7FFF001F); // 01
+		commandGenerator.writeRaw(0x7C007C1F); // 23
+		commandGenerator.writeRaw(0x000003E0); // 45
+		commandGenerator.writeRaw(0x03E07C00); // 67
+		commandGenerator.writeRaw(0x7FFF0000); // 89
+		commandGenerator.writeRaw(0x03E07FFF); // AB
+		commandGenerator.writeRaw(0x7FFF0000); // CD
+		commandGenerator.writeRaw(0x00007C00); // EF
+		*/
+		
+		// 4x4 pixel texture upload.
+		commandGenerator.writeRaw(0xA0000000); // Copy rect from CPU to VRAM
+		commandGenerator.writeRaw(0x00000000); // to 0,0
+		commandGenerator.writeRaw(0x00040004); // Size 4,4
+
+		commandGenerator.writeRaw(0xFC00801F); // 01
+		commandGenerator.writeRaw(0x8000FFFF); // 23
+
+		commandGenerator.writeRaw(0xFC1FFFFF); // 45
+		commandGenerator.writeRaw(0x8000FFFF); // 67
+
+		commandGenerator.writeRaw(0xFFFFFFFF); // 89
+		commandGenerator.writeRaw(0xFFF0FFF0); // AB
+
+		commandGenerator.writeRaw(0xFFFFFFFF); // CD
+		commandGenerator.writeRaw(0xFFF1FFF1); // EF
+
+		//---------------
+		//   Tri, textured
+		//---------------
+		commandGenerator.writeRaw(0x25AABBCC);                        // Polygon, 3 pts, opaque, raw texture
 		// Vertex 1
-		commandGenerator.writeRaw(0x00550050);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
-		commandGenerator.writeRaw(0xFFF30000);						// [31:16]Color LUT : NONE, value ignored
-																	// [15:8,7:0] Texture [0,0]
+		commandGenerator.writeRaw(0x00550050);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
+		commandGenerator.writeRaw(0xFFF30000);                        // [31:16]Color LUT : NONE, value ignored
+																// [15:8,7:0] Texture [0,0]
 		// Vertex 2
-		commandGenerator.writeRaw(0x00050090);						// [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
-		commandGenerator.writeRaw(((
-			0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11)			// [31:16] Texture at 0(4x64),0 ******4BPP******
-			)<<16 )                  | 0x001F);						// [15:8,7:0] Texture [1F,0]
-																	// Vertex 3
-		commandGenerator.writeRaw(0x00600115);						// [15:0] XCoordinate, [31:16] Y Coordinate
-		commandGenerator.writeRaw(0x00001F1F);						// Texture [1F,1F]
+		commandGenerator.writeRaw(0x00050090);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
+		commandGenerator.writeRaw((( 0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11) )<<16 ) | 0x0004);                        // [15:8,7:0] Texture [4,0]
+		// Vertex 3
+		commandGenerator.writeRaw(0x00800155);                        // [15:0] XCoordinate, [31:16] Y Coordinate
+		commandGenerator.writeRaw(0x00000404);                        // Texture [4,4]
 #else
 		commandGenerator.writeRaw(0x30AABBCC);
 		commandGenerator.writeRaw(0x01100100);
@@ -1243,7 +1272,7 @@ int main(int argcount, char** args)
 	while (
 //		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 //		&& (stuckState < 2500)
-		(clockCnt < (140000*2))
+		(clockCnt < (200000))
 	)
 	{
 		// By default consider stuck...
@@ -1274,7 +1303,7 @@ int main(int argcount, char** args)
 				}
 			}
 			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState != prevCommandWorkState)  {
-				savePic = true;
+//				savePic = true;
 				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
 				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
 	//			printf("\t[%i] NEW WORK STATE : %i\n",currentCommandID-1,mod->gpu__DOT__currWorkState);
@@ -1478,7 +1507,7 @@ int main(int argcount, char** args)
 				if ((clockCnt>>1) > 130000) {
 //					printf("  START BURST [%i] @ burstAdr %08x @Cycle %i \n", burstSize, burstAdr<<3, clockCnt>>1);
 				}
-				beginTransaction = false;
+				beginTransaction = (burstSize <= 1);
 			} else {
 				burstAdr  += 1;
 				burstSize--;
@@ -1571,7 +1600,7 @@ int main(int argcount, char** args)
 		mod->i_cpuDataIn	= 0;
 
 		// Cheat... should read system register like any normal CPU...
-		if (!mod->o_dbg_canWrite) {
+		if (mod->o_dbg_canWrite) {
 			// Push command inside the GPU as long as the GPU FIFO are not full
 			// and as long as we have command to push...
 			if (commandGenerator.stillHasCommand()) {
@@ -2996,8 +3025,8 @@ void drawTriangle(int v0Idx, int v1Idx, int v2Idx, struct mfb_window *window)
 			int offR  = (distX*uxR + distY*vyR) + (1<<(PREC-1));
 			int offG  = (distX*uxG + distY*vyG) + (1<<(PREC-1));
 			int offB  = (distX*uxB + distY*vyB) + (1<<(PREC-1));
-			int offU  = (distX*uxU + distY*vyU) + (1<<(PREC-1));
-			int offV  = (distX*uxV + distY*vyV) + (1<<(PREC-1));
+			int offU  = (distX*uxU + distY*vyU) /* + (1<<(PREC-1))*/;
+			int offV  = (distX*uxV + distY*vyV) /* + (1<<(PREC-1))*/;
 			int   compiRL   = v0.r +  (offR>>PREC);
 			int   compiGL   = v0.g +  (offG>>PREC);
 			int   compiBL   = v0.b +  (offB>>PREC);
