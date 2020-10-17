@@ -179,7 +179,7 @@ parameter	CMD_32BYTE		= 2'd1,
 		if ((currState == DEFAULT_STATE) && i_command) begin
 			if (i_writeElseRead) begin
 				if (i_commandSize == CMD_4BYTE) begin
-					dataMask   = { 12'd0, i_subAddr[0] ? 4'hC : 4'h3 };
+					dataMask   = { 12'd0, i_subAddr[0] ? { i_writeMask[1:0], 2'b0} : { 2'b0,i_writeMask[1:0] } };
 				end else begin
 					dataMask   = i_writeMask; // 32 byte. (8 Byte WRITE NEVER HAPPEN DONT CARE)
 				end
