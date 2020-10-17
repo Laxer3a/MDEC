@@ -11,4 +11,4 @@ As of now the following chips are being remade :
   * TODO Remaining : CPU Read from SPU.
   * TODO Remaining : Command to read SPU RAM content from CPU/DMA.
 - GTE  (Internal extension of the instruction set of the CPU to do 3D computations)
-  * TODO Implementation to complete, 3rd attempt. Previous attemps should matched the computation specs, but cycle count was off.
+  * DONE. Only a single instruction takes ONE more cycle than original specs.
