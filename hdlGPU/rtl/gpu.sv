@@ -2750,20 +2750,21 @@ begin
         //                 So we check (issuePrimitive == NO_ISSUE) when requesting next vertex.
 		
 		// WE INCREMENT COUNTER ONLY WHEN WE ARE SURE IT IS THE LAST CYCLE OF STATE.
-        /*issue.*/increaseVertexCounter	= bStateLeave /*& FifoDataValid*/ & (!bUseTextureParser);	// go to next vertex if do not need UVs, don't care if invalid vertex... cause no issues. PUSH NEW VERTEX ONLY IF NOT BUSY RENDERING.
-        /*issue.*/loadVertices			= (!bIsMultiLineTerminator); // Check if not TERMINATOR + line + multiline, else vertices are valid.
-        /*issue.*/loadRectEdge			= bIsRectCommand;	// Force to load, dont care, override by UV if set with UV or SIZE if variable.
+		// TRICK : VERTEX LOAD STAYS ON THE SAME STATE WHEN NEW DATA ARRIVES.
+        /*issue.*/increaseVertexCounter	= FifoDataValid & (!bUseTextureParser);	// go to next vertex if do not need UVs, don't care if invalid vertex... cause no issues. PUSH NEW VERTEX ONLY IF NOT BUSY RENDERING.
+        /*issue.*/loadVertices			= FifoDataValid & (!bIsMultiLineTerminator); // Check if not TERMINATOR + line + multiline, else vertices are valid.
+        /*issue.*/loadRectEdge			= FifoDataValid & bIsRectCommand;	// Force to load, dont care, override by UV if set with UV or SIZE if variable.
     end
     UV_LOAD:
     begin
         //
 
 		// WE INCREMENT COUNTER ONLY WHEN WE ARE SURE IT IS THE LAST CYCLE OF STATE.
-        /*issue.*/increaseVertexCounter	= bStateLeave /* & FifoDataValid*/ & canIssueWork & (!bIsRectCommand);	// Increase vertex counter only when in POLY MODE (LINE never reach here, RECT is the only other)
-        /*issue.*/loadUV				= canIssueWork;
+        /*issue.*/increaseVertexCounter	= FifoDataValid & canIssueWork & (!bIsRectCommand);	// Increase vertex counter only when in POLY MODE (LINE never reach here, RECT is the only other)
+        /*issue.*/loadUV				= FifoDataValid & canIssueWork;
         /*issue.*/loadClutPage			= FifoDataValid & isV0 & (!isPolyFinalVertex); // First entry is Clut info, avoid reset when quad.
-        /*issue.*/loadTexPage			= isV1; // second entry is TexPage.
-        /*issue.*/loadRectEdge			= bIsRectCommand;
+        /*issue.*/loadTexPage			= FifoDataValid & isV1; // second entry is TexPage.
+        /*issue.*/loadRectEdge			= FifoDataValid & bIsRectCommand;
 
         // do not issue primitive if Rectangle or 1st/2nd vertex UV.
 
@@ -2834,6 +2835,12 @@ end
 
 // WE Read from the FIFO when FIFO has data, but also when the GPU is not busy rendering, else we stop loading commands...
 // By blocking the state machine, we also block all the controls more easily. (Vertex loading, command issue, etc...)
+
+// TODO [OPTIMIZE] 'canIssueWork' can be probably remove in upper logic except WAIT_COMMAND_COMPLETE : state machine should always PARSE the primitive when we can ISSUE WORK.
+//        We loose a bit of performance (cycle to parse the primitive between 1 to 12 cycle)
+//        But anyway we can NOT PARSE WHILE RENDERING PRIMITIVE BECAUSE IT WILL MODIFY THE REGISTERS.
+//        So a full optimized system parsing the next command while rendering the first one is a lot more difficult anyway.
+//
 wire canReadFIFO			= isFifoNotEmpty32 & canIssueWork;
 assign readFifo				= (nextCondUseFIFO & canReadFIFO);
 wire authorizeNextState     = ((!nextCondUseFIFO) | readFifo);
