@@ -154,6 +154,7 @@ parameter	CMD_32BYTE		= 2'd1,
 	   end
 	end
 
+	wire validDataReceive = i_dataValidMem & ((currState != WRITE_STATE1) || (currState != DEFAULT_STATE));
 	
 	//-----------------------------------------------------
 	//  Load values when a PSX command is received.
@@ -169,12 +170,6 @@ parameter	CMD_32BYTE		= 2'd1,
 		// Delay of one cycle when doing transition from end of read burst to next command.
 		dataToPSXValid = (currState == WAIT_RECEIVE_READ) && (nextState == DEFAULT_STATE);
 		
-		if (i_command && i_writeElseRead) begin
-			dataInOut[ 31: 0] = i_dataClient[ 31: 0];
-			dataInOut[ 63:32] = (bUnalign & bIs32Bit)? i_dataClient[31:0] : i_dataClient[63:32];
-			dataInOut[255:64] = i_dataClient[255:64];
-		end
-		
 		// Set Mask (we don't check isWrite to simplify logic but dataMask is used only with Write)
 		if ((currState == DEFAULT_STATE) && i_command) begin
 			if (i_writeElseRead) begin
@@ -188,15 +183,21 @@ parameter	CMD_32BYTE		= 2'd1,
 			end
 		end
 		
-		// Write to the correct section when we read data.
-		if (i_dataValidMem) begin
-			case (blkCounterRecv)
-			// Handle the case of reformatting the data to 32 bit on an odd adr.
-			2'd0   : dataInOut[ 63:  0] = (is32Bit && isUnAlign) ? { 32'd0 , i_dataMem[63:32] } : i_dataMem;
-			2'd1   : dataInOut[127: 64] = i_dataMem;
-			2'd2   : dataInOut[191:128] = i_dataMem;
-			default: dataInOut[255:192] = i_dataMem;
-			endcase
+		if (i_command && i_writeElseRead) begin
+			dataInOut[ 31: 0] = i_dataClient[ 31: 0];
+			dataInOut[ 63:32] = (bUnalign & bIs32Bit)? i_dataClient[31:0] : i_dataClient[63:32];
+			dataInOut[255:64] = i_dataClient[255:64];
+		end else begin
+			// Write to the correct section when we read data.
+			if (validDataReceive) begin
+				case (blkCounterRecv)
+				// Handle the case of reformatting the data to 32 bit on an odd adr.
+				2'd0   : dataInOut[ 63:  0] = (is32Bit && isUnAlign) ? { 32'd0 , i_dataMem[63:32] } : i_dataMem;
+				2'd1   : dataInOut[127: 64] = i_dataMem;
+				2'd2   : dataInOut[191:128] = i_dataMem;
+				default: dataInOut[255:192] = i_dataMem;
+				endcase
+			end
 		end
 	end
 	
@@ -216,7 +217,7 @@ parameter	CMD_32BYTE		= 2'd1,
 			default   : lastCounter <= 2'd0;
 			endcase
 		end else begin
-			blkCounterRecv <= blkCounterRecv + { 1'b0 , i_dataValidMem           }; // Increment when receive READ value.
+			blkCounterRecv <= blkCounterRecv + { 1'b0 , validDataReceive         }; // Increment when receive READ value.
 			blkCounterEmit <= blkCounterEmit + { 1'b0 , writeSigDDR | readSigDDR }; // Increment on READ/WRITE request. 
 		end
 	end
@@ -256,7 +257,12 @@ parameter	CMD_32BYTE		= 2'd1,
 	
 	// TRICK TO KEEP SIZE THE SAME AT THE CYCLE WE RECEIVE THE COMMAND AND DURING THE TRANSACTION.
 	wire [1:0] size             = (currState == DEFAULT_STATE) ? i_commandSize : regSize;
-	assign o_burstLength		= (size == CMD_32BYTE) ? 3'd4 : 3'd1;
+	
+	// 
+	// IMPORTANT !!!! FOR NOW IT SEEMS THAT READ USING 4 consecutive READ SIG is SIZE OF 1.
+	// SO READ WAS 4x32 Byte instead of 1x32 (4x8)
+	// ALL CONTENT SEEMS TO WORK FOR NOW. MAY NOT BE BEST BUT IS FULLY FUNCTIONNAL.
+	assign o_burstLength		= 3'd1; // ORIGINAL LOGIC (size == CMD_32BYTE) ? 3'd4 : 3'd1;
 	
 	assign o_readEnableMem		= readSigDDR;	// Already set only in (currState==READ_STATE1)
 	assign o_writeEnableMem		= writeSigDDR && (currState==WRITE_STATE1);
