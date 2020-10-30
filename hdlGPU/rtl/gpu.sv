@@ -176,9 +176,8 @@ typedef enum logic[2:0] {
     Y_LINE_NEXT		= 3'd2,
     Y_TRI_START		= 3'd3,
     Y_TRI_NEXT		= 3'd4,
-    Y_TRI_PREV		= 3'd5,
-    Y_CV_ZERO		= 3'd6,
-    // 7 free...
+    Y_CV_ZERO		= 3'd5,
+    // 6,7 free...
     Y_ASIS			= 3'd0
 } nextY_t;
 
@@ -1339,7 +1338,6 @@ begin
         Y_LINE_NEXT:	nextPixelY	= nextLineY;
         Y_TRI_START:	nextPixelY	= minTriDAY0;
         Y_TRI_NEXT:		nextPixelY	= pixelY + { 10'b0      , 1'b1 }; // +1
-        Y_TRI_PREV:		nextPixelY	= pixelY + { 11'b1111_1111_111 }; // -1
         Y_CV_ZERO:		nextPixelY	= 12'd0;
         default:		nextPixelY	= pixelY;
     endcase
