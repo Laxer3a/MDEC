@@ -258,8 +258,9 @@ wire isChannel			= ((addr[9:8]==2'b00) | (isD8 & !addr[7])); 	// Latency 1 : C00
 wire [4:0] channelAdr	= addr[8:4];
 
 // Detect write transition
-wire isDMAXferWR  = (reg_SPUTransferMode == XFER_DMAWR);
-wire isDMAXferRD  = (reg_SPUTransferMode == XFER_DMARD);
+wire isDMAXferWR    = (reg_SPUTransferMode == XFER_DMAWR);
+wire isDMAXferRD    = (reg_SPUTransferMode == XFER_DMARD);
+wire isManualXferWR = (reg_SPUTransferMode == XFER_MANUAL);
 // TODO is better ? : wire dataTransferBusy		= (isDMAXferWR & fifo_r_valid) | isDMAXferRD;
 wire dataTransferBusy		= (reg_SPUTransferMode != XFER_STOP) & fifo_r_valid;	// [TODO : works only for write , not read]
 wire dataTransferReadReq 	= reg_SPUTransferMode[1] & reg_SPUTransferMode[0];
@@ -269,7 +270,8 @@ wire dataTransferRDReq		= reg_SPUTransferMode[1];
 // [Write to FIFO only on transition from internalwrite from 0->1 but allow BURST with DMA transfer] 
 //  --> PROTECTED FOR EDGE TRANSITION : WRITE during multiple cycle else would perform multiple WRITE of the same value !!!!
 // Implicit in writeFIFO, not used : wire isCPUXFer = (reg_SPUTransferMode == XFER_MANUAL);
-wire writeFIFO = internalWrite & (!PInternalWrite | isDMAXferWR) & isD80_DFF & (!addr[6]) & (addr[5:1] == 5'h14);
+wire writeFIFO = (internalWrite & isD80_DFF & (!addr[6]) & (addr[5:1] == 5'h14)) | (isDMAXferWR & SPUDACK);
+/*
 reg PInternalWrite;
 always @(posedge i_clk)
 begin
@@ -279,6 +281,7 @@ begin
 		PInternalWrite = internalWrite;
 	end
 end
+*/
 
 reg updateVoiceADPCMAdr;
 reg regIsLastADPCMBlk;
