@@ -42,6 +42,20 @@ module gpu
 	output          dbg_canWrite,
 
     // --------------------------------------
+    // Timing / Display
+    // --------------------------------------
+	input			i_gpuPixClk,
+	output			o_HBlank,
+	output			o_VBlank,
+	output			o_DotClk,
+	output [9:0]	o_HorizRes,
+	output [8:0]	o_VerticalRes,
+	output [9:0]	o_DisplayBaseX,
+	output [8:0]	o_DisplayBaseY,
+	output			o_IsInterlace,
+	output			o_CurrentField,
+
+    // --------------------------------------
     // Memory Interface
     // --------------------------------------
 	/*
@@ -287,15 +301,95 @@ reg               GPU_REG_VerticalResolution;
 reg         [1:0] GPU_REG_HorizResolution;
 reg               GPU_REG_HorizResolution368;
 DMADirection      GPU_REG_DMADirection;
+reg				  GPU_REG_ReverseFlag;
+
+//---------------------------------------------------------------
+//  Video Module START
+//---------------------------------------------------------------
+reg		[9:0]		VideoX;
+reg		[9:0]		VideoY;
 reg			[9:0] GPU_REG_DispAreaX;
 reg			[8:0] GPU_REG_DispAreaY;
 reg			[11:0] GPU_REG_RangeX0;
 reg			[11:0] GPU_REG_RangeX1;
 reg			[9:0] GPU_REG_RangeY0;
 reg			[9:0] GPU_REG_RangeY1;
-reg				  GPU_REG_ReverseFlag;
-reg					GPU_DisplayEvenOddLinesInterlace;	// TODO
-reg					GPU_REG_CurrentInterlaceField;		// TODO
+reg					GPU_REG_CurrentInterlaceField;
+//---------------------------------------------------------------
+// BOGUS VALUES...
+localparam SomeValueW	= 10'd380;
+localparam SomeValueH	=  9'd273;
+localparam SomeValueX0	= 10'd320;
+localparam SomeValueX1	= 10'd375;
+localparam SomeValueY0	=  9'd240;
+localparam SomeValueY1	=  9'd255;
+//---------------------------------------------------------------
+wire dotClockFlag;
+reg [3:0] dotClockDiv;
+reg [9:0] horizRes;
+always @(*) begin
+	if (GPU_REG_HorizResolution368) begin
+		dotClockDiv /*368*/ = 4'd7;
+		horizRes			= 10'd368;
+	end else begin
+		case (GPU_REG_HorizResolution)
+		2'd0 /*256*/: begin dotClockDiv = 4'd10;	horizRes = 10'd256; end
+		2'd1 /*320*/: begin dotClockDiv = 4'd8;		horizRes = 10'd320; end
+		2'd2 /*512*/: begin dotClockDiv = 4'd5;		horizRes = 10'd512; end
+		2'd3 /*640*/: begin dotClockDiv = 4'd4;		horizRes = 10'd640; end
+		endcase
+	end
+end
+
+reg  [3:0] gpuPixClkCount;
+wire [3:0] nextgpuPixClkCount = gpuPixClkCount + 1;
+assign dotClockFlag = (nextgpuPixClkCount == dotClockDiv);			// USED BY TIMER0
+always @(posedge i_gpuPixClk) begin
+	gpuPixClkCount <= dotClockFlag ? 4'd0 : nextgpuPixClkCount;
+end
+
+// Generating HBlank and VBlank
+// 2 Possibilities :
+// - from a constant number of video clock per line, then decide the number of line depending on the resolution.
+// - from the dot clock, with again setup depending on the resolution.
+reg [9:0]	VidXCounter;
+reg [8:0]	VidYCounter;
+wire goNextLine  = VidXCounter == SomeValueW;
+wire goNextFrame = VidYCounter == SomeValueH;
+always @(posedge i_gpuPixClk) begin // In GPU CLOCK ANYWAY
+	VidXCounter						<= goNextLine  ? 10'd0                          : VidXCounter + 10'd1;
+	VidYCounter						<= goNextFrame ?  9'd0                          : VidYCounter + { 8'd0, goNextLine };
+	GPU_REG_CurrentInterlaceField	<= goNextFrame ? !GPU_REG_CurrentInterlaceField : GPU_REG_CurrentInterlaceField;
+end
+
+wire HBlank             = (VidXCounter >= SomeValueX0) && (VidXCounter <= SomeValueX1);
+wire VBlank             = (VidYCounter >= SomeValueY0) && (VidYCounter <= SomeValueY1);
+//---------------------------------------------------------------------------------------------------
+assign o_DotClk 		= dotClockFlag;
+assign o_HorizRes		= horizRes;
+assign o_VerticalRes	= GPU_REG_VerticalResolution ? 9'd480 : 9'd240;
+assign o_IsInterlace	= GPU_REG_IsInterlaced;
+assign o_CurrentField   = GPU_REG_IsInterlaced & (!GPU_REG_CurrentInterlaceField);	// Note : DISPLAY CURRENT FIELD IS OPPOSITE TO RENDER CURRENT FIELD (
+assign o_DisplayBaseX	= GPU_REG_DispAreaX;
+assign o_DisplayBaseY	= GPU_REG_DispAreaY;
+assign o_HBlank			= HBlank;
+assign o_VBlank			= VBlank;
+//---------------------------------------------------------------
+//  Video Module END
+//---------------------------------------------------------------
+
+
+//---------------------------------------------------------------------------------------------------
+// Stuff to handle INTERLACED RENDERING !!!
+//
+// If [DISABLE WRITE ON DISPLAY] + [INTERLACE] + [RESOLUTION==480] + [NOT A COPY COMMAND] : SPECIAL RENDERING MODE ENABLED
+wire GPU_DisplayEvenOddLinesInterlace	= VBlank ? 1'd0 : (GPU_REG_VerticalResolution ? GPU_REG_CurrentInterlaceField : VideoY[0]);
+// [Interlace render generate 1 for primitive supporting it : LINE,RECT,TRIANGLE,FILL IF VALID]
+wire InterlaceRender					= ((!GPU_REG_DrawDisplayAreaOn) & GPU_REG_IsInterlaced) & GPU_REG_VerticalResolution & (!bIsCopyCommand);
+// But counter increment +2 is only valid for RECT,TRIANGLE,FILL. (LINE is ALWAYS Y+1 !!!)
+wire IncrementInterlaceRender           = InterlaceRender & (!bIsLineCommand);
+// So Start coordinate offset +0/+1 is only valid for RECT, TRIANGLE, FILL. It depends on the current field.
+wire renderYOffsetInterlace				= (IncrementInterlaceRender ? (RegY0[0] ^ GPU_REG_CurrentInterlaceField) : 1'b0);
 
 reg [31:0] regGpuInfo;
 
@@ -992,7 +1086,6 @@ begin
         GPU_REG_DrawAreaY1			<= 10'd511;		//
         GPU_REG_ForcePixel15MaskSet <= 0;
         GPU_REG_CheckMaskBit		<= 0;
-        GPU_REG_CurrentInterlaceField <= 1; // Odd field by default (bit 14 = 1 on reset)
         GPU_REG_IRQSet				<= 0;
         GPU_REG_DisplayDisabled		<= 1;
         GPU_REG_DMADirection		<= DMA_DirOff; // Off
@@ -1103,7 +1196,7 @@ begin
             GPU_REG_IsInterlaced		<= cpuDataIn[5];
             GPU_REG_BufferRGB888		<= cpuDataIn[4];
             GPU_REG_VideoMode			<= cpuDataIn[3];
-            GPU_REG_VerticalResolution	<= cpuDataIn[2] & cpuDataIn[5];
+            GPU_REG_VerticalResolution	<= cpuDataIn[2];
             GPU_REG_HorizResolution		<= cpuDataIn[1:0];
             GPU_REG_HorizResolution368	<= cpuDataIn[6];
             GPU_REG_ReverseFlag			<= cpuDataIn[7];
@@ -1132,6 +1225,7 @@ wire bIsForECommand			= (command[7:5]==3'b111);
 wire bIsCopyVVCommand		= (command[7:5]==3'b100);
 wire bIsCopyCVCommand		= (command[7:5]==3'b101);
 wire bIsCopyVCCommand		= (command[7:5]==3'b110);
+wire bIsCopyCommand			= bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand;
 wire bIsFillCommand			= bIsBase0x & bIsBase02;
 
 // End line command if special marker or SECOND vertex when not a multiline command...
@@ -1336,9 +1430,9 @@ begin
     case (selNextY)
         Y_LINE_START:	nextPixelY	= RegY0;
         Y_LINE_NEXT:	nextPixelY	= nextLineY;
-        Y_TRI_START:	nextPixelY	= minTriDAY0;
-        Y_TRI_NEXT:		nextPixelY	= pixelY + { 10'b0      , 1'b1 }; // +1
-        Y_CV_ZERO:		nextPixelY	= 12'd0;
+        Y_TRI_START:	nextPixelY	= minTriDAY0 + { 11'd0 , renderYOffsetInterlace };
+        Y_TRI_NEXT:		nextPixelY	= pixelY + { 9'b0 , IncrementInterlaceRender , !IncrementInterlaceRender };	// +1 for normal mode, +2 for interlaced locked render.
+        Y_CV_ZERO:		nextPixelY	= { 11'd0, renderYOffsetInterlace };
         default:		nextPixelY	= pixelY;
     endcase
 end
@@ -1547,9 +1641,10 @@ wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
 //                          X       + WIDTH              - [1 or 2]
 wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
 wire  [9:0]  nextScrY	= nextPixelY[9:0] + RegY0[9:0];
-wire [ 9:0]	nextY		= pixelY[9:0] + { 10'd1 };
+
+wire [ 9:0]	nextY		= pixelY[9:0] + { 8'd0, IncrementInterlaceRender , !IncrementInterlaceRender };
 wire		WidthNot1	= |RegSizeW[10:1];
-assign		endVertical	= (nextY == RegSizeH);
+assign		endVertical	= (nextY >= RegSizeH);
 assign			scrY	= pixelY[9:0] + RegY0[9:0];
 
 // [Registers]
@@ -2520,7 +2615,9 @@ begin
             end
 
             // If pixel is valid and (no mask checking | mask check with value = 0)
-            if (isLineInsideDrawArea && ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
+            if (isLineInsideDrawArea 																		// VALID AREA
+			&& ((!InterlaceRender)    || (InterlaceRender && (GPU_REG_CurrentInterlaceField != pixelY[0])))	// NON INTERLACED OR INTERLACE BUT VALID AREA
+			&& ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
                 writePixelL	 = isLineLeftPix;
                 writePixelR	 = isLineRightPix;
             end
@@ -2612,7 +2709,7 @@ begin
             /*issue.*/loadMaskSetting		= (command[2:0] == 3'd6);
         end else begin
             // [02/8x~9X/Ax~Bx/Cx~Dx]
-            if (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand) begin
+            if (bIsCopyCommand | bIsFillCommand) begin
                 nextLogicalState	= LOAD_XY1;
                 nextCondUseFIFO		= 1;
             end else begin
@@ -2816,13 +2913,13 @@ begin
 
         /*issue.*/loadRectEdge		= bIsRectCommand;
 
-        /*issue.*/issuePrimitive	= (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand) ? ISSUE_COPY : (bIsRectCommand ? ISSUE_RECT : ISSUE_FILL);
+        /*issue.*/issuePrimitive	= bIsCopyCommand ? ISSUE_COPY : (bIsRectCommand ? ISSUE_RECT : ISSUE_FILL);
         nextCondUseFIFO			= 0;
         nextLogicalState		= WAIT_COMMAND_COMPLETE;
     end
     WAIT_COMMAND_COMPLETE:
     begin
-        // (bIsCopyVVCommand | bIsCopyCVCommand | bIsCopyVCCommand | bIsFillCommand)
+        // (bIsCopyCommand | bIsFillCommand)
         nextCondUseFIFO			= 0;
         nextLogicalState		=  canIssueWork ? DEFAULT_STATE : WAIT_COMMAND_COMPLETE;
     end
@@ -2967,7 +3064,7 @@ begin
         if (bIsFillCommand) begin
             widthNext = { 1'b0, fifoDataOutWidth[9:4], 4'b0 } + { 6'd0, |fifoDataOutWidth[3:0], 4'b0 };
         end else begin
-            if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
+            if (bIsCopyCommand) begin
                 widthNext = { !(|fifoDataOutWidth[9:0]), fifoDataOutWidth }; // If value is 0, then 0x400
             end else begin
                 widthNext = { 1'b0, fifoDataOutWidth };
@@ -2975,7 +3072,7 @@ begin
         end
 
         writeOrigHeight = 1;
-        if (bIsCopyCVCommand | bIsCopyVCCommand | bIsCopyVVCommand) begin
+        if (bIsCopyCommand) begin
             heightNext			= copyHeight; // If value is 0, then 0x400
         end else begin
             heightNext			= { 1'b0, fifoDataOutHeight };

@@ -29,6 +29,20 @@ module GPU_DDR
     output 			o_validDataOut,
 	
     // --------------------------------------
+	//   Display Controller
+    // --------------------------------------
+	input			i_gpuPixClk,
+	output			o_HBlank,
+	output			o_VBlank,
+	output			o_DotClk,
+	output [9:0]	o_HorizRes,
+	output [8:0]	o_VerticalRes,
+	output [9:0]	o_DisplayBaseX,
+	output [8:0]	o_DisplayBaseY,
+	output			o_IsInterlace,
+	output			o_CurrentField,
+	
+    // --------------------------------------
 	//   Avalon MM DDR Bus
     // --------------------------------------
 	output [16:0]	o_targetAddr,
@@ -85,6 +99,20 @@ gpu	gpu_inst(
     .i_dataIn		(dataIn),
 	.i_dataInValid	(dataInValid),
 	.o_dataOut		(dataOut),
+	
+    // --------------------------------------
+	//   Display Controller
+    // --------------------------------------
+	.i_gpuPixClk	(i_gpuPixClk),
+	.o_HBlank		(o_HBlank),
+	.o_VBlank		(o_VBlank),
+	.o_DotClk		(o_DotClk),
+	.o_HorizRes		(o_HorizRes),
+	.o_VerticalRes	(o_VerticalRes),
+	.o_DisplayBaseX	(o_DisplayBaseX),
+	.o_DisplayBaseY	(o_DisplayBaseY),
+	.o_IsInterlace	(o_IsInterlace),
+	.o_CurrentField	(o_CurrentField),
 	
     // --------------------------------------
 	//   CPU Bus
