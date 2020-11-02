@@ -36,7 +36,7 @@ typedef struct wavfile_header_s {
 #define BYTE_RATE (SAMPLE_RATE * NUM_CHANNELS * BITS_PER_SAMPLE / 8)
 #define BLOCK_ALIGN (NUM_CHANNELS * BITS_PER_SAMPLE / 8)
 
-#include "sample.h"
+// #include "sample.h"
 
 /*Return 0 on success and -1 on failure*/
 int write_PCM16_stereo_header(FILE* file_p, int32_t SampleRate, int32_t FrameCount) {
@@ -99,8 +99,8 @@ typedef struct PCM16_stereo_s {
 class VSPU_IF;
 #include "../../../rtl/obj_dir/VSPU_IF.h"
 
-class VADSRCycleCountModule;
-#include "../../../rtl/obj_dir/VADSRCycleCountModule.h"
+// class VADSRCycleCountModule;
+// #include "../../../rtl/obj_dir/VADSRCycleCountModule.h"
 
 // My own scanner to generate VCD file.
 #define VCSCANNER_IMPL
@@ -116,7 +116,7 @@ void SPUBootSound(bool uploadSamples, bool fillZeros);
 void uploadData();
 void check(bool isTrue);
 int  Adr(int Adr);
-Sample Rd(int Adr);
+// Sample Rd(int Adr);
 
 int reverbCurrentAdrByte;
 
@@ -160,6 +160,7 @@ void check(bool ok) {
 
 u16 SPU_SW_RAM[262144];
 
+/*
 Sample Rd(int adressByte) {
 	int wordAdr = AdrWord(adressByte);
 	u16 d0 = SPU_SW_RAM[wordAdr];
@@ -179,6 +180,7 @@ void Wr(int adressByte, Sample v) {
 		SPU_SW_RAM[wordAdr] = v;
 	}
 }
+*/
 
 struct PushInfo {
 	bool isWait;
@@ -194,6 +196,206 @@ int			gWaitCounter = 0;
 bool		gWait = false;
 
 #include <math.h>
+
+/*
+void W(uint32_t addr, uint16_t data) {
+    delay();
+
+    if (addr == SPUCNT) {
+        // Dismiss dma write attempts
+        const uint16_t MODE_MASK = 0x30;
+        const uint16_t DMA_WRITE = 2;
+        if (((data & MODE_MASK) >> 4) == DMA_WRITE) {
+            return;
+        }
+    }
+    write16(addr, data);
+}
+*/
+
+int bytesWritten  = 0;
+int ptrData = 0;
+int ptrDataEnd = 0;
+int uploadSize = 0;
+int uploadPtr  = 0;
+int vsyncCounter = 0;
+bool upload;
+u8*  spu_dump_bin;
+
+enum PlayerState {
+	WRITE_REG,
+	WAIT_VSYNC,
+	UPLOAD_DATA,
+	UPLOAD_DIGEST,
+	UPLOAD_WRITEMODE,
+};
+
+PlayerState pState;
+
+void loader(const char* fileSPUDump) {
+	ptrData		= 0;
+	ptrDataEnd	= 0;
+	pState		= pState;
+	vsyncCounter= 0;
+
+	FILE* source = fopen(fileSPUDump, "rb");
+
+	if (source) {
+		fseek(source,0,SEEK_END);
+		ptrDataEnd  = ftell(source);
+		fseek(source,0,SEEK_SET);
+		spu_dump_bin = new u8[ptrDataEnd];
+		fread(spu_dump_bin,1,ptrDataEnd,source);
+
+		fclose(source);
+	} else {
+		printf(" CAN NOT OPEN FILE %s\n",fileSPUDump);
+	}
+}
+
+void ResetPins() {
+	mod->SPUCS   = 0;
+	mod->SPUDREQ = 0;
+	mod->SPUDACK = 0;
+	mod->SRD     = 0;
+	mod->SWRO    = 0;
+	mod->addr    = 0; // 10 bit.
+	mod->dataIn  = 0;
+}
+
+void W(int addr, int data) {
+	mod->SPUCS   = 1;
+//	mod->SPUDREQ = 0;
+//	mod->SPUDACK = 0;
+//	mod->SRD     = 0;
+	mod->SWRO    = 1;
+	printf("WRITE [%08x] = %04x\n",addr,data);
+	mod->addr    = addr - 0x1f801c00; // 10 bit.
+	mod->dataIn	 = data;
+}
+
+void WU(int addr, int data) {
+	mod->SPUCS   = 1;
+//	mod->SPUDREQ = 0;
+//	mod->SPUDACK = 0;
+//	mod->SRD     = 0;
+	mod->SWRO    = 1;
+	mod->addr    = addr - 0x1f801c00; // 10 bit.
+	mod->dataIn	 = data;
+}
+
+void R(int addr) {
+	mod->SPUCS   = 1;
+//	mod->SPUDREQ = 0;
+//	mod->SPUDACK = 0;
+	mod->SRD     = 1;
+//	mod->SWRO    = 0;
+	mod->addr    = addr - 0x1f801c00; // 10 bit.
+	mod->eval();
+}
+
+u16 lastSPUSetup = 0;
+
+void interpreter(int counter) {
+//    for (uint32_t ptr = 0;ptr < sizeof(spu_dump_bin);) {
+	ResetPins();
+
+	if (ptrData < ptrDataEnd) {
+		switch (pState) {
+		case WRITE_REG:
+			{
+				uint8_t opcode = spu_dump_bin[ptrData++];
+				if (opcode == 'X') {
+					// if (ptrData>1) return;
+				}else if (opcode == 'V') {
+					printf("VSYNC WAIT STARTED @clk %i\n",counter);
+					pState = WAIT_VSYNC;
+				}else if (opcode == 'W') {
+					uint32_t addr = 0;
+					addr |= spu_dump_bin[ptrData++];
+					addr |= spu_dump_bin[ptrData++]<<8;
+					addr |= spu_dump_bin[ptrData++]<<16;
+					addr |= spu_dump_bin[ptrData++]<<24;
+
+					uint16_t data = 0;
+					data |= spu_dump_bin[ptrData++];
+					data |= spu_dump_bin[ptrData++]<<8;
+					if (addr == 0x1F801DAA) {
+						// FORBID DMA SETUP !!!!
+						// 5-4   Sound RAM Transfer Mode (0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread))
+						int mode = (data>>4) & 3;
+						lastSPUSetup = data & (~(3<<4)); // Setup without transfer mode.
+						printf("  Transfer mode:%i (0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread)\n",mode);
+					}
+					W(addr, data);
+				}else if (opcode == 'F') {
+					uint16_t size = 0;
+					size |= spu_dump_bin[ptrData++]; 
+					size |= spu_dump_bin[ptrData++]<<8;
+
+					uploadSize = size;
+					uploadPtr  = 0;
+					bytesWritten = 0;
+					printf("UPLOAD START @clk %i\n",counter);
+					pState = UPLOAD_DATA;
+				} else {
+					printf("Unknown opcode %c (%d) @ 0x%x, breaking\n", opcode, opcode, ptrData-1);
+					return;
+				}
+			}
+			break;
+		case UPLOAD_DATA:
+			{
+				uint16_t data = 0;
+				data |= spu_dump_bin[ptrData++];
+				data |= spu_dump_bin[ptrData++]<<8;
+                
+				WU(0x1F801DA8 /*SPU_FIFO*/, data);
+				uploadPtr++;
+
+				bytesWritten += 2;
+				if (bytesWritten % 32 == 0 || (uploadPtr == uploadSize)) { // 32 item or block is smaller than 32
+					printf("UPLOAD PAUSE @clk %i\n",counter);
+					pState = UPLOAD_WRITEMODE;
+				}
+			}
+			break;
+		// Ended block
+		case UPLOAD_WRITEMODE:
+			WU(0x1F801DAA,lastSPUSetup | (1<<4));
+			pState = UPLOAD_DIGEST;
+			break;
+		// Wait block complete...
+		case UPLOAD_DIGEST:
+			// KEEP READING EACH CYCLE
+			R(0x1F801DAE);
+			if ((mod->dataOut & (1<<10)) == 0) { // PREVIOUS READ RESULT
+				printf("UPLOAD CONTINUE @clk %i\n",counter);
+				if (uploadPtr < uploadSize) {
+					// Still block to do...
+					pState = UPLOAD_DATA;
+				} else {
+					pState = WRITE_REG;
+				}
+			}
+			break;
+		case WAIT_VSYNC:
+			//
+			// If upload takes too long, VSync may be shifted of a few frames...
+			//
+			if (vsyncCounter == 0) {
+				printf("VSYNC WAIT ENDED @clk %i\n",counter);
+				pState = WRITE_REG;
+			}
+			break;
+		}
+	}
+
+	vsyncCounter++;
+	if (vsyncCounter==563333) {
+		vsyncCounter = 0;
+	}
+}
 
 int main()
 {
@@ -285,6 +487,7 @@ int main()
 	mod->i_clk = 0; mod->eval();
 	if (useScan) { pScan->eval(clockCnt); }
 
+#if 0
 	// Wait for all writes to SPU complete...
 	bool uploadDataBefore = true;
 	if (uploadDataBefore) {
@@ -301,6 +504,7 @@ int main()
 	}
 
 	SPUBootSound(!uploadDataBefore,false);
+#endif
 
 	// ------------------------------------------------------------------
 	// MAIN LOOP
@@ -310,10 +514,11 @@ int main()
 
 	bool scanConstraint = false;
 
-#define SAMPLE_COUNT	(200000)
+	loader("E:\\metal-slug-x-03-Judgement.spudump");
+#define SAMPLE_COUNT	(882000)
 
 #ifdef DUMPWAV
-	FILE* dumpWav = fopen("w:\\testSimSingleB.wav", "wb");
+	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");
 	write_PCM16_stereo_header(dumpWav, 44100, SAMPLE_COUNT);
 #endif
 
@@ -323,7 +528,7 @@ int main()
 
 
 		if ((waitCount & 0x1FFFFF) == 0) {
-			printf("Wait Count : %i\n", waitCount);
+			printf("Output sample : %i\n", (waitCount / 768));
 		}
 
 		/*
@@ -382,7 +587,8 @@ int main()
 
 #endif
 
-		processUpload(mod);
+		interpreter(waitCount);
+		//processUpload(mod);
 #if 0
 		if (mod->SPU__DOT__SPU_RAM_FPGAInternal__DOT__i_we) {
 			int adr = mod->SPU__DOT__SPU_RAM_FPGAInternal__DOT__i_wordAddr * 2;
@@ -424,6 +630,7 @@ int main()
 			clockCnt++;
 		}
 
+#if 0
 		int revCounter = mod->SPU_IF__DOT__SPU_instance__DOT__reverbCnt;
 		int reg_ReverbEnable = mod->SPU_IF__DOT__SPU_instance__DOT__reg_ReverbEnable;
 
@@ -678,6 +885,7 @@ int main()
 			// -> Check differences in READ.
 			// => Store all HW stuff in SW, then compare SW at once.
 		}
+#endif
 		// ----
 		// PNG SCREEN SHOT PER CYCLE IF NEEDED.
 		// ----

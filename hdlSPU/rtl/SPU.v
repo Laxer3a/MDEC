@@ -262,7 +262,7 @@ wire isDMAXferWR    = (reg_SPUTransferMode == XFER_DMAWR);
 wire isDMAXferRD    = (reg_SPUTransferMode == XFER_DMARD);
 wire isManualXferWR = (reg_SPUTransferMode == XFER_MANUAL);
 // TODO is better ? : wire dataTransferBusy		= (isDMAXferWR & fifo_r_valid) | isDMAXferRD;
-wire dataTransferBusy		= (reg_SPUTransferMode != XFER_STOP) & fifo_r_valid;	// [TODO : works only for write , not read]
+wire dataTransferBusy		= /* (reg_SPUTransferMode != XFER_STOP) & */ fifo_r_valid;	// [TODO : works only for write , not read]
 wire dataTransferReadReq 	= reg_SPUTransferMode[1] & reg_SPUTransferMode[0];
 wire dataTransferWriteReq	= reg_SPUTransferMode[1] & (!reg_SPUTransferMode[0]);
 wire dataTransferRDReq		= reg_SPUTransferMode[1];

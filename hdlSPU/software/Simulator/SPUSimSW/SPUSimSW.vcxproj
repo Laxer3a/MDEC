@@ -155,8 +155,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\rtl\obj_dir\VADSRCycleCountModule.cpp" />
-    <ClCompile Include="..\..\..\rtl\obj_dir\VADSRCycleCountModule__Syms.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF__Syms.cpp" />
     <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp" />
