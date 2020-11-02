@@ -567,7 +567,9 @@ reg				resetDir;
 reg				switchDir;
 reg				loadNext;
 reg				setPixelFound;
+reg				setDirectionComplete;
 reg				resetPixelFound;
+reg				completedOneDirection;
 reg				memorizeLineEqu;
 reg IncY;
 
@@ -1515,11 +1517,15 @@ begin
     end
 
     if (resetPixelFound) begin
-        pixelFound = 0; // No pixel found.
+        pixelFound				= 0; // No pixel found.
+		completedOneDirection	= 0; // Scan in one direction.
     end
     if (setPixelFound) begin
         pixelFound = 1;
     end
+	if (setDirectionComplete) begin
+		completedOneDirection	= 1; // Completed Scan in one direction.
+	end
 	/* Early optimization removed.
     if (resetEnteredTriangle) begin
         enteredTriangle = 0;
@@ -1810,6 +1816,7 @@ begin
     loadNext					= 0;
     setPixelFound				= 0;
     resetPixelFound				= 0;
+	setDirectionComplete		= 0;
     selNextX					= X_ASIS;
     selNextY					= Y_ASIS;
     switchDir					= 0;
@@ -2523,12 +2530,25 @@ begin
                     end else begin
                         // Continue to search for VALID PIXELS...
                         selNextX		= X_TRI_NEXT;
-                        selNextY		= reachEdgeTriScan ? Y_TRI_NEXT : Y_ASIS;
+
                         // Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
                         // -> Need to detect that we scan too far and met nobody and avoid out of bound search.
 						// COMMENTED OUT enteredTriangle test : some triangle do write pixels sparsely when very thin !!!!
 						// No choice except scanning until Bbox edge, no early skip...
-                        nextWorkState	= reachEdgeTriScan ? (/*REMOVE : enteredTriangle ? FLUSH_COMPLETE_STATE : */ SCAN_LINE_CATCH_END) : SCAN_LINE;
+						if (reachEdgeTriScan) begin
+							if (completedOneDirection) begin
+								selNextY				= Y_TRI_NEXT;
+								nextWorkState			= SCAN_LINE_CATCH_END;
+							end else begin
+								switchDir				= 1;
+								setDirectionComplete	= 1;
+								selNextY				= Y_ASIS;
+								nextWorkState			= SCAN_LINE;
+							end
+						end else begin
+							selNextY				= Y_ASIS;
+							nextWorkState			= SCAN_LINE;
+						end
                     end
                 end // else do nothing.
             end
@@ -3556,6 +3576,64 @@ directCacheDoublePort directCacheDoublePortInst(
     .o_isHitB							(TexHit_c1R),
     .o_isMissB							(TexMiss_c1R)
 );
+
+/*
+//---------------------------------------------------------------------
+// PERFORMANCE COUNTER FOR TEX$ MISS / SUCCESS
+//---------------------------------------------------------------------
+reg pipeReqA; reg pipeReqB;
+reg pipepipeReqA; reg pipepipeReqB;
+reg prevTexHit_c1L; reg prevTexHit_c1R;
+
+always @(posedge clk)
+begin
+	pipeReqA 		<= requDataTex_c0L;
+	pipeReqB 		<= requDataTex_c0R;
+	pipepipeReqA	<= pipeReqA;
+	pipepipeReqB	<= pipeReqB;
+	prevTexHit_c1L	<= TexHit_c1L;
+	prevTexHit_c1R	<= TexHit_c1R;
+end
+
+reg [22:0] HitACounter;
+reg [22:0] HitBCounter;
+reg [22:0] TotalACounter;
+reg [22:0] TotalBCounter;
+
+always @(posedge clk)
+begin
+	if (writeGP1) begin
+		HitACounter   <= 23'd0;
+		TotalACounter <= 23'd0;
+		HitBCounter   <= 23'd0;
+		TotalBCounter <= 23'd0;
+	end else begin
+		if (TexHit_c1L) begin
+			HitACounter   <= HitACounter   + 23'd1;
+			TotalACounter <= TotalACounter + 23'd1; 
+		end else begin
+			// !TexHit_c1L
+			// - (prevHit=1 & pipeReqA)
+			// - pipeReg & !pipepipeReg
+			if ((!pipepipeReqA & pipeReqA) | (pipeReqA & prevTexHit_c1L)) begin
+				TotalACounter <= TotalACounter + 23'd1;
+			end
+		end
+
+		if (TexHit_c1R) begin
+			HitBCounter   <= HitBCounter   + 23'd1;
+			TotalBCounter <= TotalBCounter + 23'd1; 
+		end else begin
+			if ((!pipepipeReqA & pipeReqA) | (pipeReqA & prevTexHit_c1L)) begin
+				TotalBCounter <= TotalBCounter + 23'd1;
+			end
+		end
+		
+	end
+end
+//---------------------------------------------------------------------
+*/
+
 
 // ------------------------------------------------
 CLUT_Cache CLUT_CacheInst(
