@@ -306,65 +306,45 @@ reg				  GPU_REG_ReverseFlag;
 //---------------------------------------------------------------
 //  Video Module START
 //---------------------------------------------------------------
-reg		[9:0]		VideoX;
-reg		[9:0]		VideoY;
-reg			[9:0] GPU_REG_DispAreaX;
-reg			[8:0] GPU_REG_DispAreaY;
-reg			[11:0] GPU_REG_RangeX0;
-reg			[11:0] GPU_REG_RangeX1;
-reg			[9:0] GPU_REG_RangeY0;
-reg			[9:0] GPU_REG_RangeY1;
-reg					GPU_REG_CurrentInterlaceField;
-//---------------------------------------------------------------
-// BOGUS VALUES...
-localparam SomeValueW	= 10'd380;
-localparam SomeValueH	=  9'd273;
-localparam SomeValueX0	= 10'd320;
-localparam SomeValueX1	= 10'd375;
-localparam SomeValueY0	=  9'd240;
-localparam SomeValueY1	=  9'd255;
-//---------------------------------------------------------------
-wire dotClockFlag;
-reg [3:0] dotClockDiv;
-reg [9:0] horizRes;
-always @(*) begin
-	if (GPU_REG_HorizResolution368) begin
-		dotClockDiv /*368*/ = 4'd7;
-		horizRes			= 10'd368;
-	end else begin
-		case (GPU_REG_HorizResolution)
-		2'd0 /*256*/: begin dotClockDiv = 4'd10;	horizRes = 10'd256; end
-		2'd1 /*320*/: begin dotClockDiv = 4'd8;		horizRes = 10'd320; end
-		2'd2 /*512*/: begin dotClockDiv = 4'd5;		horizRes = 10'd512; end
-		2'd3 /*640*/: begin dotClockDiv = 4'd4;		horizRes = 10'd640; end
-		endcase
-	end
-end
+reg			[9:0]	GPU_REG_DispAreaX;
+reg			[8:0]	GPU_REG_DispAreaY;
+reg			[11:0]	GPU_REG_RangeX0;
+reg			[11:0]	GPU_REG_RangeX1;
+reg			[9:0]	GPU_REG_RangeY0;
+reg			[9:0]	GPU_REG_RangeY1;
 
-reg  [3:0] gpuPixClkCount;
-wire [3:0] nextgpuPixClkCount = gpuPixClkCount + 1;
-assign dotClockFlag = (nextgpuPixClkCount == dotClockDiv);			// USED BY TIMER0
-always @(posedge i_gpuPixClk) begin
-	gpuPixClkCount <= dotClockFlag ? 4'd0 : nextgpuPixClkCount;
-end
+wire				GPU_REG_CurrentInterlaceField;
+wire 		[9:0]	horizRes;
+wire				dotClockFlag;
+wire				HBlank;
+wire				VBlank;
+wire				currentLineOddEven;
 
-// Generating HBlank and VBlank
-// 2 Possibilities :
-// - from a constant number of video clock per line, then decide the number of line depending on the resolution.
-// - from the dot clock, with again setup depending on the resolution.
-reg [9:0]	VidXCounter;
-reg [8:0]	VidYCounter;
-wire goNextLine  = VidXCounter == SomeValueW;
-wire goNextFrame = VidYCounter == SomeValueH;
-always @(posedge i_gpuPixClk) begin // In GPU CLOCK ANYWAY
-	VidXCounter						<= goNextLine  ? 10'd0                          : VidXCounter + 10'd1;
-	VidYCounter						<= goNextFrame ?  9'd0                          : VidYCounter + { 8'd0, goNextLine };
-	GPU_REG_CurrentInterlaceField	<= goNextFrame ? !GPU_REG_CurrentInterlaceField : GPU_REG_CurrentInterlaceField;
-end
+GPUVideo GPUVideo_inst(
+	.i_gpuPixClk		(i_gpuPixClk),
+	.i_nRst				(i_nrst),
 
-wire HBlank             = (VidXCounter >= SomeValueX0) && (VidXCounter <= SomeValueX1);
-wire VBlank             = (VidYCounter >= SomeValueY0) && (VidYCounter <= SomeValueY1);
-//---------------------------------------------------------------------------------------------------
+	.i_PAL				(GPU_REG_VideoMode),
+	.i_IsInterlace		(GPU_REG_IsInterlaced),
+
+	.GPU_REG_HorizResolution368	(GPU_REG_HorizResolution368),
+	.GPU_REG_HorizResolution	(GPU_REG_HorizResolution),
+
+	.GPU_REG_RangeX0	(GPU_REG_RangeX0),
+	.GPU_REG_RangeX1	(GPU_REG_RangeX1),
+	.GPU_REG_RangeY0	(GPU_REG_RangeY0),
+	.GPU_REG_RangeY1	(GPU_REG_RangeY1),
+
+	.o_dotClockFlag		(dotClockFlag),
+	.o_hbl				(HBlank),
+	.o_vbl				(VBlank),
+
+	.currentInterlaceField	(GPU_REG_CurrentInterlaceField),
+	.widthDisplay		(horizRes),
+	.currentLineOddEven	(currentLineOddEven),
+	.heightDisplay		()
+);
+
 assign o_DotClk 		= dotClockFlag;
 assign o_HorizRes		= horizRes;
 assign o_VerticalRes	= GPU_REG_VerticalResolution ? 9'd480 : 9'd240;
@@ -383,7 +363,7 @@ assign o_VBlank			= VBlank;
 // Stuff to handle INTERLACED RENDERING !!!
 //
 // If [DISABLE WRITE ON DISPLAY] + [INTERLACE] + [RESOLUTION==480] + [NOT A COPY COMMAND] : SPECIAL RENDERING MODE ENABLED
-wire GPU_DisplayEvenOddLinesInterlace	= VBlank ? 1'd0 : (GPU_REG_VerticalResolution ? GPU_REG_CurrentInterlaceField : VideoY[0]);
+wire GPU_DisplayEvenOddLinesInterlace	= VBlank ? 1'd0 : (GPU_REG_VerticalResolution ? GPU_REG_CurrentInterlaceField : currentLineOddEven);
 // [Interlace render generate 1 for primitive supporting it : LINE,RECT,TRIANGLE,FILL IF VALID]
 wire InterlaceRender					= ((!GPU_REG_DrawDisplayAreaOn) & GPU_REG_IsInterlaced) & GPU_REG_VerticalResolution & (!bIsCopyCommand);
 // But counter increment +2 is only valid for RECT,TRIANGLE,FILL. (LINE is ALWAYS Y+1 !!!)
