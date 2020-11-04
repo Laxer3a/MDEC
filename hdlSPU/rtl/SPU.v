@@ -600,8 +600,13 @@ begin
 end // end always block
 
 reg [15:0] dataOutw;
+reg [15:0] pipeDataOut;
+always @ (posedge i_clk) 
+begin
+	pipeDataOut <= dataOutw;
+end
 
-assign dataOut		= readSPU ? i_dataInRAM : dataOutw;
+assign dataOut		= readSPU ? i_dataInRAM : pipeDataOut;
 
 reg internalReadPipe;
 reg incrXFerAdr;
@@ -1075,7 +1080,7 @@ begin
 	setEndX				= 0;
 	setAsStart			= 0;
 	zeroIndex			= 0;
-	SPUMemWRSel			= NO_SPU_READ;	// Default empty reads...
+	SPUMemWRSel			= NO_SPU_READ;	// Default : NO READ/WRITE SIGNALS
 	updateVoiceADPCMAdr	= 0;
 	updateVoiceADPCMPos = 0;
 	updateVoiceADPCMPrev= 0;
@@ -1163,8 +1168,8 @@ begin
 		//
 		5'd14:
 		begin
-			SPUMemWRSel			= FIFO_WRITE; // Allow only ONCE XFer per voice...
-			// [BREAK] SPUMemWRSel = isDMAXferRD ? FIFO_RD : FIFO_WRITE; // Allow only ONCE XFer per voice...
+			// SPUMemWRSel			= FIFO_WRITE; // Allow only ONCE XFer per voice...
+			SPUMemWRSel = isDMAXferRD ? FIFO_RD : FIFO_WRITE; // Allow only ONCE XFer per voice...
 		end
 		5'd15:
 		begin

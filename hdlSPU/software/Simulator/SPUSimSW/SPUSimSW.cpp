@@ -227,6 +227,7 @@ enum PlayerState {
 	WAIT_VSYNC,
 	UPLOAD_DATA,
 	UPLOAD_DIGEST,
+	UPLOAD_DIGEST2,
 	UPLOAD_WRITEMODE,
 };
 
@@ -292,6 +293,14 @@ void R(int addr) {
 //	mod->SWRO    = 0;
 	mod->addr    = addr - 0x1f801c00; // 10 bit.
 	mod->eval();
+
+	/*
+	// BAD HACK
+	mod->i_clk	= 0;
+	mod->eval();
+	mod->i_clk  = 1;
+	mod->eval();
+	*/
 }
 
 u16 lastSPUSetup = 0;
@@ -369,6 +378,9 @@ void interpreter(int counter) {
 		case UPLOAD_DIGEST:
 			// KEEP READING EACH CYCLE
 			R(0x1F801DAE);
+			pState = UPLOAD_DIGEST2;
+			break;
+		case UPLOAD_DIGEST2:
 			if ((mod->dataOut & (1<<10)) == 0) { // PREVIOUS READ RESULT
 				printf("UPLOAD CONTINUE @clk %i\n",counter);
 				if (uploadPtr < uploadSize) {
@@ -377,6 +389,8 @@ void interpreter(int counter) {
 				} else {
 					pState = WRITE_REG;
 				}
+			} else {
+				pState = UPLOAD_DIGEST;
 			}
 			break;
 		case WAIT_VSYNC:
@@ -514,13 +528,15 @@ int main()
 
 	bool scanConstraint = false;
 
-	loader("E:\\metal-slug-x-03-Judgement.spudump");
-#define SAMPLE_COUNT	(882000)
+	loader("E:\\bios-sound.spudump");
+#define SAMPLE_COUNT	(88200)
 
 #ifdef DUMPWAV
 	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");
 	write_PCM16_stereo_header(dumpWav, 44100, SAMPLE_COUNT);
 #endif
+
+	int StartRecord = 768*880000;
 
 	while ((waitCount < 768* SAMPLE_COUNT)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 		//	&& (clockCnt < (350*2))			// ADDITION TEST IF GPU GET STUCK TO EXIT : GLOBAL COUNTER.
@@ -545,7 +561,7 @@ int main()
 		mod->i_clk    = 1;
 		mod->eval();
 
-		scanConstraint = mod->SPU_IF__DOT__SPU_instance__DOT__currVoice >= 24 /* (waitCount > scanFrom)*/
+		scanConstraint = waitCount >= StartRecord; // mod->SPU_IF__DOT__SPU_instance__DOT__currVoice >= 24 /* (waitCount > scanFrom)*/
 					  /* && (mod->SPU__DOT__PValidSample) */;
 
 #ifdef DUMPWAV

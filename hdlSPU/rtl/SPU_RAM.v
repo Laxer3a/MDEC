@@ -37,19 +37,34 @@ module SPU_RAM
 		readByteSelect_reg	= i_byteSelect & {i_re,i_re};
 	end
 	
-	// Continuous assignment implies read returns NEW data.
-	// This is the natural behavior of the TriMatrix memory
-	// blocks in Single Port mode.  
-	wire [7:0] low = readByteSelect_reg[0] ? ramL[addr_reg] : cachL;
-	wire [7:0] hig = readByteSelect_reg[1] ? ramM[addr_reg] : cachM;
-	
-	// Keep last data forever...
-	reg [7:0] cachL, cachM;
+	// DEAD if not valid or correct value (1 cycle after READ signal)
+	wire [7:0] hig = readByteSelect_reg[1] ? ramM[addr_reg] : 8'hDE;
+	wire [7:0] low = readByteSelect_reg[0] ? ramL[addr_reg] : 8'hAD;
+
+	reg [15:0] data1;
+	reg [15:0] data2;
+	reg [15:0] data3;
+	reg [1:0]  readByteSelect_reg1;
+	reg [1:0]  readByteSelect_reg2;
+	reg [1:0]  readByteSelect_reg3;
 	always @ (posedge i_clk)
 	begin
-		if (readByteSelect_reg[0]) begin cachL = low; end
-		if (readByteSelect_reg[1]) begin cachM = hig; end
+		// Pipeline +3 cycles for data valid.
+		readByteSelect_reg1 <= readByteSelect_reg;
+		readByteSelect_reg2 <= readByteSelect_reg1;
+		readByteSelect_reg3 <= readByteSelect_reg2;
+
+		// Update pipeline value along the line if VALID only.
+		if (readByteSelect_reg1[0]) begin
+			data1 <= { hig,low };
+		end
+
+		if (readByteSelect_reg2[0]) begin
+			data2 <= data1;
+		end
+		if (readByteSelect_reg3[0]) begin
+			data3 <= data2;
+		end
 	end
-	
-	assign o_q = { hig , low };
+	assign o_q = data3;
 endmodule
