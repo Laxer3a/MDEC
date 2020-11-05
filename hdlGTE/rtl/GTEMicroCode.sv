@@ -8,6 +8,7 @@ module GTEMicroCode(
 	input                   isNewInstr,
 	input [5:0]				Instruction,
 	input [8:0]				i_PC,
+	input					i_USEFAST,
 	
 	output gteWriteBack		o_writeBack,
 	output gteComputeCtrl	o_ctrl,
@@ -71,14 +72,16 @@ module GTEMicroCode(
 	
 	// System to have ZERO latency for now... all LOGIC.
 	
-	reg isLastEntry;
+	reg isLastEntrySLOW;
+	reg isLastEntryFAST;
 	always @(*)
 	begin
 		// Output BRAM value
-		cmptCtrl     = currentEntry.ctrlPath;
-		wb           = currentEntry.wb;
-		isLastEntry  = currentEntry.lastInstr;
+		cmptCtrl         = currentEntry.ctrlPath;
+		wb               = currentEntry.wb;
+		isLastEntrySLOW  = currentEntry.lastInstrSLOW;
+		isLastEntryFAST  = currentEntry.lastInstrFAST;
 	end
 	
-	assign o_lastInstr = isLastEntry;
+	assign o_lastInstr = (!i_USEFAST && isLastEntrySLOW) | (i_USEFAST & isLastEntryFAST);
 endmodule

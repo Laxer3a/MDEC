@@ -2,17 +2,22 @@
 
 module GTEEngine (
 	input         i_clk,
-	input         i_nRst,
+	input         i_nRst,				// NEGATIVE RESET !!! (1=Working, 0=Reset)
 
-	input  E_REG  i_regID,
-	input         i_WritReg,
-//	input         i_ReadReg,
-	input  [31:0] i_dataIn,
-	output [31:0] o_dataOut,
+	input  E_REG  i_regID,				// Register ID to write or read. (READ ALWAYS HAPPEN, 0 LATENCY to o_dataOut, please use when o_executing=0)
+	input         i_WritReg,			// Write to 'Register ID' = i_dataIn.
+	
+	input		  i_DIP_USEFASTGTE,		// Control signal coming from the console (not the CPU, from outside at runtime or compile option)
+	input		  i_DIP_FIXWIDE,		// Same
+	
+//	input         i_ReadReg, 			// DEPRECATED
 
-	input  [24:0] i_Instruction,
-	input         i_run,		
-	output        o_executing	// SET TO ZERO AT LAST CYCLE OF EXECUTION !!!! Shave off a cycle.
+	input  [31:0] i_dataIn,				// Register Write value.
+	output [31:0] o_dataOut,			// Register Read  value.
+
+	input  [24:0] i_Instruction,		// Instruction to execute
+	input         i_run,				// Instruction valid
+	output        o_executing			// BUSY, only read/write/execute when o_executing = 0
 );
 
 // ComputePath => Register Write
@@ -62,8 +67,12 @@ GTEComputePath GTEComputePath_inst(
 	.i_nRst			(i_nRst),
 
 	.isMVMVA        (isMVMVA | isMVMVAWire),
+	.WIDE			(i_DIP_FIXWIDE),
+	
 	.i_instrParam	(ctrl),				// Instruction Parameter bits
 	.i_computeCtrl	(computeCtrl),		// Control from Microcode Module.
+	.i_DIP_FIXWIDE	(i_DIP_FIXWIDE),
+
 	.i_wb			(writeBack),		// Write Back Signal
 	.i_registers	(gteREG),			// Values  from Register Module.
 	.o_RegCtrl		(gteWR)				// Write back to registers.
@@ -78,6 +87,7 @@ GTEMicroCode GTEMicroCode_inst(
 	.isNewInstr		(loadInstr),
 	.Instruction	(i_Instruction[5:0]),
 	.i_PC			(vPC),
+	.i_USEFAST		(i_DIP_USEFASTGTE),
 	
 	.o_writeBack	(writeBack),
 	.o_ctrl			(computeCtrl),
@@ -134,8 +144,8 @@ begin
 	end else begin
 		PC	<= vPC;
 		if (loadInstr) begin
-		    isMVMVA				<= isMVMVAWire; // MVMVA.
-			ctrl.executing		<= 1'b1;
+		    isMVMVA				<= isMVMVAWire; 				// MVMVA.
+			ctrl.executing		<= 1'b1; 						// No !gteLastMicroInstruction; needed (because gteLastMicroInstruction reset executing).
 		end
 	end
 end
