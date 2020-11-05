@@ -67,6 +67,8 @@ GTEComputePath GTEComputePath_inst(
 	.i_nRst			(i_nRst),
 
 	.isMVMVA        (isMVMVA | isMVMVAWire),
+	.WIDE			(i_DIP_FIXWIDE),
+	
 	.i_instrParam	(ctrl),				// Instruction Parameter bits
 	.i_computeCtrl	(computeCtrl),		// Control from Microcode Module.
 	.i_DIP_FIXWIDE	(i_DIP_FIXWIDE),

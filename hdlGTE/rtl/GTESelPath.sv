@@ -28,6 +28,7 @@ module GTESelPath(
 	input            isMVMVA,
 	input  [1:0]     vec,
 	input  [1:0]     mx,
+	input			 WIDE,	// TODO SUPPORT
 	
 	// -----------------
 	// --- LEFT SIDE ---
@@ -77,6 +78,8 @@ module GTESelPath(
 	output signed [34:0] outstuff
 );
 	reg [15:0] mc1,mc2,mc3;
+	
+	// TODO_WIDE : Change to [19:0]
 	reg [17:0] vComp;
 	
 	wire [1:0] mat    = isMVMVA ? mx  : ctrl.mat;
@@ -104,13 +107,14 @@ module GTESelPath(
 		default: mc3 = MAT3_C2;
 		endcase
 		
+		// TODO_WIDE : { , 00 } all values except HS3Z setup x3 or x4.
 		case (vcompo)
 		2'd0   : vComp = {{2{V0c[15]}}, V0c };  // S
 		2'd1   : vComp = {{2{V1c[15]}}, V1c };  // S
 		2'd2   : vComp = {{2{V2c[15]}}, V2c };  // S
 		// U Unsigned 17 bit !!!! when not MVMVA, else IRn
 		default: vComp = isMVMVA	?	((ctrl.vcompo == 2'd0) ? {{2{IRn[15]}}, IRn } : {{2{tmpReg[15]}}, tmpReg }) 
-									:	{ 1'b0, HS3Z };
+									:	{ 1'b0, HS3Z }; // TODO_WIDE : x3 / x4 case
 		endcase
 	end
 
@@ -131,6 +135,7 @@ module GTESelPath(
 		endcase
 	end
 
+	// TODO_WIDE : Change to 19:0 + { , 00 } all values except vComp
 	reg signed [17:0] rightSide;
 	wire [3:0] selRight = ctrl.selRight; // For verilator debug. Bad SV support.
 	always @(*) begin
@@ -150,6 +155,9 @@ module GTESelPath(
 		endcase
 	end
 	
+	// TODO_WIDE : result[36:0]
 	wire signed [34:0] result = rightSide * leftSide;
+
+	// TODO_WIDE : result[36:2]
 	assign outstuff = result;
 endmodule

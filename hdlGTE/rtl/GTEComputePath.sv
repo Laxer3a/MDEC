@@ -8,6 +8,7 @@ module GTEComputePath(
     input                   i_nRst,
 
 	input                   isMVMVA,
+	input					WIDE,
 	input   gteWriteBack    i_wb,
     input   CTRL            i_instrParam,
     input   gteComputeCtrl  i_computeCtrl,
@@ -50,6 +51,7 @@ GTESelPath SelMuxUnit1 (
   .isMVMVA (isMVMVA),
   .vec     (i_instrParam.vec),
   .mx      (i_instrParam.mx),
+  .WIDE    (WIDE),
 
   .MAT0_C0 (i_registers.R11),
   .MAT0_C1 (i_registers.R21),
@@ -92,6 +94,7 @@ GTESelPath SelMuxUnit2 (
   .isMVMVA (isMVMVA),
   .vec     (i_instrParam.vec),
   .mx      (i_instrParam.mx),
+  .WIDE    (WIDE),
 
   .MAT0_C0 (i_registers.R12),
   .MAT0_C1 (i_registers.R22),
@@ -134,6 +137,7 @@ GTESelPath SelMuxUnit3 (
   .isMVMVA (isMVMVA),
   .vec     (i_instrParam.vec),
   .mx      (i_instrParam.mx),
+  .WIDE    (1'b0),
   
   .MAT0_C0 (i_registers.R13),
   .MAT0_C1 (i_registers.R23),
