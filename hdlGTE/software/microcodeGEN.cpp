@@ -34,7 +34,7 @@ public:
 	void setInstruction	(const char* nameLeft, const char* nameRight) {
 		setup[instructionID].left  = FindLeft (nameLeft,false);
 		setup[instructionID].right = FindRight(nameRight,false);
-		printf("L:%i, R:%i @%i (%s,%s)\n",setup[instructionID].left,setup[instructionID].right,instructionID, availableRegL[setup[instructionID].left].name,availableRegR[setup[instructionID].right].name);
+		// printf("L:%i, R:%i @%i (%s,%s)\n",setup[instructionID].left,setup[instructionID].right,instructionID, availableRegL[setup[instructionID].left].name,availableRegR[setup[instructionID].right].name);
 	}
 
 	// Program the unit.
@@ -720,9 +720,9 @@ void endInstruction(bool final = true) {
 
 		int start = Opcode[lastOpcode].StartPC;
 		int end   = instructionID; // POINT TO NEXT INSTRUCTION SLOT. So mark END excluded.
-		int length = end - start;
+		int length = (end - start);
 		int lengthOfficial = Opcode[lastOpcode].officialCount;
-		printf("[%i] EXEC TIME : %i (Official : %i)\n" , counterOfOp, length, lengthOfficial);
+		printf("[%i] Opcode %i %s EXEC TIME : %i (Official : %i)\n",counterOfOp , lastOpcode, Opcode[lastOpcode].name, length, lengthOfficial);
 		counterOfOp++;
 
 		globalPath.setLastInstructionFast();	// POINT TO LAST MICROCODE !!!!
@@ -1400,6 +1400,9 @@ void rtps(int idx, bool setMAC0) {
 	/*
 		//      2. H_S3Z input in SelMuxUnit1 and SelMuxUnit2
 		//      3. OF[0]/OF[1] input in SelAdd
+
+		SX2 = Lm_G1(F((s64) OFX + ((s64) IR1 * h_over_sz3) * (Config.Widescreen ? 0.75 : 1)) >> 16);
+
 		int32_t x = setMac<0>((int64_t)(h_s3z * ir[1] * ratio) + of[0]) >> 16;
 		int32_t y = setMac<0>(h_s3z * ir[2] + of[1]) >> 16;
 		pushScreenXY(x, y);
@@ -1450,14 +1453,14 @@ void rtps(int idx, bool setMAC0) {
 
 // 13 DONE RTPS 14 Cycle (probably done 6)
 void rtps() {
-	Start("RTPS",0x01,14,6);
+	Start("RTPS",0x01,14 /*Sony's doc, No$=15*/,6);
 	rtps(0,true);
 	endInstruction();
 }
 
 // 14 DONE RTPT 22 Cycles (probably done 16)
 void rtpt() {
-	Start("RTPT",0x30,22,16);
+	Start("RTPT",0x30,22 /*Sony's doc, No$=23*/,16);
 	rtps(0,false);
 	rtps(1,false);
 	rtps(2,true );
@@ -1828,75 +1831,6 @@ void genTblDiv() {
 	}
 }
 
-int main()
-{
-	// genTblDiv();
-
-	HWDesignSetup();
-	registerInstructions();
-	generateMicroCode("MicroCode.inl");
-
-	/*
-
-	VChipSelect* mod = new VChipSelect();
-
-    // LOCAL SIGNALS
-    // Internals; generally not touched by application code
-    // Begin mtask footprint  all: 
-
-	for (int platformMemSize = 0; platformMemSize<4; platformMemSize++) {
-		for (int biosSize = 0; biosSize < 8; biosSize++) {
-			int prevCS_Pins      = -1;
-			mod->REG_RAM_SIZE    = biosSize; // 5:8MB  1MB+1MBHiz+6MB Locked
-			mod->PhysicalRAMSize = platformMemSize; // 2MB
-
-			printf (" --------------------------------------------\n");
-			printf (" --- Memory BIOS Setup : %i , Platform Memory : %i\n",mod->REG_RAM_SIZE,mod->PhysicalRAMSize);
-			printf (" --------------------------------------------\n");
-
-			for (unsigned long long n=0; n < 0xFFFFFFFFULL; n+=4) {
-				mod->i_address = n;
-				mod->eval();
-
-				int CS_Pins = mod->o_csPins | (mod->o_csScratchPad<<16);
-				int CS_Scratch = mod->o_csScratchPad;
-				int regi = (int)mod->o_region;
-				int hasScratch = mod->o_hasScratchPad;
-				if (CS_Pins != prevCS_Pins) {
-					printf("Change at %08x [Region %i] (HasScratchPad %i) : ",(unsigned int)n,regi,hasScratch);
-					bool found = false;
-					if (CS_Pins) {
-						if (CS_Pins & 65536) { printf("[SCRATCHPAD]"); }
-						if (CS_Pins & 8192) { printf("RAM HiZ"); }
-						if (CS_Pins & 4096) { printf("RAM"); }
-						if (CS_Pins & 2048) { printf("MemCtrl1"); }
-						if (CS_Pins & 1024) { printf("PeriphIO"); }
-						if (CS_Pins &  512) { printf("MemCtrl2"); }
-						if (CS_Pins &  256) { printf("INTCtrl"); }
-
-						if (CS_Pins &  128) { printf("DMACtrl"); }
-						if (CS_Pins &   64) { printf("TimerCtrl"); }
-						if (CS_Pins &   32) { printf("CDRomCtrl"); }
-						if (CS_Pins &   16) { printf("GPUCtrl"); }
-
-						if (CS_Pins &    8) { printf("MDECCtrl"); }
-						if (CS_Pins &    4) { printf("SPUCtrl"); }
-						if (CS_Pins &    2) { printf("ExpReg2"); }
-						if (CS_Pins &    1) { printf("BIOS_CS"); }
-					} else {
-						printf("[CPU EXCEPTION]");
-					}
-
-					printf("\n");
-					prevCS_Pins = CS_Pins;
-				}
-			}
-		}
-	}
-
-	delete mod;
-	*/
-}
 #define pr(a) printf(a);printf("\n");
 
 void registerInstructions() {
@@ -2071,4 +2005,746 @@ void generatorStartTableMicroCode(const char* fileName) {
 	fprintf(fout,"default: retAdr = 9'd0; // UNDEF -> MAP TO NOP\n");
 
 	fclose(fout);
+}
+
+class VGTEEngine;
+#include "../rtl/obj_dir/VGTEEngine.h"
+
+#define VCSCANNER_IMPL
+#include "VCScanner.h"
+
+#define MODULE mod
+#define SCAN   pScan
+
+#undef VL_IN
+#undef VL_OUT
+#undef VL_SIG
+#undef VL_SIGA
+#undef VL_IN8
+#undef VL_OUT8
+#undef VL_SIG8
+#undef VL_IN16
+#undef VL_OUT16
+#undef VL_SIG16
+#undef VL_IN64
+#undef VL_OUT64
+#undef VL_SIG64
+#undef VL_SIGW
+
+#define VL_IN(NAME,size,s2)			SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_OUT(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_SIG(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_SIGA(NAME,size,s2,cnt)	SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_IN8(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_OUT8(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_SIG8(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_IN16(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_OUT16(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_SIG16(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_IN64(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_OUT64(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_SIG64(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
+#define VL_SIGW(NAME,size,s2,storageSize,depth)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME,depth, (((u8*)& MODULE ->## NAME[1]) - ((u8*)& MODULE ->## NAME[0])));
+
+void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
+    // PORTS
+    // The application code writes and reads these signals to
+    // propagate new values into/out from the Verilated model.
+    // Begin mtask footprint  all: 
+    VL_IN8(i_clk,0,0);
+    VL_IN8(i_nRst,0,0);
+    VL_IN8(i_regID,5,0);
+    VL_IN8(i_WritReg,0,0);
+    VL_IN8(i_DIP_USEFASTGTE,0,0);
+    VL_IN8(i_DIP_FIXWIDE,0,0);
+    VL_IN8(i_run,0,0);
+    VL_OUT8(o_executing,0,0);
+    VL_IN(i_dataIn,31,0);
+    VL_OUT(o_dataOut,31,0);
+    VL_IN(i_Instruction,24,0);
+    
+    // LOCAL SIGNALS
+    // Internals; generally not touched by application code
+    // Begin mtask footprint  all: 
+    VL_SIG8(GTEEngine__DOT__i_clk,0,0);
+    VL_SIG8(GTEEngine__DOT__i_nRst,0,0);
+    VL_SIG8(GTEEngine__DOT__i_regID,5,0);
+    VL_SIG8(GTEEngine__DOT__i_WritReg,0,0);
+    VL_SIG8(GTEEngine__DOT__i_DIP_USEFASTGTE,0,0);
+    VL_SIG8(GTEEngine__DOT__i_DIP_FIXWIDE,0,0);
+    VL_SIG8(GTEEngine__DOT__i_run,0,0);
+    VL_SIG8(GTEEngine__DOT__o_executing,0,0);
+    VL_SIG8(GTEEngine__DOT__isMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__isMVMVAWire,0,0);
+    VL_SIG8(GTEEngine__DOT__isBuggyMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__gteLastMicroInstruction,0,0);
+    VL_SIG8(GTEEngine__DOT__loadInstr,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__i_clk,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__i_nRst,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__i_loadInstr,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__i_regID,5,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__i_WritReg,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__FLAG_31,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accCRGB0,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accCRGB1,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accCRGB2,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accCRGB,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__cpuWrtCRGB,3,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accSXY0,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accSXY1,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accSXY2,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accSXYP,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accSZ0,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accSZ1,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accSZ2,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__accSZP,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__cpuWrtSXY,3,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__cpuWrtSZ,3,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__wrtFSPX,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__wrtFSPY,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__wrtFSPZ,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__wrIRGB,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__cntLeadInput,5,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__pRegID,5,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__R5,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__G5,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__B5,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__result,5,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__oneLead,5,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__zeroLead,5,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__countT3,2,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__countT2,2,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__countT1,2,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__countT0,2,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__anyOneT3,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__anyOneT2,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__anyOneT1,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__anyOneT0,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstR__DOT__o,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstR__DOT__unsignedUPositive,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstR__DOT__myClampUPositive__DOT__valueIn,7,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstR__DOT__myClampUPositive__DOT__valueOut,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstR__DOT__myClampUPositive__DOT__isNZero,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstR__DOT__myClampUPositive__DOT__orStage,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstG__DOT__o,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstG__DOT__unsignedUPositive,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstG__DOT__myClampUPositive__DOT__valueIn,7,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstG__DOT__myClampUPositive__DOT__valueOut,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstG__DOT__myClampUPositive__DOT__isNZero,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstG__DOT__myClampUPositive__DOT__orStage,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstB__DOT__o,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstB__DOT__unsignedUPositive,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstB__DOT__myClampUPositive__DOT__valueIn,7,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstB__DOT__myClampUPositive__DOT__valueOut,4,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstB__DOT__myClampUPositive__DOT__isNZero,0,0);
+    VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstB__DOT__myClampUPositive__DOT__orStage,4,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__i_clk,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__i_nRst,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__i_DIP_FIXWIDE,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__colR,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__colG,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__colB,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__divOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isOverflowS44,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isUnderflowS44,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isOverflowS32,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isUnderflowS32,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isUO_OTZ,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isUO_IR0,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isXY_UOFlow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__colorPostClip,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__ou_IRn,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__ou_Color,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__useLM,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__useSFWrite32,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__overFlow44,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__underFlow44,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag30,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag29,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag28,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag27,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag26,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag25,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag24,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag23,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag22,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag21,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag20,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag19,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag18,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag17,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag16,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag15,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag14,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag13,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__writeFlag12,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__isMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__vec,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__mx,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__color,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__mat,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__vcompo,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__selLeft,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__selRight,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__isMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__vec,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__mx,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__color,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__mat,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__vcompo,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__selLeft,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__selRight,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__isMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__vec,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__mx,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__color,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__mat,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__vcompo,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__selLeft,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__selRight,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__ctrl,6,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__i_SF,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__isMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__cv,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__R,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__G,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__B,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__vSF,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__colV,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__sel,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__i_clk,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__overflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT3,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT2,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT1,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT0,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT3,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT2,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT1,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shiftAmount,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__ovf,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__p_ovf,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pp_ovf,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__isOver,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local1__DOT__isOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local1__DOT__isUnderflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local2__DOT__isOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local2__DOT__isUnderflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local3__DOT__isOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local3__DOT__isUnderflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Global__DOT__isOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Global__DOT__isUnderflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS32Global__DOT__isOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS32Global__DOT__isUnderflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS32Global__DOT__hasZeros,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS32Global__DOT__hasOne,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__i_overflowS32,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__i_underflowS32,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__isUnderOrOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__isUnderOrOverflowIR0,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__hasOne,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__isOver,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__isUnder,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__outUnderOver,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__isGEQ4096,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__i_overflowS32,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__i_underflowS32,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__isUnderOrOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__hasOne,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__hasZero,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__isOver,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__isOver_IR0,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__isUnder,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__i_sf,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__i_LM,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__i_useFixedSFLM,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__o_OU_IRn,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__o_OU_Color,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__clampOutCol,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__hasZerosSF,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__hasOneSF,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__isUnder_v,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__isUnder_vPos,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__isOver_v,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__hasZerosA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__hasOneA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__isUnderA_v,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__isOverA_v,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__clampCol,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__isNegClamp,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__isPosClamp,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__overF,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__isOne,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__sgn,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__andV,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__orV,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__isPos,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__overF,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__valueOut,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__negClamp,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__posClamp,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__isPos,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__andStage,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__overF,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_clk,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isNewInstr,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__Instruction,5,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_USEFAST,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__o_lastInstr,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isLastEntrySLOW,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isLastEntryFAST,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__IsNop,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__isBuggyMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__Instruction,5,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__remapp3,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__remapped,5,0);
+    VL_SIG16(GTEEngine__DOT__writeBack,14,0);
+    VL_SIG16(GTEEngine__DOT__ctrl,8,0);
+    VL_SIG16(GTEEngine__DOT__PC,8,0);
+    VL_SIG16(GTEEngine__DOT__vPC,8,0);
+    VL_SIG16(GTEEngine__DOT__startMicroCodeAdr,8,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__i_wb,14,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SX0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SX1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SX2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SY0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SY1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SY2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SZ0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SZ1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SZ2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SZ3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__IR0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__IR1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__IR2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__IR3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__OTZ,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R11,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R12,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R13,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R21,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R22,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R23,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R31,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R32,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R33,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L11,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L12,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L13,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L21,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L22,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L23,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L31,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L32,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__L33,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LR1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LR2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LR3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LG1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LG2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LG3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LB1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LB2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__LB3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__H,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__DQA,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__ZSF3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__ZSF4,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VX0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VY0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VZ0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VX1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VY1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VZ1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VX2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VY2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VZ2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__dataPathSY,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__dataPathSX,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__dataPathSZ,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__R16,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__G16,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__B16,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstR__DOT__i,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstG__DOT__i,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__M16TO5InstB__DOT__i,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__i_wb,14,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__i_instrParam,8,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__TMP1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__TMP2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__TMP3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selIR0_1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selIR0_2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selIR0_3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__minusR,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__colSide,8,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__PrevSide,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__otzValue,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__IR0Value,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__xyValue,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__IRnPostClip,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__ctrl,11,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__IRn,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT0_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT0_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT0_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT1_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT1_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT1_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT2_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT2_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT2_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT3_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT3_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__MAT3_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__SZ,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__DQA,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__SX,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__Z3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__Z4,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__IR0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__tmpReg,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__V0c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__V1c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__V2c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__SYA,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__SYB,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__mc1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__mc2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__mc3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__ctrl,11,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__IRn,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT0_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT0_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT0_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT1_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT1_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT1_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT2_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT2_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT2_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT3_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT3_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__MAT3_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__SZ,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__DQA,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__SX,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__Z3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__Z4,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__IR0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__tmpReg,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__V0c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__V1c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__V2c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__SYA,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__SYB,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__mc1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__mc2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__mc3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__ctrl,11,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__IRn,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT0_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT0_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT0_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT1_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT1_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT1_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT2_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT2_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT2_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT3_C0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT3_C1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__MAT3_C2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__SZ,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__DQA,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__SX,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__Z3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__Z4,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__IR0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__tmpReg,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__V0c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__V1c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__V2c,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__SYA,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__SYB,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__mc1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__mc2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__mc3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__TMP1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__TMP2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__TMP3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__SZ0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__ZFS4,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__mulB,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__specialZ0MulZSF4_Lo,11,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__mac_Lo,11,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__shadowIR,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__z3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b1,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b3,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__d,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__ladr,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pd,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__routData,9,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__clampOut,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__clampOutIR0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__andS,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__outIR0,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__clampOut,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__andS,9,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__clampOut,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__clampSR16,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__clampSP15,14,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__clamp16,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__valueOut,15,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__orStage,14,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__andStage,14,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__valueOut,14,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__andStage,14,0);
+    VL_SIG16(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_PC,8,0);
+    VL_SIG16(GTEEngine__DOT__GTEMicroCode_inst__DOT__o_writeBack,14,0);
+    VL_SIG16(GTEEngine__DOT__GTEMicroCode_inst__DOT__wb,14,0);
+    VL_SIG16(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__StartAddress,8,0);
+    VL_SIG16(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__retAdr,8,0);
+    VL_SIG(GTEEngine__DOT__i_dataIn,31,0);
+    VL_SIG(GTEEngine__DOT__o_dataOut,31,0);
+    VL_SIG(GTEEngine__DOT__i_Instruction,24,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__i_dataIn,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__o_dataOut,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__CRGB0,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__CRGB1,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__CRGB2,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__MAC0,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__MAC1,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__MAC2,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__MAC3,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__CRGB,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__TRX,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__TRY,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__TRZ,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__RBK,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__GBK,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__BBK,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__RFC,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__GFC,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__BFC,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__RES1,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__OFX,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__OFY,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__DQB,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__REG_lzcs,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__FLAGS,18,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__vOut,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__value,31,0);
+    VL_SIG(GTEEngine__DOT__GTERegs_inst__DOT__instLeadCount__DOT__valueI,30,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__divRes,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__specialRGBMulTMP,23,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__valWriteBack32,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__HS3Z,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__vComp,17,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__leftSide,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__rightSide,17,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__HS3Z,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__vComp,17,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__leftSide,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__rightSide,17,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__HS3Z,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__vComp,17,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__leftSide,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__rightSide,17,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__TRX,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__TRY,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__TRZ,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__RBK,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__GBK,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__BBK,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__RFC,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__GFC,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__BFC,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__MAC1,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__MAC2,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__MAC3,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__OF0,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__OF1,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__DQB,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__NCDS_CDP_DPCL_Special,23,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__mulA,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__specialZ0MulZSF4_Hi,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__mac_Hi,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__trV,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__bgV,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__fcV,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__macV,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__of,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__divRes,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h0,23,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h1,27,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h2,29,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h3,30,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__n,30,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pn,30,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__mdu1,25,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__dmdu1,25,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__d2,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__mdu2,26,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__dmdu2,19,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__d3,18,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pd3,18,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__ppn,30,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__outStage4,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__v,20,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__v,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__postSF_v,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__valueIn,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__valueIn,31,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__valueIn,27,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outAddSel,43,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel1,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel2,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel3,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel1P,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel2P,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel3P,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part1Sum,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part1SumPostExt,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part2Sum,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__tempSumREG,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part2SumPostExt,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__finalSumBeforeExt,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__finalSum,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__outstuff,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__result,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__outstuff,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__result,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__outstuff,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__result,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__outstuff,43,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__resMul,32,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__out,43,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__mnd,49,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shfm,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shcp,33,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local1__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local2__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local3__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Global__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS32Global__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__i_v44,44,0);
+}
+
+int main()
+{
+
+#if 0
+	//
+	// GENERATE MICROCODE
+	//
+	HWDesignSetup();
+	registerInstructions();
+	generateMicroCode("..\\rtl\\MicroCode.inl");
+#else
+	//
+	// RUN SIM
+	//
+	// ------------------------------------------------------------------
+	// [Instance of verilated GPU & custom VCD Generator]
+	// ------------------------------------------------------------------
+	VGTEEngine* mod = new VGTEEngine();
+	VCScanner*	pScan = new VCScanner();
+				pScan->init(1500,false);
+
+	bool useScan = true;
+	int clockCnt = 0;
+	int clockCycle = 0;
+	if (useScan) {
+		registerVerilatedMemberIntoScanner(mod,pScan);
+		// BEFORE PLUGIN !
+		pScan->addMemberFullPath("CLOCKNUMBER", WIRE, BIN, 32, &clockCycle, -1, 0);
+
+		pScan->addPlugin(new ValueChangeDump_Plugin("gteTiming.vcd"));
+	}
+
+	mod->i_nRst = 0;
+	for (int n=0; n < 5; n++) {
+		mod->i_clk = 0; mod->eval();
+		if (useScan) { pScan->eval(clockCnt); }
+		clockCnt++;
+		mod->i_clk = 1; mod->eval();
+		clockCycle++;
+		if (useScan) { pScan->eval(clockCnt); }
+		clockCnt++;
+	}
+	mod->i_nRst = 1;
+	mod->i_clk = 0; mod->eval();
+	if (useScan) { pScan->eval(clockCnt); }
+	clockCnt++;
+
+	while (clockCnt < 200) {
+		mod->i_clk    = 1;
+		clockCycle++;
+		mod->eval();
+		
+		mod->i_WritReg		= 0;
+		mod->i_run			= 0;
+		mod->i_Instruction	= 0x00;
+		mod->i_regID		= 0;
+
+		switch (clockCycle) {
+		case 7:
+			// Send instruction
+			mod->i_run			= 1;
+			mod->i_Instruction	= 0x01; //  RTPS 15 Official;
+			break;
+		case 26:
+			// Send instruction
+			mod->i_run			= 1;
+			mod->i_Instruction	= 0x01; //  RTPS 15 Official;
+			break;
+		case 33:
+			/*
+		case 34:
+		case 35:
+		case 36:
+		*/
+			if (mod->o_executing == 0) {
+				mod->i_run			= 1;
+				mod->i_Instruction	= 0x00; //  NOP
+			}
+			break;
+		case 34:
+			mod->i_WritReg	= 1;
+			mod->i_dataIn	= 0xDEADBEEF;
+			mod->i_regID	= 3;
+			break;
+		case 36:
+			mod->i_regID	= 3;
+			break;
+		case 24:
+			mod->i_DIP_USEFASTGTE = 1;
+			break;
+		}
+		// In case we changed inputs...
+		mod->eval();
+
+		if (useScan) {
+			pScan->eval(clockCnt);
+			clockCnt++;
+		}
+
+
+		mod->i_clk = 0;
+		mod->eval();
+		if (useScan) {
+			pScan->eval(clockCnt);
+			clockCnt++;
+		}
+	}
+
+	delete mod;
+	pScan->shutdown();
+#endif
 }

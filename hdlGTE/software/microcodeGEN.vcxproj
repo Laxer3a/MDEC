@@ -155,6 +155,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\rtl\obj_dir\VGTEEngine.cpp" />
+    <ClCompile Include="..\rtl\obj_dir\VGTEEngine__Syms.cpp" />
+    <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp" />
     <ClCompile Include="microcodeGEN.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

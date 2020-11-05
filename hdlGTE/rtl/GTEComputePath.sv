@@ -11,6 +11,7 @@ module GTEComputePath(
 	input   gteWriteBack    i_wb,
     input   CTRL            i_instrParam,
     input   gteComputeCtrl  i_computeCtrl,
+	input					i_DIP_FIXWIDE,
     input   SgteREG         i_registers,
     output  gteCtrl         o_RegCtrl
 );
