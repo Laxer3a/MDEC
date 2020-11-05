@@ -6,6 +6,7 @@ module GTEEngine (
 
 	input  E_REG  i_regID,
 	input         i_WritReg,
+	input		  i_DIP_USEFASTGTE,
 //	input         i_ReadReg,
 	input  [31:0] i_dataIn,
 	output [31:0] o_dataOut,
@@ -78,6 +79,7 @@ GTEMicroCode GTEMicroCode_inst(
 	.isNewInstr		(loadInstr),
 	.Instruction	(i_Instruction[5:0]),
 	.i_PC			(vPC),
+	.i_USEFAST		(i_DIP_USEFASTGTE),
 	
 	.o_writeBack	(writeBack),
 	.o_ctrl			(computeCtrl),
