@@ -10,6 +10,7 @@ module MDEC (
 	output					o_DMA1ReadRequest,	// Read  Reg0
 	
 	// Input
+	input					i_CS
 	input					i_regSelect,	// +0 or +4
 	input					i_write,
 	input					i_read,
@@ -19,8 +20,8 @@ module MDEC (
 	parameter BKL_YONLY = 3'd4; // Use same constant as BKL_CR but want to make code more readable...
 	
 	
-	wire writeReg1		=   i_regSelect  && i_write;
-	wire writeReg0		= (!i_regSelect) && i_write;
+	wire writeReg1		=   i_regSelect  && i_write && i_CS;
+	wire writeReg0		= (!i_regSelect) && i_write && i_CS;
 	wire  resetChip		= (!i_nrst) || (writeReg1 & i_valueIn[31]); // Reset on 1 parts
 	wire nResetChip		= (!resetChip);								// Reset on 0 parts
 
