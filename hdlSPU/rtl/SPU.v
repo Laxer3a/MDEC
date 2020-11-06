@@ -253,8 +253,7 @@ end
 
 wire isD8				= (addr[9:8]==2'b01);
 wire isD80_DFF			= (isD8 && addr[7]);							// Latency 0 : D80~DFF
-// [NREAD] wire isReverb			= isD80_DFF & addr[6];							// Latency 1 : DC0~DFF
-wire isChannel			= ((addr[9:8]==2'b00) | (isD8 & !addr[7])); 	// Latency 1 : C00~D7F
+wire isChannel			= ((addr[9:8]==2'b00) | (isD8 & !addr[7])); 	// Latency 0 : C00~D7F
 wire [4:0] channelAdr	= addr[8:4];
 
 // Detect write transition
@@ -616,7 +615,10 @@ begin
 	incrXFerAdr			= readFIFO | readSPU;
 end
 
-assign dataOutValid	= internalReadPipe; // Pipe read. For now everything answer at the NEXT clock, ONCE.
+
+// Pipe read. For now everything answer at the NEXT clock, ONCE.
+// BUT READ SPU IS NOT MODIFYING THE CPU BUS. (dataOut can be SPU VRAM out with DMA too)
+assign dataOutValid	= internalReadPipe/* | readSPU */; 
 
 // Read output
 always @ (*)
