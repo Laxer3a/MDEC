@@ -47,6 +47,8 @@ module gpu
 	input			i_gpuPixClk,
 	output			o_HBlank,
 	output			o_VBlank,
+	output			o_HSync,
+	output			o_VSync,
 	output			o_DotClk,
 	output [9:0]	o_HorizRes,
 	output [8:0]	o_VerticalRes,
@@ -315,10 +317,7 @@ reg			[9:0]	GPU_REG_RangeY1;
 
 wire				GPU_REG_CurrentInterlaceField;
 wire 		[9:0]	horizRes;
-wire				dotClockFlag;
-wire				HBlank;
-wire				VBlank;
-wire				currentLineOddEven;
+wire				currentLineOddEven,VBlank;
 
 GPUVideo GPUVideo_inst(
 	.i_gpuPixClk		(i_gpuPixClk),
@@ -335,9 +334,11 @@ GPUVideo GPUVideo_inst(
 	.GPU_REG_RangeY0	(GPU_REG_RangeY0),
 	.GPU_REG_RangeY1	(GPU_REG_RangeY1),
 
-	.o_dotClockFlag		(dotClockFlag),
-	.o_hbl				(HBlank),
+	.o_dotClockFlag		(o_DotClk),
+	.o_hbl				(o_HBlank),
 	.o_vbl				(VBlank),
+	.o_hSync			(o_HSync),
+	.o_vSync			(o_VSync),
 
 	.currentInterlaceField	(GPU_REG_CurrentInterlaceField),
 	.widthDisplay		(horizRes),
@@ -345,14 +346,12 @@ GPUVideo GPUVideo_inst(
 	.heightDisplay		()
 );
 
-assign o_DotClk 		= dotClockFlag;
 assign o_HorizRes		= horizRes;
 assign o_VerticalRes	= GPU_REG_VerticalResolution ? 9'd480 : 9'd240;
 assign o_IsInterlace	= GPU_REG_IsInterlaced;
 assign o_CurrentField   = GPU_REG_IsInterlaced & (!GPU_REG_CurrentInterlaceField);	// Note : DISPLAY CURRENT FIELD IS OPPOSITE TO RENDER CURRENT FIELD (
 assign o_DisplayBaseX	= GPU_REG_DispAreaX;
 assign o_DisplayBaseY	= GPU_REG_DispAreaY;
-assign o_HBlank			= HBlank;
 assign o_VBlank			= VBlank;
 //---------------------------------------------------------------
 //  Video Module END
