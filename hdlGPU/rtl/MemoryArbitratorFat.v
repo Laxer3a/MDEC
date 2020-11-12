@@ -9,7 +9,7 @@ module MemoryArbitratorFat(
 
 	// ---TODO Describe all fifo command ---
 	input  [55:0]	memoryWriteCommand, // if [2:0] not ZERO -> Write to FIFO.
-	output          fifoFull,			//
+	output          o_fifoFull,			//
 	output			fifoComplete,		// = Empty signal + all mem operation completed. Needed to know that primitive work is complete.
 
 	// -----------------------------------
@@ -124,6 +124,7 @@ parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
 
 // ---------------------------------------
 wire fifoFULL;
+assign o_fifoFull = fifoFULL;
 wire validRead;
 // ---------------------------------------
 //   write back to Tex$
@@ -414,6 +415,7 @@ MultiClockDomain FIFOCommand(
 	.rdempty	(rdEmpty)
 );
 wire hasCommand = !rdEmpty;
+assign fifoComplete = rdEmpty;
 
 // ====================================================================================================
 //

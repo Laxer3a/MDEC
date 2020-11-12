@@ -50,6 +50,7 @@ module gpu
 	output			o_HSync,
 	output			o_VSync,
 	output			o_DotClk,
+	output			o_DotEnable,
 	output [9:0]	o_HorizRes,
 	output [8:0]	o_VerticalRes,
 	output [9:0]	o_DisplayBaseX,
@@ -335,6 +336,7 @@ GPUVideo GPUVideo_inst(
 	.GPU_REG_RangeY1	(GPU_REG_RangeY1),
 
 	.o_dotClockFlag		(o_DotClk),
+	.o_dotEnableFlag	(o_DotEnable),
 	.o_hbl				(o_HBlank),
 	.o_vbl				(VBlank),
 	.o_hSync			(o_HSync),
@@ -660,11 +662,11 @@ wire readFifoOut    = (gpuSel & !gpuAdrA2);
 // Note : we do not have the problem of over transfer in FIFO IN, as DMA know transfer size.
 // But in case we still REQ and DMA was reloaded super fast, we would need to put a COUNTER in the GPU
 // that would compute size based on command parameters instead of this check...
-wire reqDataDMAIn	= (currWorkState == COPYCV_START) || (currWorkState == COPYCV_COPY);
-wire reqDataDMAOut  = (currWorkState == COPYVC_TOCPU);
+// wire reqDataDMAIn	= (currWorkState == COPYCV_START) || (currWorkState == COPYCV_COPY);
+// wire reqDataDMAOut  = (currWorkState == COPYVC_TOCPU);
 //                      CPU to VRAM transfer + in transfer state + FIFO has space to store data.
 //                      => Should not overtransfer because DMA knows size.
-assign DMA_REQ		= ((GPU_REG_DMADirection == DMA_CPUtoGP0) && reqDataDMAIn  && (!isINFifoFull))
+assign DMA_REQ		= ((GPU_REG_DMADirection == DMA_CPUtoGP0) && (!isINFifoFull))
 //                      VRAM to CPU transfer + has data ready for DMA.
                    || ((GPU_REG_DMADirection == DMA_GP0toCPU) && (!outFIFO_empty));
 
@@ -739,7 +741,7 @@ wire [55:0] memoryWriteCommand;
 reg  [52:0] parameters;
 assign memoryWriteCommand = { parameters, memoryCommand};
 
-wire commandFIFOaccept = (1'b1 && !saveLoadOnGoing);  // TODO memory command FIFO acceptCommand to implement (well FIFO to implement)
+wire commandFIFOaccept = ((!commandFifoFull) && !saveLoadOnGoing);
 
 reg	swap;
 reg				regSaveL,regSaveM;
@@ -2134,8 +2136,8 @@ begin
         setSwap			= 1;
         copyCVMode		= 1;
         // Reset last pair by default, but if WIDTH == 1 -> different.
-        resetLastPair	= WidthNot1;
-        setLastPair		= !WidthNot1;
+        resetLastPair	= !((!WidthNot1) | nextPairIsLineLast);
+        setLastPair		=   (!WidthNot1) | nextPairIsLineLast;
         // We set first pair read here, flag not need to be set for next state !
         // No Zero Size W/H Test -> IMPOSSIBLE By definition.
         if (canRead) begin
@@ -2207,7 +2209,7 @@ begin
                     end
                 end
                 selNextX		= X_CV_START;
-                resetLastPair	= WidthNot1;
+                resetLastPair	= WidthNot1 & (!nextPairIsLineLast);
             end else begin
                 // [MIDDLE OR FIRST SEGMENT]
                 //    PRELOAD NEXT SEGMENT...
@@ -2253,7 +2255,7 @@ begin
         nextWorkState	= COPYVC_TOCPU;
         selNextX		= X_CV_START;
         selNextY		= Y_CV_ZERO;
-		loadNext	= 1;
+		loadNext		= 1;
 		
         /*
             Start : Request First Block. (X[3] is block ID (0/1))
@@ -3518,7 +3520,7 @@ wire signed [7:0] pixVR = RegV0 + offVR[PREC+7:PREC];
 // - Memory is busy reading Texture or Clut.
 // - Start a new block.
 // -
-assign requestNextPixel = (!missTC) & (!writePixelOnNewBlock) & (!saveLoadOnGoing);
+assign requestNextPixel = (!missTC) & (!writePixelOnNewBlock) & (!saveLoadOnGoing) & (!commandFifoFull);
 reg lastSaveLoadOnGoing;
 reg lastMissTC;
 always @(posedge clk)
@@ -3646,7 +3648,7 @@ MemoryArbitratorFat MemoryArbitratorInstance(
 
     // ---TODO Describe all fifo command ---
     .memoryWriteCommand		(memoryWriteCommand),
-    .fifoFull				(commandFifoFull),
+    .o_fifoFull				(commandFifoFull),
     .fifoComplete			(commandFifoComplete),
 
 //    .o_dataArrived			(dataArrived),
