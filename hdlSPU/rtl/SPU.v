@@ -36,11 +36,16 @@ module SPU(
 	,output			SPUINT
 	
 	// CPU DMA stuff.
-	// When SPU is in DMA READ mode, out 'SPUDREQ' is always '1' EXCEPT when data is output. In this case, SPUDACK is 1.
-	// When DMA is reading, SPUDREQ = 0, then read dataOut
-	// ______XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_XXXXXXXXXX_______
+	// When SPU is in DMA READ mode:
+	// -SPUDREQ is HIGH when DATA is pushed to DMA + 'o_dataOutRAM' got the value.
+	// -SPUDACK is HIGH signal to signal read the NEXT data block. 
+	//  SPUDREQ will emit at regular interval the value, if missed, just wait for the NEXT emission (generally 24 cycle later but can be a LOT more)
+	//  It is prefered to answer SPUDACK within 20 cycles. But if you did not miss the flag, I guess it will always be shorter.
+	//
+	// When SPU is in DMA WRITE mode:
+	// -SPUDREQ is HIGH all the time except when FIFO is FULL (always requesting new data)
+	// -SPUDACK is HIGH and 'i_dataInRAM' has the value.
 	,output			SPUDREQ
-	// ____________XXXXX______XXXXX______XXXXX______XXXXX______XXXXX______XXXXX______XXXXX______
 	,input			SPUDACK
 
 	// RAM Side
@@ -132,32 +137,29 @@ end
 
 wire readFIFO;
 wire isFIFOFull;
-wire isFIFOHasData = fifo_r_valid;
+wire emptyFifo;
+wire isFIFOHasData = !emptyFifo; // fifo_r_valid;
 wire	[15:0]	fifoDataOut;
 
-wire fifo_r_valid;
-wire [6:0] fifo_level;	// TODO : Use FIFO 32 element used == FULL signal.
-Fifo2
+wire [5:0] fifo_level;	// TODO : Use FIFO 32 element used == FULL signal.
+Fifo
 #(
-	.DEPTH_WIDTH	(6),
+	.DEPTH_WIDTH	(5),
 	.DATA_WIDTH		(16)
 )
 InternalFifo
 (
-	.i_clk			(i_clk),
-	.i_rst			(!n_rst),
-	.i_ena			(1),
+	.clk			(i_clk),
+	.rst			(!n_rst),
 	
-	.i_w_data		(dataIn),
-	.i_w_ena		(writeFIFO),
+	.wr_data_i		(dataIn),
+	.wr_en_i		(writeFIFO),
 
-	.o_r_data		(fifoDataOut),
-	.i_r_taken		(readFIFO),
+	.rd_data_o		(fifoDataOut),
+	.rd_en_i		(readFIFO),
 
-	.o_level		(fifo_level),
-
-	.o_w_full		(isFIFOFull),
-	.o_r_valid		(fifo_r_valid)
+	.full_o			(isFIFOFull),
+	.empty_o		(emptyFifo)
 );
 
 
@@ -259,9 +261,14 @@ wire [4:0] channelAdr	= addr[8:4];
 // Detect write transition
 wire isDMAXferWR    = (reg_SPUTransferMode == XFER_DMAWR);
 wire isDMAXferRD    = (reg_SPUTransferMode == XFER_DMARD);
-wire isManualXferWR = (reg_SPUTransferMode == XFER_MANUAL);
-// TODO is better ? : wire dataTransferBusy		= (isDMAXferWR & fifo_r_valid) | isDMAXferRD;
-wire dataTransferBusy		= /* (reg_SPUTransferMode != XFER_STOP) & */ fifo_r_valid;	// [TODO : works only for write , not read]
+
+// UNUSED FOR NOW : wire isManualXferWR = (reg_SPUTransferMode == XFER_MANUAL);
+// CPU can write anytime. (See writeFIFO) (DMA and CPU can't write at the same time ANYWAY, mutually exclusive)
+// Mode=Stop / Mode=ManualWrite work with CPU only. (SPUDACK won't come)
+
+wire dataTransferBusy		= isFIFOHasData /* Busy as long as the FIFO has data in DMA/CPU write */
+                            | isDMAXferRD   /* Always true when DMA READ */;
+							
 wire dataTransferReadReq 	= reg_SPUTransferMode[1] & reg_SPUTransferMode[0];
 wire dataTransferWriteReq	= reg_SPUTransferMode[1] & (!reg_SPUTransferMode[0]);
 wire dataTransferRDReq		= reg_SPUTransferMode[1];
@@ -612,7 +619,7 @@ reg incrXFerAdr;
 always @ (posedge i_clk) 
 begin
 	internalReadPipe	= internalRead;
-	incrXFerAdr			= readFIFO | readSPU;
+	incrXFerAdr			= readFIFO | (SPUDACK && isDMAXferRD);
 end
 
 
@@ -1069,7 +1076,9 @@ begin
 	endcase
 end
 
-assign SPUDREQ = isDMAXferRD & !readSPU;
+// REQ in READ  MODE IS SENDING DATA
+// REQ in WRITE MODE IS KEEPING REQUESTING UNTIL FIFO IS FULL.
+assign SPUDREQ = (isDMAXferRD & readSPU) | (isDMAXferWR && !isFIFOFull);
 
 always @(*)
 begin
@@ -1099,6 +1108,7 @@ begin
 	accAdd				= 1;
 	
 	isRight				= 0;
+	kickFifoRead		= 0;
 	
 	if (currVoice[4:3] != 2'd3) begin // [Channel 0..23 Timing are VOICES in original SPU]
 		case (voiceCounter)
@@ -1164,6 +1174,7 @@ begin
 		
 		5'd13:
 		begin
+			kickFifoRead		= 1;
 		end
 		//
 		// The interpolator takes 5 CYCLE to output, prefer to maintain channel active for that amount of cycle....
@@ -1189,7 +1200,7 @@ begin
 		begin
 			// Will increment the counter... ?
 			// Will only accept to go to the next value if ACK is reading/accepting the value...
-			readSPU			= (isDMAXferRD & SPUDACK);
+			readSPU			= isDMAXferRD;
 			
 			storePrevVxOut	= 1;
 			// -> If NEXT sample is OUTSIDE AND CONTINUE, SAVE sample2/sample3 (previous needed for decoding)
@@ -1356,11 +1367,17 @@ end
 
 // Allow transfer from FIFO any cycle where RAM not busy...
 wire isFIFOWR       = (SPUMemWRSel==FIFO_WRITE);
-assign readFIFO		= isFIFOHasData & isFIFOWR & (reg_SPUTransferMode != XFER_STOP);
+reg kickFifoRead;
+// We have data, valid timing and transfer mode is not STOPPED or DMA_READ
+assign readFIFO		= isFIFOHasData & kickFifoRead & ((reg_SPUTransferMode != XFER_STOP) && (reg_SPUTransferMode != XFER_DMARD));
+reg pipeReadFIFO;
+always @(posedge i_clk) begin
+	pipeReadFIFO <= readFIFO;
+end
 
-// A.[Write when FIFO data available AND mode is read FIFO]
-// B.[Write when mode is not read FIFO but write back     ]
-assign writeSPURAM	= readFIFO | (!isFIFOWR & SPUMemWRSel[2]);
+// A.[Write when FIFO data available AND mode is read FIFO (CPU WRITE/DMA WRITE)] DMA Transfer/CPU Transfer to SPU RAM.
+// B.[Write when mode is not read FIFO to SPU RAM but write back to SPU RAM     ] Ex. Reverb, Voice1/3, CD Channels.
+assign writeSPURAM	= pipeReadFIFO | (!isFIFOWR & SPUMemWRSel[2]);
 
 wire  KON = reg_kon [currVoice];
 wire PMON = reg_pmon[currVoice];

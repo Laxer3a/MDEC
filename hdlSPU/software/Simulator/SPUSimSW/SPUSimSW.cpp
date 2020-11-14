@@ -109,6 +109,9 @@ class VSPU_IF;
 
 VSPU_IF* mod = NULL;
 
+void validateUpload  (VSPU_IF* mod, bool useCPU, VCScanner* pScan, int* time);
+void validateDownload(VSPU_IF* mod, VCScanner* pScan, int* time);
+
 extern void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan);
 
 void processUpload(VSPU_IF* mod);
@@ -453,7 +456,7 @@ int main()
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	const bool	useScan					= false;
+	const bool	useScan					= true;
 	const int   useScanRange			= false;
 	const int	scanStartCycle			= 30;
 	const int	scanEndCycle			= 50;
@@ -473,15 +476,15 @@ int main()
 
 	// SPU RAM ADR = VALUE !!! LOL.
 	for (int n = 0; n < 262144; n++) {
-		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramL[n] = n & 0xFF;
-		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramM[n] = /* (n >> 8) & */ 0xFF;
+		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramL[n] = 0; // n & 0xFF;
+		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramM[n] = 0;
 	}
 
 	registerVerilatedMemberIntoScanner(mod,pScan);
 
 	// Associate my VCD Scanner to the verilated object.
 	if (useScan) {
-		pScan->addPlugin(new ValueChangeDump_Plugin("spuLog.vcd"));
+		pScan->addPlugin(new ValueChangeDump_Plugin("spuLogREAD.vcd"));
 	}
 
 	// ------------------------------------------------------------------
@@ -500,6 +503,53 @@ int main()
 	mod->n_rst = 1;
 	mod->i_clk = 0; mod->eval();
 	if (useScan) { pScan->eval(clockCnt); }
+
+
+	validateDownload(mod,pScan, &clockCnt);
+
+	// WRITE
+	for (int n=0; n < 1024; n++) {
+		mod->i_clk = 0; mod->eval();
+		if (useScan) { pScan->eval(clockCnt); }
+		clockCnt++;
+		mod->i_clk = 1; mod->eval();
+		if ((n & 1) == 0) {
+			mod->SPUCS  = 1;
+			mod->SRD    = 0;
+			mod->SWRO   = 1;
+			mod->addr	= n;
+			mod->dataIn = n+1;
+		} else {
+			mod->SPUCS = 0;
+			mod->SRD    = 0;
+			mod->SWRO   = 0;
+			mod->addr	= 0;
+		}
+		mod->eval();
+		if (useScan) { pScan->eval(clockCnt); }
+		clockCnt++;
+	}
+
+	// READ
+	for (int n=0; n < 1024; n++) {
+		mod->i_clk = 0; mod->eval();
+		if (useScan) { pScan->eval(clockCnt); }
+		clockCnt++;
+		mod->i_clk = 1; mod->eval();
+		if ((n & 1) == 0) {
+			mod->SPUCS  = 1;
+			mod->SRD    = 1;
+			mod->SWRO   = 0;
+			mod->addr	= n;
+		} else {
+			mod->SRD   = 0;
+			mod->SPUCS = 0;
+			mod->addr	= 0;
+		}
+		mod->eval();
+		if (useScan) { pScan->eval(clockCnt); }
+		clockCnt++;
+	}
 
 #if 0
 	// Wait for all writes to SPU complete...
@@ -528,15 +578,15 @@ int main()
 
 	bool scanConstraint = false;
 
-	loader("E:\\bios-sound.spudump");
-#define SAMPLE_COUNT	(88200)
+	loader("E:\\ff7-101-the-prelude.spudump");
+#define SAMPLE_COUNT	(10)
 
 #ifdef DUMPWAV
 	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");
 	write_PCM16_stereo_header(dumpWav, 44100, SAMPLE_COUNT);
 #endif
 
-	int StartRecord = 768*880000;
+	int StartRecord = 0;
 
 	while ((waitCount < 768* SAMPLE_COUNT)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 		//	&& (clockCnt < (350*2))			// ADDITION TEST IF GPU GET STUCK TO EXIT : GLOBAL COUNTER.
@@ -927,6 +977,135 @@ int main()
 
 	delete [] buffer;
 	pScan->shutdown();
+}
+
+u16 readRead(int adr,VCScanner* pScan, int* time) {
+	mod->SPUCS   = 1;
+	mod->SPUDACK = 0;
+	mod->SRD     = 1;
+	mod->SWRO    = 0;
+	mod->addr	 = adr - 0x1F801C00; // 10 bit.
+
+	mod->i_clk = 0; mod->eval();
+
+	pScan->eval(*time); *time = *time +1;
+
+	mod->i_clk = 1; mod->eval();
+
+	pScan->eval(*time); *time = *time +1;
+
+//	mod->SPUDREQ = 0; --> Output SPU
+	mod->SPUCS   = 0;
+	mod->SPUDACK = 0;
+	mod->SRD     = 0;
+	mod->SWRO    = 0;
+	mod->addr	 = 0; // 10 bit.
+	mod->dataIn	 = 0; // Value = 8192
+	return mod->dataOut;
+}
+
+void writeReg(int adr, u16 value,VCScanner* pScan, int* time) {
+	mod->SPUCS   = 1;
+	mod->SPUDACK = 0;
+	mod->SRD     = 0;
+	mod->SWRO    = 1;
+	mod->addr	 = adr - 0x1F801C00; // 10 bit.
+	mod->dataIn	 = value; // Value = 8192
+
+	mod->i_clk = 0; mod->eval();
+
+	pScan->eval(*time); *time = *time +1;
+
+	mod->i_clk = 1; mod->eval();
+
+	pScan->eval(*time); *time = *time +1;
+
+//	mod->SPUDREQ = 0; --> Output SPU
+	mod->SPUCS   = 0;
+	mod->SPUDACK = 0;
+	mod->SRD     = 0;
+	mod->SWRO    = 0;
+	mod->addr	 = 0; // 10 bit.
+	mod->dataIn	 = 0; // Value = 8192
+}
+
+void validateUpload(VSPU_IF* mod, bool useCPU, VCScanner* pScan, int* time) {
+
+	writeReg(0x1F801DA6,0x0800, pScan, time);					// start adr
+	writeReg(0x1F801DAA,0x0004, pScan, time);					// 
+	writeReg(0x1F801DAA,0xC000 | (1<<7) | (useCPU ? (1<<4) : (2<<4)), pScan,time);	// DMA Write setup
+	int n=0;
+	for (n=0; n < 0x1000; ) {
+		if (useCPU) {
+
+			u16 status = readRead(0x1F801DAE,pScan,time);
+			if (status & (1<<10)) {
+				// Wait...
+//				printf("%i",status);
+			} else {
+				printf("%x\n",(0x2000 + n));
+				for (int p=0; p<32; p++) {
+					writeReg(0x1F801DA8,0x2000+n, pScan, time);					// start adr
+					n++;
+				}
+			}
+		} else {
+			if (mod->SPUDREQ == 1) {
+				mod->SPUDACK = 1;
+				mod->dataIn  = 0x2000+n;
+				n++;
+			} else {
+				mod->dataIn  = 0;
+				mod->SPUDACK = 0;
+			}
+		}
+		mod->i_clk = 0; mod->eval();
+		pScan->eval(*time); *time = *time +1;
+
+		mod->i_clk = 1; mod->eval();
+		pScan->eval(*time); *time = *time +1;
+	}
+
+	for (int n=0; n < 1500; n++) {
+		mod->i_clk = 0; mod->eval();
+		pScan->eval(*time); *time = *time +1;
+		mod->i_clk = 1; mod->eval();
+		pScan->eval(*time); *time = *time +1;
+	}
+}
+
+void validateDownload(VSPU_IF* mod, VCScanner* pScan, int* time) {
+	validateUpload(mod, false, pScan, time);
+
+	// Download
+	writeReg(0x1F801DA6,0x0800, pScan, time);					// start adr
+	writeReg(0x1F801DAA,0x0004, pScan, time);					// 
+	writeReg(0x1F801DAA,0xC000 | (1<<7) | (3<<4), pScan,time);	// DMA Write setup
+
+	int n=0;
+	mod->SPUDACK = 0;
+
+	for (n=0; n < 0x1000; ) {
+		bool hadReq = (mod->SPUDREQ == 1);
+		if (hadReq) {
+			printf("%i->%i\n",0x2000+n, mod->dataOut);
+			n++;
+		} else {
+			mod->dataIn  = 0;
+		}
+
+		mod->i_clk = 0; mod->eval();
+		pScan->eval(*time); *time = *time +1;
+
+		mod->i_clk = 1; mod->eval();
+		pScan->eval(*time); *time = *time +1;
+
+		mod->SPUDACK = (hadReq) ? 1 : 0;
+	}
+
+	pScan->shutdown();
+
+
 }
 
 void processUpload(VSPU_IF* mod) {
