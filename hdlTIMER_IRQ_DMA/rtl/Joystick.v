@@ -1,373 +1,141 @@
-typedef enum bit[1:0] {
-	ACCESS_8BIT			= 2'd0,
-	ACCESS_16BIT		= 2'd1,
-	ACCESS_32BIT		= 2'd2,
-	ACCESS_UNDEF		= 2'd3
-} ACCESSWIDTH;
-
-module JOY_IO(
+module Joystick (
 	//--------------------------------------
 	// CPU Side
 	//--------------------------------------
 	input				i_clk,
 	input				i_nRst,
 
-	input				i_CS,
-	input	ACCESSWIDTH	i_format,
-	input	[3:0]		i_addr16BitByte,
-	input				i_readSig,
-	input				i_writeSig,
-
-	input	[31:0]		i_dataIn,
-	output	[31:0]		i_dataOut,
-
-	//--------------------------------------
-	// Device side
-	//--------------------------------------
-
-	// Joystick 0
-	output	[7:0]		emitData0J,
-	output				emit0J,
-	input	[7:0]		receiveData0J,
-	input				receive0J,
-	
-	// Memcard 0	
-	output	[7:0]		emitData0C,
-	output				emit0C,
-	input	[7:0]		receiveData0C,
-	input				receive0C,
-	
-	// Joystick 1	
-	output	[7:0]		emitData1J,
-	output				emit1J,
-	input	[7:0]		receiveData1J,
-	input				receive1J,
-	
-	// Memcard 1	
+	// 
 	output	[7:0]		emitData1C,
 	output				emit1C,
 	input	[7:0]		receiveData1C,
-	input				receive1C
+	input				receive1C,
+	
+	//--------------------------------------
+	// Joystick side
+	//--------------------------------------
+	input	[13:0]		joystick
 );
+	// [TODO Joystick mapping]
+	wire joy_SELECT	= !joystick[ 0];
+	wire joy_START	= !joystick[ 1];
+	wire joy_UP 	= !joystick[ 2];
+	wire joy_RIGHT	= !joystick[ 3];
+	wire joy_DOWN	= !joystick[ 4];
+	wire joy_LEFT	= !joystick[ 5];
+	wire joy_L2		= !joystick[ 6];
+	wire joy_R2		= !joystick[ 7];
+	wire joy_L1		= !joystick[ 8];
+	wire joy_R1		= !joystick[ 9];
+	wire joy_TRIAN	= !joystick[10];
+	wire joy_ROUND	= !joystick[11];
+	wire joy_XBTN	= !joystick[12];
+	wire joy_SQUARE	= !joystick[13];
 
-// Detect unsupported register adressing format/mode
-reg	BAD_ACCESS;
-
-// 1F80104x as 8 bit forbidden except 1F801040
-// 1F801042(16 bit) forbidden
-// 1F801046(16 bit) forbidden
-wire assertBadAccess = i_CS & ((i_addr16BitWord == 3'h1) || (i_addr16BitWord == 3'h3) || ((i_addr16BitByte != 4'd0) && i_format == ACCESS_8BIT));
-
-//----------------------------------------------------------
-//
-//----------------------------------------------------------
-typedef enum bit[1:0] {
-	DEVICE_UNSELECTED	= 2'd0,
-	DEVICE_CONTROLLER	= 2'd1,
-	DEVICE_MEMORYCARD	= 2'd2,
-	DEVICE_IMPOSSIBLE	= 2'd3
-} DEVICESEL;
-
-/* 1F801040h JOY_TX_DATA (W)
-	0-7   Data to be sent
-	Writing to this register starts the transfer (if, or as soon as TXEN=1 and (TX Ready Flag 2)JOY_STAT.2=Ready), 
-	the written value is sent to the controller or memory card, and, simultaneously, a byte is received 
-	(and stored in RX FIFO if JOY_CTRL.1 or JOY_CTRL.2 is set).
-
-	The "TXEN=1" condition is a bit more complex: Writing to SIO_TX_DATA latches the current TXEN value, 
-	and the transfer DOES start if the current TXEN value OR the latched TXEN value is set 
-	(ie. if TXEN gets cleared after writing to SIO_TX_DATA, then the transfer may STILL start if the old latched TXEN value was set). */	
+	typedef enum bit[2:0] {
+		START	= 3'h0,
+		GETx42	= 3'h1,
+		RETx5A	= 3'h2,
+		BTNBYTE0= 3'h3,
+		BTNBYTE1= 3'h4
+	} JSTATE;
 	
-typedef struct packed { // 24 bit
-	logic [7:0] RX_DATA0;
-	logic [7:0] RX_DATA1;
-	logic [7:0] RX_DATA2;
-	logic [7:0] RX_DATA3;
-} SReceivedData;
-
-/*	1F801044h JOY_STAT (R)
-  0     TX Ready Flag 1   (1=Ready/Started)
-  1     RX FIFO Not Empty (0=Empty, 1=Not Empty)
-  2     TX Ready Flag 2   (1=Ready/Finished)
-  3     RX Parity Error   (0=No, 1=Error; Wrong Parity, when enabled)  (sticky)
-  4     Unknown (zero)    (unlike SIO, this isn't RX FIFO Overrun flag)
-  5     Unknown (zero)    (for SIO this would be RX Bad Stop Bit)
-  6     Unknown (zero)    (for SIO this would be RX Input Level AFTER Stop bit)
-  7     /ACK Input Level  (0=High, 1=Low)
-  8     Unknown (zero)    (for SIO this would be CTS Input Level)
-  9     Interrupt Request (0=None, 1=IRQ7) (See JOY_CTRL.Bit4,10-12)   (sticky)	-> RESET BY
-  10    Unknown (always zero)
-  11-31 Baudrate Timer    (21bit timer, decrementing at 33MHz) */
-
-typedef struct packed {
-	logic	TX_READY;
-	logic	RX_PENDING;
-	logic	TX_FINISHED;
-	logic	RX_PARITYERROR;
-	// 3 bit pad
-	logic	ACK;
-	// 1 bit pad
-	logic	IRQ;
-	// 1 bit pad
-	logic	[20:0]	BAUDTIMER;
-} SStatus;
-
-/* 1F801048h JOY_MODE (R/W) (usually 000Dh, ie. 8bit, no parity, MUL1)
-  0-1   Baudrate Reload Factor (1=MUL1, 2=MUL16, 3=MUL64) (or 0=MUL1, too)
-  2-3   Character Length       (0=5bits, 1=6bits, 2=7bits, 3=8bits)
-  4     Parity Enable          (0=No, 1=Enable)
-  5     Parity Type            (0=Even, 1=Odd) (seems to be vice-versa...?)
-  6-7   Unknown (always zero)
-  8     CLK Output Polarity    (0=Normal:High=Idle, 1=Inverse:Low=Idle)
-  9-15  Unknown (always zero) */
-typedef struct packed {
-	logic	[1:0]	REG_BAUDRATE_RELOAD_FACT;
-	logic 	[1:0]	REG_CHARACTER_LENGTH;
-	logic			REG_PARITY_ENABLE;
-	logic			REG_PARITY_ODD;
-	logic			REG_CLK_OUTPOLARITY;
-} SMode;
-
-/* 1F80104Ah JOY_CTRL (R/W) (usually 1003h,3003h,0000h)
-  0     TX Enable (TXEN)  (0=Disable, 1=Enable)
-  1     /JOYn Output      (0=High, 1=Low/Select) (/JOYn as defined in Bit13)
-  2     RX Enable (RXEN)  (0=Normal, when /JOYn=Low, 1=Force Enable Once)
-  3     Unknown? (read/write-able) (for SIO, this would be TX Output Level)
-  4     Acknowledge       (0=No change, 1=Reset JOY_STAT.Bits 3,9)          (W)
-  5     Unknown? (read/write-able) (for SIO, this would be RTS Output Level)
-  6     Reset             (0=No change, 1=Reset most JOY_registers to zero) (W)
-  7     Not used             (always zero) (unlike SIO, no matter of FACTOR)
-  8-9   RX Interrupt Mode    (0..3 = IRQ when RX FIFO contains 1,2,4,8 bytes)
-  10    TX Interrupt Enable  (0=Disable, 1=Enable) ;when JOY_STAT.0-or-2 ;Ready
-  11    RX Interrupt Enable  (0=Disable, 1=Enable) ;when N bytes in RX FIFO
-  12    ACK Interrupt Enable (0=Disable, 1=Enable) ;when JOY_STAT.7  ;/ACK=LOW
-  13    Desired Slot Number  (0=/JOY1, 1=/JOY2) (set to LOW when Bit1=1)
-  14-15 Not used             (always zero) */
-typedef struct packed {
-	logic			REG_TX_ENABLE;		// Bit 0
-	logic			REG_SELECT;			// Bit 1
-	logic			REG_CTRL_BIT3;		// Bit 3
-	logic			REG_CTRL_BIT5;		// Bit 5
-	logic			REG_CTRL_BIT7;		// Bit 7
-	logic	[1:0]	REG_RX_INT_MODE;	// Bit [9:8]
-	logic 			REG_TX_INT_ENABLE;	// Bit 10
-	logic 			REG_RX_INT_ENABLE;	// Bit 11
-	logic			REG_ACK_INT_ENABLE;	// Bit 12
-	logic			REG_ACTIVESLOT_NUM;	// Bit 13
-} SCtrl;
-
-/* 1F80104Eh JOY_BAUD (R/W) (usually 0088h, ie. circa 250kHz, when Factor=MUL1)
-  0-15  Baudrate Reload value for decrementing Baudrate Timer
-
-	Timer reload occurs when writing to this register, and, automatically when the Baudrate Timer reaches zero. 
-	Upon reload, the 16bit Reload value is multiplied by the Baudrate Factor (see 1F801048h.Bit0-1), divided by 2, 
-	and then copied to the 21bit Baudrate Timer (1F801044h.Bit11-31). 
-	The 21bit timer decreases at 33MHz, and, it ellapses twice per bit (once for CLK=LOW and once for CLK=HIGH).
-
-  BitsPerSecond = (44100Hz*300h) / MIN(((Reload*Factor) AND NOT 1),1)
-
-	The default BAUD value is 0088h (equivalent to 44h cpu cycles), and default factor is MUL1, 
-	so CLK pulses are 44h cpu cycles LOW, and 44h cpu cycles HIGH, giving it a transfer rate of circa 250kHz per bit (33MHz divided by 88h cycles).
-	Note: The Baudrate Timer is always running; even if there's no transfer in progress.
-*/
-reg	[15:0]	REG_BAUDRATE_RELOAD;
-
-SReceivedData 	reg_receivedData;
-SStatus			reg_status;
-SMode			reg_mode;
-SCtrl			reg_ctrl;
-
-DEVICESEL		PERIPH_TYPE;
-
-wire [2:0] i_addr16BitWord = i_addr16BitByte[3:1];
-
-// TODO use also this signal to reset state of controllers/card...
-wire writeInternal   = i_CS & i_writeSig;
-wire writeCtrl       = writeInternal && (i_addr16BitWord == 3'h5);
-
-wire resetPeripheral = writeCtrl     && (!i_dataIn[1]);
-wire resetACK        = writeCtrl     && ( i_dataIn[4]);
-wire resetBySetup    = writeCtrl     && ( i_dataIn[6]);
-
-//------------------------------------------------------------------------
-// CLOCKED PART :
-// - CPU Write
-// - Internal updates
-//------------------------------------------------------------------------
-
-always @(posedge i_clk) begin
-	if ((i_nRst == 1'd0) || resetBySetup) begin
-		// +4 Status
-		reg_status.TX_READY			<= 1'b1; // TRUE HERE BY DEFAULT
-		reg_status.RX_PENDING		<= 1'b0;
-		reg_status.TX_FINISHED		<= 1'b0;
-		reg_status.RX_PARITYERROR	<= 1'b0;
-		reg_status.ACK				<= 1'b0;
-		reg_status.IRQ				<= 1'b0;
-		reg_status.BAUDTIMER		<= 21'd0;
-		
-		// +8 Mode
-		reg_mode.REG_BAUDRATE_RELOAD_FACT	<= 2'b0;
-		reg_mode.REG_CHARACTER_LENGTH		<= 2'b0;
-		reg_mode.REG_PARITY_ENABLE			<= 1'b0;
-		reg_mode.REG_PARITY_ODD				<= 1'b0;
-		reg_mode.REG_CLK_OUTPOLARITY		<= 1'b0;
-		
-		// +10 Ctrl
-		reg_ctrl.REG_TX_ENABLE		<= 1'b0;
-		reg_ctrl.REG_SELECT			<= 1'b0;
-		reg_ctrl.REG_CTRL_BIT3		<= 1'b0;
-		reg_ctrl.REG_CTRL_BIT5		<= 1'b0;
-		reg_ctrl.REG_CTRL_BIT7		<= 1'b0;
-		reg_ctrl.REG_RX_INT_MODE	<= 2'b0;
-		reg_ctrl.REG_TX_INT_ENABLE	<= 1'b0;
-		reg_ctrl.REG_RX_INT_ENABLE	<= 1'b0;
-		reg_ctrl.REG_ACK_INT_ENABLE	<= 1'b0;
-		reg_ctrl.REG_ACTIVESLOT_NUM	<= 1'b0;
-		
-		// +14
-		REG_BAUDRATE_RELOAD			<= 16'd0;
-		BAD_ACCESS					<= 1'b0;
-		
-		// Internals...
-		PERIPH_TYPE					<= DEVICE_UNSELECTED;
-	end else begin
-		//
-		// CPU WRITE
-		// 
-		if (writeInternal) begin
-			if (i_addr16BitWord == 3'h0 && (!reg_ctrl.REG_SELECT)) begin
-				if (i_format == ACCESS_32BIT) begin
-					// 1F801040h JOY_TX_DATA (W)
-					case (PERIPH_TYPE)
-					default:
-					begin
-						if (i_dataIn[7:0]==8'd1) begin
-							PERIPH_TYPE	<= DEVICE_CONTROLLER;
-						end
-						if (i_dataIn[7:0]==8'd81) begin
-							PERIPH_TYPE	<= DEVICE_MEMORYCARD;
-						end
-					end
-					DEVICE_CONTROLLER:
-					begin
-						// postByte(controller[control.port]->handle(byte));
-						
-						// TO CHECK
-						reg_status.ACK	<= 1'b0;
-						/* if (controller[control.port]->getAck()) {
-								postAck();
-						} else {
-								deviceSelected = DeviceSelected::None;
-						} */
-					end
-					DEVICE_MEMORYCARD:
-					begin
-						// postByte(card[control.port]->handle(byte));
-
-						// TO CHECK
-						reg_status.ACK	<= 1'b0;
-						/* if (card[control.port]->getAck()) {
-							postAck();
-						} else {
-							deviceSelected = DeviceSelected::None;
-						} */
-					end
-					endcase
-					
-					reg_status.TX_READY		<= 1'b1;
-					reg_status.TX_FINISHED	<= 1'b0;
-				end
-			end
-
-			if (assertBadAccess) begin
-				BAD_ACCESS <= 1'b1;
-			end
-			
-			/* 1F801044h JOY_STAT (R)
-			if (i_addr16BitWord == 3'h2) begin
-				// 1F801044h JOY_STAT (R)
-			end
-			*/
-
-			if (i_addr16BitWord == 3'h4) begin
-				// 1F801048h JOY_MODE (R/W) (usually 000Dh, ie. 8bit, no parity, MUL1)
-				reg_mode.REG_BAUDRATE_RELOAD_FACT	<= i_dataIn[1:0];
-				reg_mode.REG_CHARACTER_LENGTH		<= i_dataIn[3:2];
-				reg_mode.REG_PARITY_ENABLE			<= i_dataIn[4];
-				reg_mode.REG_PARITY_ODD				<= i_dataIn[5];
-				reg_mode.REG_CLK_OUTPOLARITY		<= i_dataIn[8];
-			end
-
-			if (i_addr16BitWord == 3'h5) begin
-				// 1F80104Ah JOY_CTRL (R/W) (usually 1003h,3003h,0000h)
-				reg_ctrl.REG_TX_ENABLE				<= i_dataIn[0];	
-				reg_ctrl.REG_SELECT					<= i_dataIn[1];	
-				reg_ctrl.REG_CTRL_BIT3				<= i_dataIn[3];	
-				reg_ctrl.REG_CTRL_BIT5				<= i_dataIn[5];
-				reg_ctrl.REG_CTRL_BIT7				<= i_dataIn[7];
-				reg_ctrl.REG_RX_INT_MODE			<= i_dataIn[9:8];
-				reg_ctrl.REG_TX_INT_ENABLE			<= i_dataIn[10];
-				reg_ctrl.REG_RX_INT_ENABLE			<= i_dataIn[11];
-				reg_ctrl.REG_ACK_INT_ENABLE			<= i_dataIn[12];
-				reg_ctrl.REG_ACTIVESLOT_NUM			<= i_dataIn[13];
-			end
-			
-			if (i_addr16BitWord == 3'h7) begin
-				// 1F80104Eh JOY_BAUD (R/W) (usually 0088h, ie. circa 250kHz, when Factor=MUL1)
-				REG_BAUDRATE_RELOAD					<= i_dataIn[15:0];
-			end
-		end
-
-		//
-		// CPU WRITE & INTERNAL UPDATE
-		//
-		if (resetPeripheral) begin
-			// Reset Periphal
-			PERIPH_TYPE				<= DEVICE_UNSELECTED;
-		end
-		
-		if (resetACK) begin
-			reg_ctrl.REG_ACK_INT_ENABLE	<= 1'b0;
-			reg_status.RX_PARITYERROR	<= 1'b0;
-// TODO
-//			if (ackDuration > 0) begin
-//				IRQ				= 1'b0;
-//			end
-		end
-	end
-end
-
-//------------------------------------------------------------------------
-// - CPU READs
-//------------------------------------------------------------------------
-/*
-reg	[31:0]	dataOut;
-always @(*) begin
-	case (i_addr16BitWord)
-	3'd0: dataOut = {  };
-	endcase
-end
+	JSTATE		joyState;
+	reg [7:0]	outValue,regOutValue;
+	wire       	outValueValid = receive1C; // Same thing, different name
 	
-	wire [20:0]	nextDecBaudRateTimer = BAUDRATE_TIMER + 21'h1FFFFF; // -1
+	wire transitionSTART_GETx42  = (receiveData1C == 8'h01);
+	wire transitionGETx42_RETx5A = (receiveData1C == 8'h42);
+	
 	always @(posedge i_clk) begin
-		if () begin
-			??? Load Value
-			??? Reset ???
+	
+		if (i_nRst == 1'b0) begin
+			joyState <= START;
 		end else begin
-			BAUDRATE_TIMER <= nextDecBaudRateTimer;
+			// State machine transition when we receive a byte.
+			if (receive1C) begin
+				case (joyState)
+				START: begin
+					if (transitionSTART_GETx42) begin
+						joyState <= GETx42;
+					end
+				end
+				GETx42: begin
+					if (transitionGETx42_RETx5A) begin
+						joyState <= RETx5A;
+					end else begin
+						joyState <= START;
+					end
+				end
+				RETx5A: begin
+					joyState <= BTNBYTE0;
+				end
+				BTNBYTE0: begin
+					joyState <= BTNBYTE1;
+				end
+				BTNBYTE1: begin
+					joyState <= START;
+				end
+				default: begin
+					joyState <= START;
+				end
+				endcase
+			end
+
+			// Store value for answering timer complete.
+			if (outValueValid) begin
+				regOutValue <= outValue;
+			end
 		end
 	end
-
-
-
-	reg ReloadValue;
+	
+										// TODO : Implement timer to restart each time 'receive1C' is true.
+	assign emitData1C	= outValue; 	// TODO : use regOutValue with timer internally... for delay.
+	assign emit1C		= receive1C;	// TODO : Use internal timer reach end instead.
+	
 	always @(*) begin
-		case (
-	ReloadValue = BaudRateFactor * 
-	if (BaudRateTimer == 0 || write) begin
-		Timer <= ReloadValue;
-	end else begin
+		outValue = 8'hFF;
+		case (joyState)
+		GETx42: begin
+			if (receive1C & transitionGETx42_RETx5A) begin
+				outValue = 8'h41;
+			end
+		end
+		RETx5A: begin
+			if (receive1C) begin
+				outValue = 8'h5A;
+			end
+		end
+		BTNBYTE0: begin
+			if (receive1C) begin
+				outValue = {
+					joy_LEFT,
+					joy_DOWN,
+					joy_RIGHT,
+					joy_UP,
+					joy_START,
+					1'b0,
+					1'b0,
+					joy_SELECT
+				};
+			end
+		end
+		BTNBYTE1: begin
+			if (receive1C) begin
+				outValue = {
+					joy_SQUARE,
+					joy_XBTN,
+					joy_ROUND,
+					joy_TRIAN,
+					joy_R1,
+					joy_L1,
+					joy_R2,
+					joy_L2
+				};
+			end
+		end
+		default: begin
+		end
+		endcase
 	end
-*/
 endmodule
