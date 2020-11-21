@@ -721,7 +721,11 @@ begin
 	if (gpuAdrA2) begin
 		dataOut	=  reg1Out;
 	end else begin
-		dataOut	= regGpuInfo;
+		if ((RegCommand == 8'hC0) && (currWorkState != NOT_WORKING_DEFAULT_STATE)) begin
+			dataOut = outFIFO_readV;
+		end else begin
+			dataOut	= regGpuInfo;
+		end
 	end
 end
 
