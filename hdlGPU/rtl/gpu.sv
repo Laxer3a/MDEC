@@ -24,11 +24,14 @@ module gpu
 
     output			IRQRequest,
 
-	// Outside->GPU
+	// WRITE/UPLOAD : Outside->GPU
+	// - GPU Request data on REQ
 	// - Data valid on ACK.
 	// GPU->Outside
 	// - Data valid on REQ.
+	// - DMA Validate the value and requires the next one. with ACK.
 	//
+	// NOTE : DMA Controller MUST ignore REQ pin and NOT ISSUE ACK when not active.
 	output			DMA_REQ,
 	input			DMA_ACK,
 	
@@ -657,7 +660,7 @@ wire outFIFO_full;
 
 wire writeFifo		= (!gpuAdrA2 & gpuSel & write) || (DMA_ACK && (GPU_REG_DMADirection == DMA_CPUtoGP0));
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
-wire readFifoOut    = (gpuSel & !gpuAdrA2);
+wire cpuReadFifoOut = (gpuSel & !gpuAdrA2);
 
 // Note : we do not have the problem of over transfer in FIFO IN, as DMA know transfer size.
 // But in case we still REQ and DMA was reloaded super fast, we would need to put a COUNTER in the GPU
@@ -668,17 +671,37 @@ wire readFifoOut    = (gpuSel & !gpuAdrA2);
 //                      => Should not overtransfer because DMA knows size.
 assign DMA_REQ		= ((GPU_REG_DMADirection == DMA_CPUtoGP0) && (!isINFifoFull))
 //                      VRAM to CPU transfer + has data ready for DMA.
-                   || ((GPU_REG_DMADirection == DMA_GP0toCPU) && (!outFIFO_empty));
+                   || ((GPU_REG_DMADirection == DMA_GP0toCPU) && (!firstRead) && unconsummed);
 
-// FIFO FTWT : Ask for next data piece when current one is read.
-wire        outFIFO_read = (((GPU_REG_DMADirection == DMA_GP0toCPU) && DMA_ACK) || readFifoOut) && (!outFIFO_empty);
+// READ FIFO WHEN :
+// - Data is already available in the FIFO.
+// - When it is a CPU READ
+//   OR WHEN DOING DMA TRANSFER
+// - When force FIFO to present value first time before.
+// - When it is reading current value, kick the next value with DMA_ACK.
+wire        outFIFO_read = ((((GPU_REG_DMADirection == DMA_GP0toCPU) && (!unconsummed || firstRead))) || cpuReadFifoOut) && (!outFIFO_empty);
 
-// TODO : Pipeline readFifoOut (1 cycle latency)
+// Pipeline FIFO read to validate data out (1 cycle latency)
 reg pReadFifoOut;
+reg pACK;
+reg firstRead;
+reg unconsummed;
 always @(posedge clk) begin
     if (i_nrst == 0) begin
         pReadFifoOut = 1'd0;
+		unconsummed  = 1'b1;
     end else begin
+		if (outFIFO_read) begin
+			firstRead   = 1'b0;
+			unconsummed = 1'b1;
+		end else begin
+			if (DMA_ACK || cpuReadFifoOut) begin
+				unconsummed = 1'b0;
+			end
+		end
+		if (currWorkState == COPYVC_START) begin
+			firstRead   = 1'b1;
+		end
 		pReadFifoOut = outFIFO_read;
     end
 end
@@ -694,32 +717,20 @@ reg [31:0] dataOut;
 reg        dataOutValid;
 always @(*)
 begin
-	if (pReadFifoOut /*setStencilMode == 3'd7*/) begin
-		dataOutValid	= 1;
-		dataOut			= outFIFO_readV;
+	// Register +4 Read
+	if (gpuAdrA2) begin
+		dataOut	=  reg1Out;
 	end else begin
-		if (gpuSel & read) begin
-			dataOutValid	= 1;
-			
-			// Register +4 Read
-			if (gpuAdrA2) begin
-				dataOut	=  reg1Out;
-			end else begin
-				dataOut	= regGpuInfo;
-			end
-		end else begin
-			dataOut		 =  32'hFFFFFFFF; // Not necessary but to avoid bug for now.
-			dataOutValid = 0;
-		end
+		dataOut	= regGpuInfo;
 	end
 end
 
 always @(posedge clk) begin
 	pDataOut		= dataOut;
-	pDataOutValid	= dataOutValid;
+	pDataOutValid	= (gpuSel & read);
 end
-assign cpuDataOut	= pDataOut;
-assign validDataOut = pDataOutValid;
+assign cpuDataOut	= !pDataOutValid ? outFIFO_readV : pDataOut;
+assign validDataOut = !pDataOutValid ? (!DMA_REQ)    : pDataOutValid;
 //---------------------------------------------------------------
 
 assign IRQRequest = GPU_REG_IRQSet;

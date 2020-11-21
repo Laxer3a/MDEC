@@ -171,19 +171,7 @@ module DMAController
   1F8010Cxh DMA4 channel 4  SPU
   1F8010Dxh DMA5 channel 5  PIO (Expansion Port)
   1F8010Exh DMA6 channel 6  OTC (reverse clear OT) (GPU related)
-  1F8010F0h DPCR - DMA Control register
-  1F8010F4h DICR - DMA Interrupt register
 */
-// DPCR
-reg [2:0]	DMAPriority [6:0];
-reg	[6:0]	masterEnable;
-reg [3:0]   unknown28_31;
-// DICR
-reg [5:0]	unknown5_0;
-reg [6:0]	IRQEnable;
-reg	[6:0]	IRQFlags;
-reg			IRQMasterEnable;
-reg 		IRQMasterFlag;
 
 wire cpuWrite = i_CS & i_write;
 wire cpuRead  = i_CS & i_read;
@@ -316,12 +304,28 @@ DMAChannel DMAChannelOTC (
 	.o_data		(dataOut[6])
 );
 
+/*
+  1F8010F0h DPCR - DMA Control register
+  1F8010F4h DICR - DMA Interrupt register
+*/
+// DPCR
+reg [2:0]	DMAPriority [6:0];
+reg	[6:0]	masterEnable;
+reg [3:0]   unknown28_31;
+// DICR
+reg [5:0]	unknown5_0;
+reg [6:0]	IRQEnable;
+reg	[6:0]	IRQFlags;
+reg			IRQMasterEnable;
+reg 		IRQMasterFlag;
+
 //---------------------------------------------------
-//  CPU Read OUT
+//  CPU Read OUT (Everything)
 //---------------------------------------------------
 reg [31:0] pDataOut;
 always @(posedge i_clk) begin
 	case (channel)
+	// DMA CHANNELS
 	3'd0 : pDataOut <= dataOut[0];
 	3'd1 : pDataOut <= dataOut[1];
 	3'd2 : pDataOut <= dataOut[2];
@@ -329,6 +333,7 @@ always @(posedge i_clk) begin
 	3'd4 : pDataOut <= dataOut[4];
 	3'd5 : pDataOut <= dataOut[5];
 	3'd6 : pDataOut <= dataOut[6];
+	// GLOBAL STUFF
 	3'd7 : begin
 		case (regID)
 		2'd0   : pDataOut <= {
@@ -366,7 +371,7 @@ end
 assign o_data = pDataOut;
 
 //---------------------------------------------------
-//  CPU Write IN
+//  CPU Write IN (Global stuff only)
 //---------------------------------------------------
 
 always @(posedge i_clk)

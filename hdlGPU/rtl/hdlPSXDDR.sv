@@ -164,8 +164,10 @@ parameter	CMD_32BYTE		= 2'd1,
 	always @(posedge i_clk)
 	begin
 		// Store the values for writing to DDR.
-		is32Bit   = bIs32Bit;
-		isUnAlign = bUnalign;
+		if (i_command) begin
+			is32Bit   = bIs32Bit;
+			isUnAlign = bUnalign;
+		end
 		
 		// Delay of one cycle when doing transition from end of read burst to next command.
 		dataToPSXValid = (currState == WAIT_RECEIVE_READ) && (nextState == DEFAULT_STATE);
