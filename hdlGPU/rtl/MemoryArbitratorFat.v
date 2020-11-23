@@ -151,13 +151,13 @@ assign ClutWriteIndex			= idxCnt; // 0..7
 reg [31:0] s_data32; 
 always @(*) begin 
 	case (idxCnt)
-	3'd0: s_data32 = res_data[ 31:  0];
-	3'd1: s_data32 = res_data[ 63: 32];
-	3'd2: s_data32 = res_data[ 95: 64];
-	3'd3: s_data32 = res_data[127: 96];
-	3'd4: s_data32 = res_data[159:128];
-	3'd5: s_data32 = res_data[191:160];
-	3'd6: s_data32 = res_data[223:192];
+	3'd0   : s_data32 = res_data[ 31:  0];
+	3'd1   : s_data32 = res_data[ 63: 32];
+	3'd2   : s_data32 = res_data[ 95: 64];
+	3'd3   : s_data32 = res_data[127: 96];
+	3'd4   : s_data32 = res_data[159:128];
+	3'd5   : s_data32 = res_data[191:160];
+	3'd6   : s_data32 = res_data[223:192];
 	default: s_data32 = res_data[255:224];
 	endcase
 end
@@ -451,16 +451,23 @@ always @(*) begin
 	default: commandSize = CMD_32BYTE;	// 0,1,_,_,4,5,_,7
 	endcase
 	
+	// TRICK : when doing a WRITEBURST we wait 1 cycle to perform the WRITE, because data needs to be loaded with the previous READ. 1 cycle latency
+	if (!i_busy && hasCommand && ((!waitRead) || (cmdExec[2:0] != 3'd5))) begin  // If we check for i_busy, then we wait for read too...
+		sendCommandToMemory = 1;
+	end
+	
+	// We execute the flags ONLY when the operation is ALSO PERFORMING THE MEMORY OPERATION TO THE DDR !
+	// So flag must stay to zero until we properly pop the command from the FTFW FIFO. (And not execute the command as the value are at the FIFO out (cmdExec))
 	case (cmdExec[2:0]) 
 	3'd4: begin // READBRT
-		loadBank		= 1;
+		loadBank		= sendCommandToMemory;
 		loadVVIndexW	= 0;
 		clearBanksCheck	= 0;
 	end
 	3'd5: begin // WRITEBRT
-		loadBank		= 1;
-		loadVVIndexW	= 1;
-		clearBanksCheck	= 1;
+		loadBank		= sendCommandToMemory;
+		loadVVIndexW	= sendCommandToMemory;
+		clearBanksCheck	= sendCommandToMemory;
 	end
 	default: begin
 		loadBank		= 0;
@@ -469,16 +476,20 @@ always @(*) begin
 	end
 	endcase
 	
-	if (!i_busy && hasCommand /* && (!waitRead)*/) begin  // If we check for i_busy, then we wait for read too...
-		sendCommandToMemory = 1;
-	end
-	
 	if (waitRead && i_dataInValid) begin
 		resetWait = 1;
 	end
 end
 
 wire [15:0] cmdMask = cmdExec[289:274];
+wire copyBank       = cmdExec[18]; // Read  Command
+wire oldBank        = cmdExec[18]; // Write Command
+wire clearOtherBank = cmdExec[22]; // Read  Command
+wire clearBank0     = cmdExec[22]; // Write Command
+wire clearBank1     = cmdExec[23]; // Write Command
+wire [3:0] indexCpy = cmdExec[27:24]; // Write Command
+wire VV_GPU_ChkMsk	= cmdExec[20];
+wire VV_GPU_ForceMsk= cmdExec[19];
 
 always @(posedge busClk) begin
 	if (i_nRst == 0) begin
@@ -499,16 +510,16 @@ always @(posedge busClk) begin
 		// [Read BURST Command ONLY]
 		if (loadBank & !loadVVIndexW) begin
 			// Bank ID used only in READ (when result comes back)
-			bankID		= cmdExec[16];
+			bankID		= copyBank;
 			loadVVBank	= 1;
-			if (cmdExec[16]) begin
+			if (copyBank) begin
 				maskBank[31:16] = cmdMask;	// Pixel Select Mask
-				if (cmdExec[20]) begin				// Clear other bank ?
+				if (clearOtherBank) begin	// Clear other bank ?
 					maskBank[15:0] = 16'd0;
 				end
 			end else begin
 				maskBank[15:0] = cmdMask;	// Pixel Select Mask
-				if (cmdExec[20]) begin				// Clear other bank ?
+				if (clearOtherBank) begin	// Clear other bank ?
 					maskBank[31:16] = 16'd0;
 				end
 			end
@@ -516,10 +527,10 @@ always @(posedge busClk) begin
 		
 		// Mask Bank will clear for the NEXT READ/WRITE sequence.
 		if (clearBanksCheck) begin
-			if (cmdExec[20]) begin
+			if (clearBank0) begin
 				maskBank[15: 0] = 16'd0;
 			end
-			if (cmdExec[21]) begin
+			if (clearBank1) begin
 				maskBank[31:16] = 16'd0;
 			end
 		end
@@ -536,7 +547,7 @@ always @(posedge busClk) begin
 	end
 end
 
-wire [4:0] rotationAmount	= {cmdExec[16],cmdExec[25:22]};
+wire [4:0] rotationAmount	= {oldBank,indexCpy};
 wire [255:0] storage;
 ROL512 ROL512_inst(
 	.inp		(vvReadCache),
@@ -569,9 +580,6 @@ always @(*) begin
 	endcase
 end
 
-wire VV_GPU_ChkMsk		= cmdExec[18];
-wire VV_GPU_ForceMsk	= cmdExec[17];
-
 wire [255:0] currVVPixelWFinal		= { 
 	VV_GPU_ForceMsk | storage[255], storage[254:240],
 	VV_GPU_ForceMsk | storage[239], storage[238:224],
@@ -596,7 +604,7 @@ wire [255:0] currVVPixelWFinal		= {
 
 wire [15:0] currVVPixelWFinalSel	= ({16{!VV_GPU_ChkMsk}} | (~cmdMask /*Here is it a stencil, not a mask*/)) & storageMask; // Write all pixels if VV_GPU_ChkMsk=0, else write Pixel when Stencil IS 0.
 
-assign o_write		= cmdExec[0];
+assign o_write		= cmdExec[0] & sendCommandToMemory; // TODO OPTIMIZE : & sendCommandToMemory is to have a cleaner signal.
 assign o_command	= sendCommandToMemory;
 assign o_dataOut	= (cmdExec[2:0] != 3'b101) ? cmdExec[273: 18] : currVVPixelWFinal;
 assign o_writeMask	= (cmdExec[2:0] != 3'b101) ? cmdMask          : currVVPixelWFinalSel;
