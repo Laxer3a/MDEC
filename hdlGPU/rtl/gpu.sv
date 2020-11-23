@@ -634,7 +634,7 @@ reg			resetBank, switchBank;
 wire xCopyDirectionIncr;
 wire [4:0] tmpidx;
 wire [3:0] cpyIdx;
-wire  [8:0]		scrDstY;
+wire [8:0]	scrDstY;
 reg	 [ 6:0] counterXDst;
 
 
@@ -1648,6 +1648,7 @@ wire [ 9:0]	nextY		= pixelY[9:0] + { 8'd0, IncrementInterlaceRender , !Increment
 wire		WidthNot1	= |RegSizeW[10:1];
 assign		endVertical	= (nextY >= RegSizeH);
 assign			scrY	= pixelY[9:0] + RegY0[9:0];
+assign       scrDstY	= pixelY[8:0] + RegY1[8:0];
 
 // [Registers]
 // reg  [11:0]		currX;
