@@ -441,7 +441,8 @@ reg loadVVBank;
 reg clearBanksCheck;
 
 always @(*) begin
-	sendCommandToMemory = 0;
+	// TRICK : when doing a WRITEBURST we wait 1 cycle to perform the WRITE, because data needs to be loaded with the previous READ. 1 cycle latency
+	sendCommandToMemory = (!i_busy && hasCommand && ((!waitRead) || (cmdExec[2:0] != 3'd5)));
 	resetWait			= 0;
 	
 	case (cmdExec[2:0])
@@ -451,28 +452,20 @@ always @(*) begin
 	default: commandSize = CMD_32BYTE;	// 0,1,_,_,4,5,_,7
 	endcase
 	
-	// TRICK : when doing a WRITEBURST we wait 1 cycle to perform the WRITE, because data needs to be loaded with the previous READ. 1 cycle latency
-	if (!i_busy && hasCommand && ((!waitRead) || (cmdExec[2:0] != 3'd5))) begin  // If we check for i_busy, then we wait for read too...
-		sendCommandToMemory = 1;
-	end
-	
 	// We execute the flags ONLY when the operation is ALSO PERFORMING THE MEMORY OPERATION TO THE DDR !
 	// So flag must stay to zero until we properly pop the command from the FTFW FIFO. (And not execute the command as the value are at the FIFO out (cmdExec))
-	case (cmdExec[2:0]) 
+	case (cmdExec[2:0])
 	3'd4: begin // READBRT
-		loadBank		= sendCommandToMemory;
+		loadBank		= 1;
 		loadVVIndexW	= 0;
-		clearBanksCheck	= 0;
 	end
 	3'd5: begin // WRITEBRT
-		loadBank		= sendCommandToMemory;
-		loadVVIndexW	= sendCommandToMemory;
-		clearBanksCheck	= sendCommandToMemory;
+		loadBank		= 1;
+		loadVVIndexW	= 1;
 	end
 	default: begin
 		loadBank		= 0;
 		loadVVIndexW	= 0;
-		clearBanksCheck	= 0;
 	end
 	endcase
 	
@@ -493,45 +486,48 @@ wire VV_GPU_ForceMsk= cmdExec[19];
 
 always @(posedge busClk) begin
 	if (i_nRst == 0) begin
-		waitRead	= 0;
-		loadVVBank	= 0;
-		bankID		= 0;
+		waitRead	<= 0;
+		loadVVBank	<= 0;
+		bankID		<= 0;
 	end else begin
-		// Send command and is READ COMMAND.
-		if (sendCommandToMemory && (!cmdExec[0])) begin
-			waitRead = 1;
-		end
-		
 		if (waitRead && resetWait) begin
-			waitRead	= 0;
-			loadVVBank	= 0;
+			loadVVBank	<= 0;
+		end
+
+		// Send command and is READ COMMAND. (OVERRIDE RESET)
+		if (sendCommandToMemory && (!cmdExec[0])) begin
+			waitRead <= 1;
+		end else begin
+			if (waitRead && resetWait) begin
+				waitRead <= 0;
+			end
 		end
 
 		// [Read BURST Command ONLY]
-		if (loadBank & !loadVVIndexW) begin
+		if (loadBank & sendCommandToMemory & !loadVVIndexW) begin
 			// Bank ID used only in READ (when result comes back)
-			bankID		= copyBank;
-			loadVVBank	= 1;
+			bankID		<= copyBank;
+			loadVVBank	<= 1;
 			if (copyBank) begin
-				maskBank[31:16] = cmdMask;	// Pixel Select Mask
+				maskBank[31:16] <= cmdMask;	// Pixel Select Mask
 				if (clearOtherBank) begin	// Clear other bank ?
-					maskBank[15:0] = 16'd0;
+					maskBank[15:0] <= 16'd0;
 				end
 			end else begin
-				maskBank[15:0] = cmdMask;	// Pixel Select Mask
+				maskBank[15:0] <= cmdMask;	// Pixel Select Mask
 				if (clearOtherBank) begin	// Clear other bank ?
-					maskBank[31:16] = 16'd0;
+					maskBank[31:16] <= 16'd0;
 				end
 			end
 		end
 		
 		// Mask Bank will clear for the NEXT READ/WRITE sequence.
-		if (clearBanksCheck) begin
+		if (loadVVIndexW & sendCommandToMemory) begin
 			if (clearBank0) begin
-				maskBank[15: 0] = 16'd0;
+				maskBank[15: 0] <= 16'd0;
 			end
 			if (clearBank1) begin
-				maskBank[31:16] = 16'd0;
+				maskBank[31:16] <= 16'd0;
 			end
 		end
 	end
@@ -540,9 +536,9 @@ end
 always @(posedge busClk) begin
 	if (waitRead && loadVVBank && i_dataInValid) begin
 		if (bankID) begin
-			vvReadCache[511:256] = i_dataIn;
+			vvReadCache[511:256] <= i_dataIn;
 		end else begin
-			vvReadCache[255:  0] = i_dataIn;
+			vvReadCache[255:  0] <= i_dataIn;
 		end
 	end
 end
