@@ -85,7 +85,7 @@ parameter	CMD_32BYTE		= 2'd1,
 		WAIT_RECEIVE_READ   =3'd3
 	} state_t;
 	state_t currState, nextState;
-	always @(posedge i_clk) begin currState = (!i_nRst) ? DEFAULT_STATE : nextState; end
+	always @(posedge i_clk) begin currState <= (!i_nRst) ? DEFAULT_STATE : nextState; end
 	
 	reg   [1:0] blkCounterEmit;
 	reg   [1:0] blkCounterRecv;
@@ -149,8 +149,8 @@ parameter	CMD_32BYTE		= 2'd1,
 	reg  [2:0] burstAdrSub;
 	always @(posedge i_clk) begin
 	   if ( (nextState == WRITE_STATE1 || nextState == READ_STATE1) && currState==DEFAULT_STATE ) begin
-		 burstAdr    = i_targetAddr;
-		 burstAdrSub = i_subAddr;
+		 burstAdr    <= i_targetAddr;
+		 burstAdrSub <= i_subAddr;
 	   end
 	end
 
@@ -165,8 +165,8 @@ parameter	CMD_32BYTE		= 2'd1,
 	begin
 		// Store the values for writing to DDR.
 		if (i_command) begin
-			is32Bit   = bIs32Bit;
-			isUnAlign = bUnalign;
+			is32Bit   <= bIs32Bit;
+			isUnAlign <= bUnalign;
 		end
 		
 		// Delay of one cycle when doing transition from end of read burst to next command.
@@ -176,28 +176,28 @@ parameter	CMD_32BYTE		= 2'd1,
 		if ((currState == DEFAULT_STATE) && i_command) begin
 			if (i_writeElseRead) begin
 				if (i_commandSize == CMD_4BYTE) begin
-					dataMask   = { 12'd0, i_subAddr[0] ? { i_writeMask[1:0], 2'b0} : { 2'b0,i_writeMask[1:0] } };
+					dataMask   <= { 12'd0, i_subAddr[0] ? { i_writeMask[1:0], 2'b0} : { 2'b0,i_writeMask[1:0] } };
 				end else begin
-					dataMask   = i_writeMask; // 32 byte. (8 Byte WRITE NEVER HAPPEN DONT CARE)
+					dataMask   <= i_writeMask; // 32 byte. (8 Byte WRITE NEVER HAPPEN DONT CARE)
 				end
 			end else begin
-				dataMask = 16'hFFFF;
+				dataMask <= 16'hFFFF;
 			end
 		end
 		
 		if (i_command && i_writeElseRead) begin
-			dataInOut[ 31: 0] = i_dataClient[ 31: 0];
-			dataInOut[ 63:32] = (bUnalign & bIs32Bit)? i_dataClient[31:0] : i_dataClient[63:32];
-			dataInOut[255:64] = i_dataClient[255:64];
+			dataInOut[ 31: 0] <= i_dataClient[ 31: 0];
+			dataInOut[ 63:32] <= (bUnalign & bIs32Bit)? i_dataClient[31:0] : i_dataClient[63:32];
+			dataInOut[255:64] <= i_dataClient[255:64];
 		end else begin
 			// Write to the correct section when we read data.
 			if (validDataReceive) begin
 				case (blkCounterRecv)
 				// Handle the case of reformatting the data to 32 bit on an odd adr.
-				2'd0   : dataInOut[ 63:  0] = (is32Bit && isUnAlign) ? { 32'd0 , i_dataMem[63:32] } : i_dataMem;
-				2'd1   : dataInOut[127: 64] = i_dataMem;
-				2'd2   : dataInOut[191:128] = i_dataMem;
-				default: dataInOut[255:192] = i_dataMem;
+				2'd0   : dataInOut[ 63:  0] <= (is32Bit && isUnAlign) ? { 32'd0 , i_dataMem[63:32] } : i_dataMem;
+				2'd1   : dataInOut[127: 64] <= i_dataMem;
+				2'd2   : dataInOut[191:128] <= i_dataMem;
+				default: dataInOut[255:192] <= i_dataMem;
 				endcase
 			end
 		end

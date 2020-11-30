@@ -98,34 +98,34 @@ reg reqRead;
 
 always @(posedge clk) begin
 	if (nRst == 0) begin
-		subState = END;
-//		readSet  = 1'b0;
-		pActive  = 1'b0;
-		reqRead	 = 1'b0;
+		subState <= END;
+//		readSet  <= 1'b0;
+		pActive  <= 1'b0;
+		reqRead	 <= 1'b0;
 	end else begin
 		// READACK WILL ALWAYS BE ACCEPTED, BECAUSE WE ISSUE READ WHEN FIFO IS NOT FULL !
 		if (goNextStep) begin
-			subState = next;
+			subState <= next;
 		end
 	end
 	
 	if (goNextStep) begin
-		reqRead = 1;
+		reqRead <= 1;
 	end
 	if (sread) begin
-		reqRead = 0;
+		reqRead <= 0;
 	end
 	
 	// Allow read at next step then...
-	pReadAck = goNextStep;
-	pActive  = active;
+	pReadAck <= goNextStep;
+	pActive  <= active;
 
 /*
 	if (readACK) begin
-		readSet = 1'b1;
+		readSet <= 1'b1;
 	end
 	if (goNextStep) begin
-		readSet = 1'b0;
+		readSet <= 1'b0;
 	end
 */
 end

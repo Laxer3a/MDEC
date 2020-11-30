@@ -13,12 +13,12 @@ module dividerWrapper(
 
 	always @(posedge clock)
 	begin
-		num5 = num4; den5 = den4;
-		num4 = num3; den4 = den3;
-		num3 = num2; den3 = den2;
-		num2 = num1; den2 = den1;
-		num1 = numerator;
-		den1 = denominator;
+		num5 <= num4; den5 <= den4;
+		num4 <= num3; den4 <= den3;
+		num3 <= num2; den3 <= den2;
+		num2 <= num1; den2 <= den1;
+		num1 <= numerator;
+		den1 <= denominator;
 	end
 	wire signed [31:0] divisor   = { {10{den5[21]}} ,den5 };
 	wire signed [31:0] resultDiv = num5 / divisor;

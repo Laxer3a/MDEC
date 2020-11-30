@@ -26,7 +26,7 @@ assign dataOut = data_outR;
 always @ (posedge clk)
 begin : MEM_WRITE
    if ( we & cs) begin
-       mem[addressIn] = dataIn;
+       mem[addressIn] <= dataIn;
    end
 end
 
@@ -35,7 +35,7 @@ end
 always @ (posedge clk)
 begin : MEM_READ
   if (!we & cs) begin
-    data_outR = mem[addressOut];
+    data_outR <= mem[addressOut];
   end
 end
 

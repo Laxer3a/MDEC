@@ -91,7 +91,7 @@ module MemoryArbitratorFat(
 wire		doBGWork     = saveBGBlock[0] | saveBGBlock[1];
 wire		spikeBGBlock;
 reg			lastsaveBGBlock;
-always @(posedge gpuClk) begin lastsaveBGBlock = doBGWork; end
+always @(posedge gpuClk) begin lastsaveBGBlock <= doBGWork; end
 // --------------------------------------------------------------
 // PUBLIC SIGNAL IN DESIGN
 wire	isFirstBlockBlending	= ((saveBGBlock == 2'b01) & isBlending);
@@ -377,12 +377,12 @@ end
 always @(posedge gpuClk)
 begin
 	if (i_nRst == 0) begin
-		state = WAIT_CMD;
+		state <= WAIT_CMD;
 	end else begin
-		state = nextState;
+		state <= nextState;
 		
 		if (saveTexAdr) begin
-			backupTexAdr = adrTexRead;
+			backupTexAdr <= adrTexRead;
 		end
 	end
 end
@@ -390,13 +390,14 @@ end
 always @(posedge gpuClk)
 begin
 	if (state == WAIT_CMD) begin
-		idxCnt = 3'd0;
+		idxCnt <= 3'd0;
 	end else begin
-		idxCnt = idxCnt + {2'd0, ClutCacheWrite};
+		idxCnt <= idxCnt + {2'd0, ClutCacheWrite};
 	end
 end
 
 reg sendCommandToMemory;
+reg sendCommandToMemoryNOBUSY;
 wire [289:0] cmdExec;
 
 wire rdEmpty;
@@ -443,6 +444,7 @@ reg clearBanksCheck;
 always @(*) begin
 	// TRICK : when doing a WRITEBURST we wait 1 cycle to perform the WRITE, because data needs to be loaded with the previous READ. 1 cycle latency
 	sendCommandToMemory = (!i_busy && hasCommand && ((!waitRead) || (cmdExec[2:0] != 3'd5)));
+	sendCommandToMemoryNOBUSY = (hasCommand && ((!waitRead) || (cmdExec[2:0] != 3'd5)));
 	resetWait			= 0;
 	
 	case (cmdExec[2:0])
@@ -600,7 +602,7 @@ wire [255:0] currVVPixelWFinal		= {
 
 wire [15:0] currVVPixelWFinalSel	= ({16{!VV_GPU_ChkMsk}} | (~cmdMask /*Here is it a stencil, not a mask*/)) & storageMask; // Write all pixels if VV_GPU_ChkMsk=0, else write Pixel when Stencil IS 0.
 
-assign o_write		= cmdExec[0] & sendCommandToMemory; // TODO OPTIMIZE : & sendCommandToMemory is to have a cleaner signal.
+assign o_write		= cmdExec[0] & sendCommandToMemoryNOBUSY; // TODO OPTIMIZE : & sendCommandToMemory is to have a cleaner signal.
 assign o_command	= sendCommandToMemory;
 assign o_dataOut	= (cmdExec[2:0] != 3'b101) ? cmdExec[273: 18] : currVVPixelWFinal;
 assign o_writeMask	= (cmdExec[2:0] != 3'b101) ? cmdMask          : currVVPixelWFinalSel;

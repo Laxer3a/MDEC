@@ -375,8 +375,8 @@ module GPUBackend(
 	always @(posedge clk)
 	begin
 		if (!i_pausePipeline && TexHit_c1R && TexHit_c1L) begin
-			PTexHit_c1R = TexHit_c1R;
-			PTexHit_c1L = TexHit_c1L;
+			PTexHit_c1R <= TexHit_c1R;
+			PTexHit_c1L <= TexHit_c1L;
 		end
 	end
 	wire validTextureL		= PTexHit_c1L;
@@ -388,7 +388,7 @@ module GPUBackend(
 	reg PPausePipeline;
 	always @(posedge clk)
 	begin
-		PPausePipeline = i_pausePipeline;
+		PPausePipeline <= i_pausePipeline;
 	end
 	wire        writeSig	= !i_pausePipeline & (writeSigL | writeSigR);
 	wire [14:0] writeAdr 	= { oScryL, oScrxL[9:4] }; // TODO : Same as loadAdr
@@ -408,38 +408,38 @@ module GPUBackend(
 	always @(posedge clk)
 	begin
 		if (writeSig) begin
-			lastWriteAdrReg = writeAdr;
+			lastWriteAdrReg <= writeAdr;
 			if (finalValidR) begin
 				case (pairID)
-				3'd0: begin cacheBG[ 31: 16] = writeBack32[31:16]; cacheBGMsk[ 1] = selPair[1]; end
-				3'd1: begin cacheBG[ 63: 48] = writeBack32[31:16]; cacheBGMsk[ 3] = selPair[1]; end
-				3'd2: begin cacheBG[ 95: 80] = writeBack32[31:16]; cacheBGMsk[ 5] = selPair[1]; end
-				3'd3: begin cacheBG[127:112] = writeBack32[31:16]; cacheBGMsk[ 7] = selPair[1]; end
-				3'd4: begin cacheBG[159:144] = writeBack32[31:16]; cacheBGMsk[ 9] = selPair[1]; end
-				3'd5: begin cacheBG[191:176] = writeBack32[31:16]; cacheBGMsk[11] = selPair[1]; end
-				3'd6: begin cacheBG[223:208] = writeBack32[31:16]; cacheBGMsk[13] = selPair[1]; end
-				3'd7: begin cacheBG[255:240] = writeBack32[31:16]; cacheBGMsk[15] = selPair[1]; end
+				3'd0: begin cacheBG[ 31: 16] <= writeBack32[31:16]; cacheBGMsk[ 1] <= selPair[1]; end
+				3'd1: begin cacheBG[ 63: 48] <= writeBack32[31:16]; cacheBGMsk[ 3] <= selPair[1]; end
+				3'd2: begin cacheBG[ 95: 80] <= writeBack32[31:16]; cacheBGMsk[ 5] <= selPair[1]; end
+				3'd3: begin cacheBG[127:112] <= writeBack32[31:16]; cacheBGMsk[ 7] <= selPair[1]; end
+				3'd4: begin cacheBG[159:144] <= writeBack32[31:16]; cacheBGMsk[ 9] <= selPair[1]; end
+				3'd5: begin cacheBG[191:176] <= writeBack32[31:16]; cacheBGMsk[11] <= selPair[1]; end
+				3'd6: begin cacheBG[223:208] <= writeBack32[31:16]; cacheBGMsk[13] <= selPair[1]; end
+				3'd7: begin cacheBG[255:240] <= writeBack32[31:16]; cacheBGMsk[15] <= selPair[1]; end
 				endcase
 			end
 
 			if (finalValidL) begin
 				case (pairID)
-				3'd0: begin cacheBG[ 15:  0] = writeBack32[15: 0]; cacheBGMsk[ 0] = selPair[0]; end
-				3'd1: begin cacheBG[ 47: 32] = writeBack32[15: 0]; cacheBGMsk[ 2] = selPair[0]; end
-				3'd2: begin cacheBG[ 79: 64] = writeBack32[15: 0]; cacheBGMsk[ 4] = selPair[0]; end
-				3'd3: begin cacheBG[111: 96] = writeBack32[15: 0]; cacheBGMsk[ 6] = selPair[0]; end
-				3'd4: begin cacheBG[143:128] = writeBack32[15: 0]; cacheBGMsk[ 8] = selPair[0]; end
-				3'd5: begin cacheBG[175:160] = writeBack32[15: 0]; cacheBGMsk[10] = selPair[0]; end
-				3'd6: begin cacheBG[207:192] = writeBack32[15: 0]; cacheBGMsk[12] = selPair[0]; end
-				3'd7: begin cacheBG[239:224] = writeBack32[15: 0]; cacheBGMsk[14] = selPair[0]; end
+				3'd0: begin cacheBG[ 15:  0] <= writeBack32[15: 0]; cacheBGMsk[ 0] <= selPair[0]; end
+				3'd1: begin cacheBG[ 47: 32] <= writeBack32[15: 0]; cacheBGMsk[ 2] <= selPair[0]; end
+				3'd2: begin cacheBG[ 79: 64] <= writeBack32[15: 0]; cacheBGMsk[ 4] <= selPair[0]; end
+				3'd3: begin cacheBG[111: 96] <= writeBack32[15: 0]; cacheBGMsk[ 6] <= selPair[0]; end
+				3'd4: begin cacheBG[143:128] <= writeBack32[15: 0]; cacheBGMsk[ 8] <= selPair[0]; end
+				3'd5: begin cacheBG[175:160] <= writeBack32[15: 0]; cacheBGMsk[10] <= selPair[0]; end
+				3'd6: begin cacheBG[207:192] <= writeBack32[15: 0]; cacheBGMsk[12] <= selPair[0]; end
+				3'd7: begin cacheBG[239:224] <= writeBack32[15: 0]; cacheBGMsk[14] <= selPair[0]; end
 				endcase
 			end
 		end else begin
 			if (importBGBlockSingleClock) begin
-				cacheBG		= importedBGBlock;
+				cacheBG		<= importedBGBlock;
 			end
 			if (i_resetPixelMask) begin
-				cacheBGMsk	= 16'd0;
+				cacheBGMsk	<= 16'd0;
 			end
 		end
 	end
@@ -459,7 +459,7 @@ module GPUBackend(
 
 	always @(posedge clk)
 	begin
-		PpairCode = pairCode;
-		PdoBlockOp= doBlockOp;
+		PpairCode  <= pairCode;
+		PdoBlockOp <= doBlockOp;
 	end
 endmodule

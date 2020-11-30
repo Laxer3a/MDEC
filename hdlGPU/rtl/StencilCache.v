@@ -147,8 +147,8 @@ module StencilCache(
 //	reg		[3:0]	debugOutPixel;
 	always @ (posedge clk)
 	begin
-		PReadPair 			= stencilReadPair;
-		PBankA    			= stencilReadAdr[6];
+		PReadPair 			<= stencilReadPair;
+		PBankA    			<= stencilReadAdr[6];
 		
 // VCD Debug purpose, never used outside.
 //		debugOutAdr		= { stencilReadAdr , 5'b0 };

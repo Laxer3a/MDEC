@@ -107,17 +107,17 @@ module directCacheDoublePort(
 		pRequLookupB = i_requLookupB;
 		
 		if (o_isHitA) begin
-			stickyMissA = 0;
+			stickyMissA <= 0;
 		end else begin
 			if (o_isMissA) begin
-				stickyMissA = 1;
+				stickyMissA <= 1;
 			end
 		end
 		if (o_isHitB) begin
-			stickyMissB = 0;
+			stickyMissB <= 0;
 		end else begin
 			if (o_isMissB) begin
-				stickyMissB = 1;
+				stickyMissB <= 1;
 			end
 		end
 	end

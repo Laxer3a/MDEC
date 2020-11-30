@@ -139,43 +139,40 @@ module GPUPipeCtrl2(
 	
 	always @ (posedge clk)
 	begin
-		// FUCK VERILOG FOR ORDERING !!!!
-		// I DID TWO SEPERATE BLOCK AND ENDED UP WITH UNPIPELINED FUCKING WORK...
-		//
-		// HOW CAN A->B->C not be pipelined where you have TWO FUCKING SEPERATE PROCESS WITH A->B and B->C CLOCKED !!!!
-		//
-		// ENDED UP WITH PUTTING EVERYTHING IN ONE BLOCK IN CORRECT ORDER.
-		// BUT THIS IF STAYED AT THE END. FUCK YOU VERILOG. FUCK YOU FUCK YOU FUCK YOU !!!!
-		//
+		if (!pause || (i_nrst==0)) begin
+			PisTrueColor_c1		<= isTrueColor;
+			PpixelStateSpike_c1	<= (i_nrst==0) ? 2'b00 : iPixelStateSpike; // Beginning of a new primitive.
+			PiScrX_c1			<= iScrX;
+			PiScrY_c1			<= iScrY;
+			PiR_c1				<= iR;
+			PiG_c1				<= iG;
+			PiB_c1				<= iB;
+			PiBGMSK				<= iBGMSK;
+			PValidPixel_c1		<= (i_nrst==0) ? 1'b0 : validPixel_c0;
+			PUCoordLSB_c1		<= UCoordLSB;
+			PisTexturedPixel_c1	<= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
+			PtexelAdress_c1		<= texelAdress_c0;
+		end
+	end
+	
+	always @ (posedge clk)
+	begin
 		if (!pause | resetPipelinePixelStateSpike | (i_nrst == 0)) begin
-			PPpixelStateSpike_c2	= ((i_nrst==0) | resetPipelinePixelStateSpike) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
+			PPpixelStateSpike_c2 <= ((i_nrst==0) | resetPipelinePixelStateSpike) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
 		end
 		
 		if (!pause || (i_nrst==0)) begin
-			PPisTexturedPixel_c2 = PisTexturedPixel_c1;
-			PPisTrueColor_c2	= PisTrueColor_c1;
-			PPiScrX_c2			= PiScrX_c1;
-			PPiScrY_c2			= PiScrY_c1;
-			PPiR_c2				= PiR_c1;
-			PPiG_c2				= PiG_c1;
-			PPiB_c2				= PiB_c1;
-			PPiBGMSK			= PiBGMSK;
-			PPValidPixel_c2		= (i_nrst==0) ? 1'b0 : PValidPixel_c1;
-			PPdataTex_c2		= PisTrueColor_c1 ? dataTex_c1 : {8'b0, index_c1};
-			PPdataIndex         = index_c1;
-
-			PisTrueColor_c1		= isTrueColor;
-			PpixelStateSpike_c1	= (i_nrst==0) ? 2'b00 : iPixelStateSpike; // Beginning of a new primitive.
-			PiScrX_c1			= iScrX;
-			PiScrY_c1			= iScrY;
-			PiR_c1				= iR;
-			PiG_c1				= iG;
-			PiB_c1				= iB;
-			PiBGMSK				= iBGMSK;
-			PValidPixel_c1		= (i_nrst==0) ? 1'b0 : validPixel_c0;
-			PUCoordLSB_c1		= UCoordLSB;
-			PisTexturedPixel_c1	= (i_nrst==0) ? 1'b0 : isTexturedPixel_c0;
-			PtexelAdress_c1		= texelAdress_c0;
+			PPisTexturedPixel_c2 <= PisTexturedPixel_c1;
+			PPisTrueColor_c2	<= PisTrueColor_c1;
+			PPiScrX_c2			<= PiScrX_c1;
+			PPiScrY_c2			<= PiScrY_c1;
+			PPiR_c2				<= PiR_c1;
+			PPiG_c2				<= PiG_c1;
+			PPiB_c2				<= PiB_c1;
+			PPiBGMSK			<= PiBGMSK;
+			PPValidPixel_c2		<= (i_nrst==0) ? 1'b0 : PValidPixel_c1;
+			PPdataTex_c2		<= PisTrueColor_c1 ? dataTex_c1 : {8'b0, index_c1};
+			PPdataIndex         <= index_c1;
 		end
 	end
 	

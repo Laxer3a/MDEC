@@ -24,10 +24,10 @@ module CLUT_Cache(
 	begin
 		if (i_write) // Low 32 bit.
 		begin
-			CLUTStorage[writeIdx] = i_Colors;
+			CLUTStorage[writeIdx] <= i_Colors;
 		end
-		pRaddrL	= i_readIdxL;
-		pRaddrR	= i_readIdxR;
+		pRaddrL	<= i_readIdxL;
+		pRaddrR	<= i_readIdxR;
 	end
 	
 	wire [31:0] vL			= CLUTStorage[pRaddrL[7:1]];
