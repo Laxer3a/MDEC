@@ -881,8 +881,6 @@ wire	gpuReadySendToCPU	= (!outFIFO_empty)
 		   Moreover, that FIFO is only for the C0 command ANYWAY. So we just use the FLAG outFIFO_empty and it is OK.
 		*/
 								
-wire	gpuReadyReceiveDMA	= canWriteFIFO;						// Bit 28
-
 /*
 	- Notes: Manually sending/reading data by software (non-DMA) is ALWAYS possible, 
 	  regardless of the GP1(04h) setting. The GP1(04h) setting does affect the meaning of GPUSTAT.25.
@@ -921,7 +919,7 @@ always @(*) begin
 	case (GPU_REG_DMADirection)
 	DMA_DirOff   : dmaDataRequest = 1'b0;
 	DMA_FIFO     : dmaDataRequest = canWriteFIFO;
-	DMA_CPUtoGP0 : dmaDataRequest = canWriteFIFO; // Same as gpuReadyReceiveDMA;	// Follow No$ specs, delegate signal logic to GPUSTAT.28 interpretation.
+	DMA_CPUtoGP0 : dmaDataRequest = isFifoEmpty32; 		// Same as gpuReadyReceiveDMA;	// Follow No$ specs, delegate signal logic to GPUSTAT.28 interpretation.
 	DMA_GP0toCPU : dmaDataRequest = gpuReadySendToCPU;	// Follow No$ specs, delegate signal logic to GPUSTAT.27 interpretation.
 	endcase
 end
@@ -932,11 +930,11 @@ assign reg1Out = {
                     // Default 1
                     GPU_DisplayEvenOddLinesInterlace,	// 31
                     GPU_REG_DMADirection,				// 29-30
-                    canWriteFIFO, 					// gpuReadyReceiveDMA,
+                    isFifoEmpty32, 						// gpuReadyReceiveDMA,
 
                     // default 4
                     gpuReadySendToCPU,				// 27
-                    canWriteFIFO,					// 26 GPU Receive Command Ready (ready when input FIFO is not FULL)
+                    isFifoEmpty32,					// 26 GPU Receive Command Ready (ready when input FIFO is not FULL)
                     dmaDataRequest,					// 25
                     GPU_REG_IRQSet,					// 24
 
