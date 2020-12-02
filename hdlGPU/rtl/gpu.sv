@@ -3115,8 +3115,10 @@ wire signed [11:0] sizeWM1		  = { 1'b0, widthNext  } + { 12{1'b1}}; //  Width-1
 wire signed [11:0] sizeHM1		  = { 2'd0, heightNext } + { 12{1'b1}}; // Height-1
 
 wire isVertexLoadState = (currState == VERTEX_LOAD);
-wire signed [11:0] rightEdgeRect  = (isVertexLoadState ? fifoDataOutX : RegX0) + sizeWM1;
-wire signed [11:0] bottomEdgeRect = (isVertexLoadState ? fifoDataOutY : RegY0) + sizeHM1;
+wire signed [11:0] ldx            = (isVertexLoadState ? fifoDataOutX : RegX0);
+wire signed [11:0] ldy            = (isVertexLoadState ? fifoDataOutY : RegY0);
+wire signed [11:0] rightEdgeRect  = ldx + sizeWM1;
+wire signed [11:0] bottomEdgeRect = ldy + sizeHM1;
 
 always @(posedge clk)
 begin
@@ -3136,8 +3138,8 @@ begin
         if (isV1 & /*issue.*/loadVertices) RegY1 <= fifoDataOutY;
         if (/*issue.*/loadRectEdge) begin
             RegX1 <= rightEdgeRect;
-            RegY1 <= RegY0;
-            RegX2 <= RegX0;
+            RegY1 <= ldy;
+            RegX2 <= ldx;
             RegY2 <= bottomEdgeRect;
         end
         if (isV1 & /*issue.*/loadUV) RegU1 <= fifoDataOutUR;
