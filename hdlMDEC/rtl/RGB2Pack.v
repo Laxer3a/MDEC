@@ -1,19 +1,16 @@
-module RGB2Fifo(
+module RGB2Pack(
 	input	i_clk,
 	input	i_nrst,
 	
 	input			i_wrtPix,
 	input	[1:0]	format,
 	input			setBit15,
-	input   [7:0]	i_pixAdr,
 	input	[7:0]	i_r,
 	input	[7:0]	i_g,
 	input	[7:0]	i_b,
-	output			stopFill,
 
-	input			i_readFifo,
-	output			o_fifoHasData,
-	output	[31:0]	o_dataOut
+	output			o_dataValid,
+	output	[31:0]	o_dataPacked
 );
 	// TODO C CHECK Can handle RGB or BGR order here. (easiest)
 	wire [7:0]  R = i_r;
@@ -21,18 +18,18 @@ module RGB2Fifo(
 	wire [7:0]  B = i_b;
 	wire       Cl = setBit15;
 	
-	reg	[2:0] count;
+	reg	 [2:0] count;
+	wire [2:0] nextCount = count + { 2'd0, i_wrtPix };
+	
 	reg pWrite;
 	always @(posedge i_clk)
 	begin
 		if (i_nrst == 0) begin
-			count  = 3'b000;
-			pWrite = 0;
+			count	= 3'b000;
+			pWrite	= 0;
 		end else begin
-			pWrite = i_wrtPix;
-			if (i_wrtPix) begin
-				count = count + 3'd1;
-			end
+			pWrite	= i_wrtPix;
+			count	= nextCount;
 		end
 	end
 
@@ -176,6 +173,11 @@ module RGB2Fifo(
 		
 //		pushReg1 <= groupBits[10];
 //		pushReg0 <= groupBits[11];
+		if (groupBits[8])
+			reg1[31:16] = v8;
+		if (groupBits[9])
+			reg1[15: 0] = v9;
+			
 		if (groupBits[0])
 			reg0[31:28] = v0;
 		if (groupBits[1])
@@ -192,50 +194,20 @@ module RGB2Fifo(
 			reg0[ 7: 4] = v6;
 		if (groupBits[7])
 			reg0[ 3: 0] = v7;
-			
-		if (groupBits[8])
-			reg1[31:16] = v8;
-		if (groupBits[9])
-			reg1[15: 0] = v9;
 	end
 	
 	// In mode 3, write every 2 pixels.
 	// In mode 2, write every pixel (except 1st out of 4)
 	// In mode 1, write every 4 pixels.
 	// In mode 0, write every 8 pixels.
-	wire writeFifo	=  ((     count  [0]    && (format==2'd3)) ||
-						((count[1:0]!=2'd0) && (format==2'd2)) ||
-						((count[1:0]==2'd3) && (format==2'd1)) ||
-						((count[2:0]==3'd7) && (format==2'd0))   ) & pWrite;
 						
 	// Select Reg1 only in format 2, 3rd pixel write.
 	// else   Reg0 for ALL other cases.
 	wire selectReg  = ((format==2'd2) && (count[1:0]==2'd2));
-	wire [31:0] valueWrite = selectReg ? reg1 : reg0;
 	
-	wire oppRst = !i_nrst;
-	wire emptyFifo;
-	wire isFifoFull;
-	Fifo
-	#(
-		.DEPTH_WIDTH	(4),
-		.DATA_WIDTH		(32)
-	)
-	Fifo_inst
-	(
-		.clk			(i_clk ),
-		.rst			(oppRst),
-
-		.wr_data_i		(valueWrite),
-		.wr_en_i		(writeFifo),
-
-		.rd_data_o		(o_dataOut),
-		.rd_en_i		(i_readFifo),
-
-		.full_o			(isFifoFull),	// TODO A : not FULL but FULL-2 item !!! to fix later...
-		.empty_o		(emptyFifo)
-	);
-	// TODO C CHECK can handle byte order here (o_dataOut)
-	assign o_fifoHasData	= !emptyFifo;
-	assign stopFill			= isFifoFull;
+	assign o_dataPacked	= selectReg ? reg1 : reg0;
+	assign o_dataValid	=  ((     count  [0]    && (format==2'd3)) ||
+							((count[1:0]!=2'd0) && (format==2'd2)) ||
+							((count[1:0]==2'd3) && (format==2'd1)) ||
+							((count[2:0]==3'd7) && (format==2'd0))   ) & pWrite;	
 endmodule
