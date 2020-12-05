@@ -63,11 +63,11 @@ module IDCT (
 		// Write
 		if (i_cosWrite)
 		begin
-			COSTBLA[i_cosIndex] = i_cosVal[12: 0];
-			COSTBLB[i_cosIndex] = i_cosVal[25:13];
+			COSTBLA[i_cosIndex] <= i_cosVal[12: 0];
+			COSTBLB[i_cosIndex] <= i_cosVal[25:13];
 		end
 		// Read
-		cosAdr_reg = addrCos;
+		cosAdr_reg <= addrCos;
 	end
 	// Continuous assignment implies read returns NEW data.
 	// This is the natural behavior of the TriMatrix memory
@@ -104,7 +104,7 @@ module IDCT (
 	begin
 		if (i_nrst==0 || passTransition)	// Reset the loaded flag of coefficients, allow next matrix loading when we enter the second pass IDCT.
 		begin
-			isLoadedBits	= 64'd0;
+			isLoadedBits	<= 64'd0;
 		end
 		else
 		begin
@@ -114,14 +114,14 @@ module IDCT (
 				
 				// Load block ID on DC loading.
 				if (i_writeIdx == 6'd0) begin
-					blockID = i_blockNum;
+					blockID <= i_blockNum;
 				end
 				
-				isLoadedBits[i_writeIdx] = 1'b1;
+				isLoadedBits[i_writeIdx] <= 1'b1;
 			end
 		end
-		coefTableAdr_reg = pass0ReadAdr;
-		isLoaded         = isLoadedTmp;
+		coefTableAdr_reg <= pass0ReadAdr;
+		isLoaded         <= isLoadedTmp;
 	end
 	// [Internally, not loaded items return 0]
 	assign readCoefTableValue = isLoaded ? coefTable[coefTableAdr_reg] : 12'd0;
@@ -156,11 +156,11 @@ module IDCT (
 	begin
 		if (writeCoefTable2)
 		begin
-			coefTable2A[writeCoefTable2Index] = writeValueA;
-			coefTable2B[writeCoefTable2Index] = writeValueB;
+			coefTable2A[writeCoefTable2Index] <= writeValueA;
+			coefTable2B[writeCoefTable2Index] <= writeValueB;
 		end
-		coefTable2Adr_reg = pass1ReadAdr;
-		tblSelect		  = YCnt[0];
+		coefTable2Adr_reg <= pass1ReadAdr;
+		tblSelect		  <= YCnt[0];
 	end
 	wire signed [12:0] ValueA  = coefTable2A[coefTable2Adr_reg];
 	wire signed [12:0] ValueB  = coefTable2B[coefTable2Adr_reg];
@@ -196,12 +196,12 @@ module IDCT (
 	begin
 		if (i_nrst==0)
 		begin
-			idctCounter 	= 9'd0;
-			idctBusy    	= 0;
-			pFreeze			= 0;
-			rMatrixComplete	= 0;
+			idctCounter 	<= 9'd0;
+			idctBusy    	<= 0;
+			pFreeze			<= 0;
+			rMatrixComplete	<= 0;
 		end else begin
-			pFreeze			= freezeIDCT;
+			pFreeze			<= freezeIDCT;
 			
 			if (!pPass & pass) begin 
 				// Copy Block ID when entering pass1
@@ -209,31 +209,31 @@ module IDCT (
 				// By reading blockID at this clock, we know we always take
 				// the OLD value of the current matrix, even if a NEW matrix
 				// is written right now at this same cycle.
-				idctBlockNum	= blockID;
+				idctBlockNum	<= blockID;
 			end
 			
 			if (idctBusy)
 			begin
 				if (i_matrixComplete) begin
-					rMatrixComplete = 1'b1;
+					rMatrixComplete <= 1'b1;
 				end
 				
 				if (idctCounter == 511)
 				begin
-					idctCounter = 9'd0;
-					idctBusy	= 0; 	// Stop IDCT until new block loading complete.
+					idctCounter <= 9'd0;
+					idctBusy	<= 0; 	// Stop IDCT until new block loading complete.
 				end
 				else
 				begin
-					idctCounter = idctCounter + { 8'd0 , !freezeIDCT }; // Add 1 only when NOT freezed.
+					idctCounter <= idctCounter + { 8'd0 , !freezeIDCT }; // Add 1 only when NOT freezed.
 				end
 			end else begin
 				// We skip the matrix complete flag if we are busy computing a IDCT.
 				// Normally should never happen : Our busy flag will maintain that data is not pushed while computing.
 				if (rMatrixComplete | i_matrixComplete)
 				begin
-					idctBusy		= 1;
-					rMatrixComplete	= 0;
+					idctBusy		<= 1;
+					rMatrixComplete	<= 0;
 				end
 			end
 		end
@@ -294,11 +294,11 @@ module IDCT (
 		if (!pFreeze) begin
 			if (pKCnt != 0)
 			begin
-				acc0 = acc0 + ext_mul0;
-				acc1 = acc1 + ext_mul1;
+				acc0 <= acc0 + ext_mul0;
+				acc1 <= acc1 + ext_mul1;
 			end else begin
-				acc0 = ext_mul0;
-				acc1 = ext_mul1;
+				acc0 <= ext_mul0;
+				acc1 <= ext_mul1;
 			end
 		/* Same without else
 		else
@@ -307,7 +307,7 @@ module IDCT (
 			acc1 <= acc1;
 		*/
 		end
-		ppFreeze = pFreeze;
+		ppFreeze <= pFreeze;
 	end
 
 	// Remove 4 bit at output of pass1 (and pass2)
@@ -335,8 +335,8 @@ module IDCT (
 	reg pWriteOut;
 	always @ (posedge clk)
 	begin
-		pv1       = v1[11:2];										// Remove the 2 bits for V1
-		pWriteOut = writeOut;
+		pv1       <= v1[11:2];										// Remove the 2 bits for V1
+		pWriteOut <= writeOut;
 	end
 	
 	wire  [9:0] vBeforeSDiv2   = pWriteOut ? pv1     : v0[11:2];	// Remove the 2 bits for V0.

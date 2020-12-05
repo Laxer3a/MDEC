@@ -125,13 +125,13 @@ module computeCoef (
 		// Write
 		if (i_quantWrt)
 		begin
-			QuantTbl[writeAdr] = i_quantValue;
+			QuantTbl[writeAdr] <= i_quantValue;
 		end
 
 		// Read
-		quantAdr_reg 		= {selectTable,quantReadIdx[5:2]};
+		quantAdr_reg 		<= {selectTable,quantReadIdx[5:2]};
 		// Read
-		pipeQuantReadIdx	= quantReadIdx[1:0];
+		pipeQuantReadIdx	<= quantReadIdx[1:0];
 	end
 	wire [27:0] fullValueQuant = QuantTbl[quantAdr_reg]; 
 
@@ -179,13 +179,13 @@ module computeCoef (
 	always @(posedge i_clk)
 	begin
 		if (!i_freezePipe) begin
-			pWrite			= i_dataWrt;			// Already done in streamInput ( & i_nrst )
-			pIndex			= i_index;
-			pBlk			= i_blockNum;
-			pMatrixComplete	= i_matrixComplete;	// Already done in streamInput ( & i_nrst );
-			pFullBlkType	= i_fullBlockType;
-			pMultF          = multF[15:0];
-			pDebug			= i_debug;
+			pWrite			<= i_dataWrt;			// Already done in streamInput ( & i_nrst )
+			pIndex			<= i_index;
+			pBlk			<= i_blockNum;
+			pMatrixComplete	<= i_matrixComplete;	// Already done in streamInput ( & i_nrst );
+			pFullBlkType	<= i_fullBlockType;
+			pMultF          <= multF[15:0];
+			pDebug			<= i_debug;
 		end
 	end
 	

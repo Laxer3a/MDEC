@@ -140,12 +140,12 @@ module streamInput(
     //
 	reg         prevYOnly;
 	always @(posedge clk) begin
-		prevYOnly = i_YOnly;
+		prevYOnly <= i_YOnly;
 	end
 	
 	MDEC_BLCK	rBlockCounter, nextBlockCounter;
 	always @(posedge clk) begin
-		rBlockCounter	= nextBlockCounter;
+		rBlockCounter	<= nextBlockCounter;
 	end
 	
 	always @(*) begin
@@ -176,22 +176,22 @@ module streamInput(
 	always @(posedge clk) begin
 		if (i_nrst == 0)
 		begin
-			indexCounter	= 0;
-			scalereg		= 0; // Not necessary, but cleaner.
-			rIsFullBlock	= 0; // Not necessary, but cleaner.
+			indexCounter	<= 0;
+			scalereg		<= 0; // Not necessary, but cleaner.
+			rIsFullBlock	<= 0; // Not necessary, but cleaner.
 		end else begin
 			if (bDataWrite)
 			begin
 				if (isDC)
 				begin
-					scalereg	 = offset;
-					rIsFullBlock = condFullBlock; // Make sure EMPTY EOB is not counted.
+					scalereg	 <= offset;
+					rIsFullBlock <= condFullBlock; // Make sure EMPTY EOB is not counted.
 				end
 				
 				if (isBlockComplete) // Empty FE00 sequence reset counter too, no pb.
-					indexCounter = 0;
+					indexCounter <= 0;
 				else
-					indexCounter = currIdx;
+					indexCounter <= currIdx;
 			end
 		end
 	end
@@ -218,7 +218,7 @@ module streamInput(
 	end
 	// ---- STATE MACHINE : Clocked part ----
 	always @(posedge clk) begin
-		state = (i_nrst == 0) ? LOAD_DC : nextState;
+		state <= (i_nrst == 0) ? LOAD_DC : nextState;
 	end
 	// --------------------------------------------------------
 

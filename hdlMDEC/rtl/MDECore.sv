@@ -223,13 +223,13 @@ module MDECore (
 	begin
 		if (writeCr)
 		begin
-			CrTable[writeIndex_d] = value_d;
+			CrTable[writeIndex_d] <= value_d;
 		end
 		if (writeCb)
 		begin
-			CbTable[writeIndex_d] = value_d;
+			CbTable[writeIndex_d] <= value_d;
 		end
-		readAdrCrCbTable_reg = readAdrCrCbTable;
+		readAdrCrCbTable_reg <= readAdrCrCbTable;
 	end
 	assign readCrValue = CrTable[readAdrCrCbTable_reg];
 	assign readCbValue = CbTable[readAdrCrCbTable_reg];
