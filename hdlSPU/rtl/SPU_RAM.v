@@ -29,12 +29,12 @@ module SPU_RAM
 	// Write
 		if (i_we)
 		begin
-			if (i_byteSelect[0]) ramL[i_wordAddr] = i_data[ 7:0];
-			if (i_byteSelect[1]) ramM[i_wordAddr] = i_data[15:8];
+			if (i_byteSelect[0]) ramL[i_wordAddr] <= i_data[ 7:0];
+			if (i_byteSelect[1]) ramM[i_wordAddr] <= i_data[15:8];
 		end
 		
-		addr_reg			= i_wordAddr;
-		readByteSelect_reg	= i_byteSelect & {i_re,i_re};
+		addr_reg			<= i_wordAddr;
+		readByteSelect_reg	<= i_byteSelect & {i_re,i_re};
 	end
 	
 	// DEAD if not valid or correct value (1 cycle after READ signal)

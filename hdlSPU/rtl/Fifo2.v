@@ -63,17 +63,17 @@ module Fifo2
 	begin
 		if (i_ena & i_w_ena)
 		begin
-			RAMStorage[w_addr] = i_w_data;
+			RAMStorage[w_addr] <= i_w_data;
 		end
 		
 		if (i_rst) begin
-		  w_addr  = 0;
+		  w_addr  <= 0;
 		end else begin
 			if (i_ena & i_w_ena) begin
-				w_addr = nextWAdr;
+				w_addr <= nextWAdr;
 			end
 		end
-		pRaddr = nextAdr;
+		pRaddr <= nextAdr;
 	end
 	
 	assign o_r_data = RAMStorage[pRaddr];
@@ -87,14 +87,14 @@ module Fifo2
 	always @(posedge i_clk)
 	begin
 		if (i_rst) begin
-		  valid = 0;
+		  valid <= 0;
 		end else begin
 		  if (i_ena) begin
 			if (!empty_i) begin
-			  valid = 1;
+			  valid <= 1;
 			end else begin
 			  if (i_r_taken) begin
-				valid = 0;
+				valid <= 0;
 			  end
 			end
 		  end
@@ -105,26 +105,26 @@ module Fifo2
 	always @(posedge i_clk)
 	begin
 		if (i_rst) begin
-		  r_addr  = 0;
-		  level   = 0;
-		  full_i  = 0;
-		  empty_i = 1;
+		  r_addr  <= 0;
+		  level   <= 0;
+		  full_i  <= 0;
+		  empty_i <= 1;
 		end else begin
 		  if (i_ena) begin
-			r_addr = nextAdr;
+			r_addr <= nextAdr;
 
 			case ({w_ena,r_ena})
 			2'b10: begin 
 				// => offset(0) := '1'; -- +1
-				if (level == c_Full_m1 ) begin full_i  = 1; end
-				if (level == c_Empty   ) begin empty_i = 0; end
-				level = level + { {AW{1'b0}}, 1'b1};
+				if (level == c_Full_m1 ) begin full_i  <= 1; end
+				if (level == c_Empty   ) begin empty_i <= 0; end
+				level <= level + { {AW{1'b0}}, 1'b1};
 			end
 			2'b01: begin
 				// => offset    := (others => '1'); -- -1
-				if (level == c_Full    ) begin full_i  = 0; end
-				if (level == c_Empty_p1) begin empty_i = 1; end
-				level = level + { {AW{1'b1}}, 1'b1};
+				if (level == c_Full    ) begin full_i  <= 0; end
+				if (level == c_Empty_p1) begin empty_i <= 1; end
+				level <= level + { {AW{1'b1}}, 1'b1};
 			end
 			default: begin
 				// Do nothing.
@@ -137,7 +137,7 @@ module Fifo2
 	reg Pvalid;
 	always @(posedge i_clk)
 	begin
-	  Pvalid = valid;
+	  Pvalid <= valid;
 	end
 	
 	assign o_w_full  = full_i | fullNow;

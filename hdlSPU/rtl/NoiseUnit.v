@@ -58,13 +58,13 @@ wire [15:0] Noise_Value = { noiseLevel[14:0] , parityBit};
 always @(posedge clk)
 begin
 	if (i_nrst == 0) begin
-		noiseTimer = 19'd0;
-		noiseLevel = 16'd0;
+		noiseTimer <= 19'd0;
+		noiseLevel <= 16'd0;
 	end 
 	else
 	if (i_ctrl44Khz) begin
-		noiseTimer = writeT;
-		noiseLevel = Noise_Value;
+		noiseTimer <= writeT;
+		noiseLevel <= Noise_Value;
 	end
 end
 

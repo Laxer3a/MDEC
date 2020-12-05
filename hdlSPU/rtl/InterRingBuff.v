@@ -20,10 +20,10 @@ module InterRingBuff
 	// Write
 		if (i_we)
 		begin
-			ram[i_wordAddr] = i_data;
+			ram[i_wordAddr] <= i_data;
 		end
 		
-		addr_reg			= i_wordAddr;
+		addr_reg			<= i_wordAddr;
 	end
 		
 	assign o_q = ram[addr_reg];
