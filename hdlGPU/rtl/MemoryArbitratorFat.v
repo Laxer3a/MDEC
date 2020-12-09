@@ -11,7 +11,8 @@ module MemoryArbitratorFat(
 	input  [55:0]	memoryWriteCommand, // if [2:0] not ZERO -> Write to FIFO.
 	output          o_fifoFull,			//
 	output			fifoComplete,		// = Empty signal + all mem operation completed. Needed to know that primitive work is complete.
-
+	output			o_hasReadSpace,
+	
 	// -----------------------------------
 	// [GPU BUS SIDE MODE]
 	// -----------------------------------
@@ -202,6 +203,26 @@ assign isTexR    = (state     == READ_TEX_R);
 assign isCLUT    = (state     == READ_CLUT );
 assign isPairRead= (state     == READ_PIX2 );
 wire   resetRead = (nextState == WAIT_CMD  ) && (isTexL | isTexR | isCLUT | isPairRead | (state == READ_BG));
+
+
+reg [1:0] allocated_q;
+
+always @ (posedge gpuClk )
+begin
+	if (!i_nRst)
+		allocated_q  <= 2'b0;
+	else if (readPairValid)
+	begin
+		// -1 & -1
+		if (resetRead) 
+			;
+		else
+			allocated_q  <= allocated_q + 2'd1;
+	end
+	else if (resetRead)
+		allocated_q  <= allocated_q - 2'd1;
+end
+assign o_hasReadSpace = (allocated_q < 1);
 
 reg [289:0] command;
 reg         writeFIFO;
@@ -620,7 +641,7 @@ assign o_commandSize= commandSize;
 //       110
 //       111
 wire resEmpty;
-
+wire answerFull;
 // FIFO is 256, depth 1.
 MultiClockDomain2 ResultFIFO(
 	.rdClk		(gpuClk),
@@ -629,7 +650,7 @@ MultiClockDomain2 ResultFIFO(
 	
 	.data		(i_dataIn),	// Input
 	.wrreq		(i_dataInValid && !loadVVBank),	// Write input if we do not use bank.
-	.wrfull		(/*Ignore*/),
+	.wrfull		(answerFull),
 
 	.rdreq		(resetRead),
 	.q			(res_data),

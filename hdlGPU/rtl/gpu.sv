@@ -32,8 +32,15 @@ module gpu
 	// - DMA Validate the value and requires the next one. with ACK.
 	//
 	// NOTE : DMA Controller MUST ignore REQ pin and NOT ISSUE ACK when not active.
-	output			DMA_REQ,
-	input			DMA_ACK,
+	output          gpu_m2p_dreq_i,
+	input           gpu_m2p_valid_o,
+	input [ 31:0]   gpu_m2p_data_o,
+	output          gpu_m2p_accept_i,
+
+	output           gpu_p2m_dreq_i,
+	output           gpu_p2m_valid_i,
+	output  [ 31:0]  gpu_p2m_data_i,
+	input            gpu_p2m_accept_o,
 	
     // Video output...
 //	output	[7:0]	red,
@@ -113,6 +120,22 @@ module gpu
     output reg [31:0]	cpuDataOut,
     output reg			validDataOut
 );
+
+// Note : we do not have the problem of over transfer in FIFO IN, as DMA know transfer size.
+// But in case we still REQ and DMA was reloaded super fast, we would need to put a COUNTER in the GPU
+// that would compute size based on command parameters instead of this check...
+// wire reqDataDMAIn	= (currWorkState == COPYCV_START) || (currWorkState == COPYCV_COPY);
+// wire reqDataDMAOut  = (currWorkState == COPYVC_TOCPU);
+//                      CPU to VRAM transfer + in transfer state + FIFO has space to store data.
+//                      => Should not overtransfer because DMA knows size.
+// DMA REQ
+
+assign gpu_m2p_dreq_i   = ((GPU_REG_DMADirection == DMA_CPUtoGP0) && (isFifoEmptyLSB && isFifoEmptyMSB));
+assign gpu_m2p_accept_i = 1'b1;
+
+assign gpu_p2m_dreq_i  = ((GPU_REG_DMADirection == DMA_GP0toCPU) && (!firstRead) && unconsummed);
+assign gpu_p2m_valid_i = gpu_p2m_dreq_i;
+assign gpu_p2m_data_i  = outFIFO_readV;
 
 // Notes: Manually sending/reading data by software (non-DMA) is ALWAYS possible, regardless of the GP1(04h) setting. The GP1(04h) setting does affect the meaning of GPUSTAT.25.
 
@@ -659,20 +682,9 @@ assign dbg_canWrite = canWriteFIFO;
 wire outFIFO_empty;
 wire outFIFO_full;
 
-wire writeFifo		= (!gpuAdrA2 & gpuSel & write & canWriteFIFO) || (DMA_ACK && (GPU_REG_DMADirection == DMA_CPUtoGP0));
+wire writeFifo		= (!gpuAdrA2 & gpuSel & write & canWriteFIFO) || (gpu_m2p_valid_o && (GPU_REG_DMADirection == DMA_CPUtoGP0));
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
-wire cpuReadFifoOut = (gpuSel & !gpuAdrA2);
-
-// Note : we do not have the problem of over transfer in FIFO IN, as DMA know transfer size.
-// But in case we still REQ and DMA was reloaded super fast, we would need to put a COUNTER in the GPU
-// that would compute size based on command parameters instead of this check...
-// wire reqDataDMAIn	= (currWorkState == COPYCV_START) || (currWorkState == COPYCV_COPY);
-// wire reqDataDMAOut  = (currWorkState == COPYVC_TOCPU);
-//                      CPU to VRAM transfer + in transfer state + FIFO has space to store data.
-//                      => Should not overtransfer because DMA knows size.
-assign DMA_REQ		= ((GPU_REG_DMADirection == DMA_CPUtoGP0) && canWriteFIFO)
-//                      VRAM to CPU transfer + has data ready for DMA.
-                   || ((GPU_REG_DMADirection == DMA_GP0toCPU) && (!firstRead) && unconsummed);
+wire cpuReadFifoOut = (gpuSel & !gpuAdrA2) & read;
 
 // READ FIFO WHEN :
 // - Data is already available in the FIFO.
@@ -696,7 +708,7 @@ always @(posedge clk) begin
 			firstRead   <= 1'b0;
 			unconsummed <= 1'b1;
 		end else begin
-			if (DMA_ACK || cpuReadFifoOut) begin
+			if ((gpu_p2m_accept_o || cpuReadFifoOut) & unconsummed) begin
 				unconsummed <= 1'b0;
 			end
 		end
@@ -734,8 +746,8 @@ always @(posedge clk) begin
 	pDataOut		<= dataOut;
 	pDataOutValid	<= (gpuSel & read);
 end
-assign cpuDataOut	= !pDataOutValid ? outFIFO_readV : pDataOut;
-assign validDataOut = !pDataOutValid ? (!DMA_REQ)    : pDataOutValid;
+assign cpuDataOut	= pDataOut;
+assign validDataOut = pDataOutValid;
 //---------------------------------------------------------------
 
 assign IRQRequest = GPU_REG_IRQSet;
@@ -841,7 +853,7 @@ Fifo_instMSB
     .clk			(clk ),
     .rst			(rstInFIFO),
 
-    .wr_data_i		(cpuDataIn[31:16]),
+    .wr_data_i		(gpu_m2p_valid_o ? gpu_m2p_data_o[31:16] : cpuDataIn[31:16]),
     .wr_en_i		(writeFifo),
 
     .rd_data_o		(fifoDataOut[31:16]),
@@ -861,7 +873,7 @@ Fifo_instLSB
     .clk			(clk ),
     .rst			(rstInFIFO),
 
-    .wr_data_i		(cpuDataIn[15:0]),
+    .wr_data_i		(gpu_m2p_valid_o ? gpu_m2p_data_o[15:0] : cpuDataIn[15:0]),
     .wr_en_i		(writeFifo),
 
     .rd_data_o		(fifoDataOut[15:0]),
@@ -1723,6 +1735,7 @@ reg [15:0] DPixelReg;
 wire nextPairIsLineLast = (nextPixelX == XE);
 wire currPairIsLineLast = (pixelX     == XE);
 wire readPairFromVRAM;
+wire hasReadSpace;
 
 // [Sub State machine for VC Copy command]
 CVCopyState CVCopyState_Inst(
@@ -1734,7 +1747,7 @@ CVCopyState CVCopyState_Inst(
 	.xb_0			(RegX0[0]),
 	.wb_0			(RegSizeW[0]),
 	
-	.canPush			(!outFIFO_full),
+	.canPush			(!outFIFO_full & hasReadSpace),
 	.endVertical		(endVertical),
 	.nextPairIsLineLast	(nextPairIsLineLast),
 	.currPairIsLineLast	(currPairIsLineLast),
@@ -3667,6 +3680,7 @@ MemoryArbitratorFat MemoryArbitratorInstance(
     .memoryWriteCommand		(memoryWriteCommand),
     .o_fifoFull				(commandFifoFull),
     .fifoComplete			(commandFifoComplete),
+	.o_hasReadSpace			(hasReadSpace),
 
 //    .o_dataArrived			(dataArrived),
 //    .o_dataValue			(readValue32),
