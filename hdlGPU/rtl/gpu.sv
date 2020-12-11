@@ -680,7 +680,7 @@ assign dbg_canWrite = canWriteFIFO;
 
 // [FIFO Signal for the VRAM Read to CPU]
 wire outFIFO_empty;
-wire outFIFO_full;
+wire outFIFO_full, outFIFO_nearfull;
 
 wire writeFifo		= (!gpuAdrA2 & gpuSel & write & canWriteFIFO) || (gpu_m2p_valid_o && (GPU_REG_DMADirection == DMA_CPUtoGP0));
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
@@ -1747,6 +1747,7 @@ CVCopyState CVCopyState_Inst(
 	.xb_0			(RegX0[0]),
 	.wb_0			(RegSizeW[0]),
 	
+	.canNearPush		(!outFIFO_nearfull & hasReadSpace),
 	.canPush			(!outFIFO_full & hasReadSpace),
 	.endVertical		(endVertical),
 	.nextPairIsLineLast	(nextPairIsLineLast),
@@ -1759,7 +1760,7 @@ CVCopyState CVCopyState_Inst(
 	.exitSig		(exitSig),
 	.o_aSelABDX		(aSelABDX),
 	.o_bSelAB		(bSelAB),
-	.o_pushNextCycle(pushNextCycle),
+	.o_writeFIFOOut (pushNextCycle),
 	.o_wbSel		(wbSel)
 );
 
@@ -1785,7 +1786,7 @@ begin
 	pipeToFIFOOut <= pushNextCycle;
 end
 
-SSCfifo
+SSCfifoNF
 #(
     .DEPTH_WIDTH	(2),
     .DATA_WIDTH		(32)
@@ -1801,6 +1802,7 @@ FifoPixOut_inst
     .rd_data_o		(outFIFO_readV),
     .rd_en_i		(outFIFO_read),
 
+	.nearly_full_o	(outFIFO_nearfull),
     .full_o			(outFIFO_full),
     .empty_o		(outFIFO_empty)
 );

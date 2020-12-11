@@ -11,8 +11,23 @@ module GPU_DDR
 
     output			o_IRQRequest,
 
-	output			o_DMA_REQ,
-	input			i_DMA_ACK,
+	// WRITE/UPLOAD : Outside->GPU
+	// - GPU Request data on REQ
+	// - Data valid on ACK.
+	// GPU->Outside
+	// - Data valid on REQ.
+	// - DMA Validate the value and requires the next one. with ACK.
+	//
+	// NOTE : DMA Controller MUST ignore REQ pin and NOT ISSUE ACK when not active.
+	output          gpu_m2p_dreq_i,
+	input           gpu_m2p_valid_o,
+	input [ 31:0]   gpu_m2p_data_o,
+	output          gpu_m2p_accept_i,
+
+	output           gpu_p2m_dreq_i,
+	output           gpu_p2m_valid_i,
+	output  [ 31:0]  gpu_p2m_data_i,
+	input            gpu_p2m_accept_o,
 	
 	output	[31:0]	o_mydebugCnt,
 	output          o_dbg_canWrite,
@@ -79,8 +94,15 @@ gpu	gpu_inst(
 
 	.IRQRequest		(o_IRQRequest),
 
-	.DMA_REQ		(o_DMA_REQ),
-	.DMA_ACK		(i_DMA_ACK),
+	.gpu_m2p_dreq_i		(gpu_m2p_dreq_i),
+	.gpu_m2p_valid_o	(gpu_m2p_valid_o),
+	.gpu_m2p_data_o		(gpu_m2p_data_o),
+	.gpu_m2p_accept_i	(gpu_m2p_accept_i),
+                         
+	.gpu_p2m_dreq_i		(gpu_p2m_dreq_i),
+	.gpu_p2m_valid_i	(gpu_p2m_valid_i),
+	.gpu_p2m_data_i		(gpu_p2m_data_i),
+	.gpu_p2m_accept_o	(gpu_p2m_accept_o),
 
     // Video output...
 	.mydebugCnt		(o_mydebugCnt),

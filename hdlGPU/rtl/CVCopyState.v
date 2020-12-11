@@ -7,6 +7,7 @@ module CVCopyState(
 	input			xb_0,
 	input			wb_0,
 	
+	input			canNearPush,
 	input			canPush,
 	input			endVertical,
 	input			nextPairIsLineLast,
@@ -19,7 +20,7 @@ module CVCopyState(
 	output			exitSig,
 	output	[1:0]	o_aSelABDX,
 	output			o_bSelAB,
-	output			o_pushNextCycle,
+	output			o_writeFIFOOut,
 	output			o_wbSel
 );
 
@@ -84,17 +85,25 @@ reg [2:0] nextY;
 assign o_nextX = nextX;
 assign o_nextY = nextY;
 
-wire goNextStep;
+wire goNextState;
 wire sread;
 
 wire nextStateIsEnd	= (next     == END);
 wire currStateIsEnd	= (subState == END);
-assign exitSig		= goNextStep && nextStateIsEnd;
+assign exitSig		= goNextState && nextStateIsEnd;
 
+reg [2:0] ctrl;
 reg pReadAck;
 // reg readSet;
 reg pActive;
 reg reqRead;
+
+
+wire stateDoNotNeedDataForTransition	= (ctrl == S5);
+// Is this state going to write to FIFO when complete.
+// If state is not S1 nor S3 (or that S1 and S3 are the LAST state in the state machine).
+wire isCurrentStateWriter				= ((ctrl != S1) && (ctrl != S3) && (!currStateIsEnd)) || nextStateIsEnd;
+wire enterStateMachine					= (active && !pActive);
 
 always @(posedge clk) begin
 	if (nRst == 0) begin
@@ -104,12 +113,12 @@ always @(posedge clk) begin
 		reqRead	 <= 1'b0;
 	end else begin
 		// READACK WILL ALWAYS BE ACCEPTED, BECAUSE WE ISSUE READ WHEN FIFO IS NOT FULL !
-		if (goNextStep) begin
+		if (goNextState) begin
 			subState <= next;
 		end
 	end
 	
-	if (goNextStep) begin
+	if (goNextState) begin
 		reqRead <= 1;
 	end
 	if (sread) begin
@@ -117,20 +126,19 @@ always @(posedge clk) begin
 	end
 	
 	// Allow read at next step then...
-	pReadAck <= goNextStep;
+	pReadAck <= goNextState;
 	pActive  <= active;
 
 /*
 	if (readACK) begin
 		readSet <= 1'b1;
 	end
-	if (goNextStep) begin
+	if (goNextState) begin
 		readSet <= 1'b0;
 	end
 */
 end
 
-reg [2:0] ctrl;
 reg [1:0] aSelABDX;
 reg       wbSel;
 reg       bSelAB;
@@ -138,16 +146,16 @@ reg       bSelAB;
 /*
 	Mecanism :
 	Inside a state, 
-	- we wait for a transition to the next state (goNextStep).
+	- we wait for a transition to the next state (goNextState).
 		1. If we need data
 		=> Most of the time, it is READ_ACK (Received data).
 		  ( But some state do not require such or the first time we enter from END state to start state )
 		=> Some state do not require waiting for a read ACK because they did not issue one when started (S5).
 		=> Or transitition must be force the first time (END state -> Start state)
 		
-		See goNextStep.
+		See goNextState.
 		
-	- When we decide the transition, AT LAST CYCLE OF CURRENT STATE (state change at next cycle, 'goNextStep').
+	- When we decide the transition, AT LAST CYCLE OF CURRENT STATE (state change at next cycle, 'goNextState').
 		=>	We setup NEXT state COORDINATE 
 			Coordinate STAY CONSTANT INSIDE A STATE and are modified AT THE LAST CYCLE FOR THE NEXT.
 		=>	We pipeline READ_ACK to decide to launch a read for the first cycle of the next state.
@@ -157,27 +165,34 @@ reg       bSelAB;
 		See 
  */
 
-wire canPushI				= active && canPush;
-wire flagStart				= (active && !pActive);
+wire canPushI                = active && canPush;
 
-// Is this state going to write to FIFO when complete.
-// If state is not S1 nor S3 (or that S1 and S3 are the LAST state in the state machine).
-wire isCurrentStateWriter	= ((ctrl != S1) && (ctrl != S3) && (!currStateIsEnd)) || nextStateIsEnd;
+reg readAckDefer;
+
+wire realReadAck = readAckDefer | readACK;
+
+always @(posedge clk) begin
+	if (nRst == 0)
+	    readAckDefer <= 1'b0;
+	else if (realReadAck & ~canPushI)
+	    readAckDefer <= 1'b1;
+	else if (canPushI)
+	    readAckDefer <= 1'b0;
+end
 
 // Allow to know that ACK happened, even cycles before it could not be handled...
 // We can go to the next step when : 
 // - FIFO space is available for NEXT command result.
 // - That we received data for current command or do not need one. (control is S5)
-assign goNextStep				= (canPushI /* || (active && (!isCurrentStateWriter)) */) && ((ctrl == S5) || readACK || flagStart);
+assign goNextState            = canPushI && (stateDoNotNeedDataForTransition || realReadAck || enterStateMachine);
 
 // Allow to push when transition (=receive data or no need to receive data)
 // Some state do NOT require to write data (S1 and S3), so we do not write in those case.
 // But in some special cases if S1 and S3 are the LAST executing state, we allow them to push the data (with garbage in it)
-wire pushNextCycle			= goNextStep && isCurrentStateWriter;
-assign o_pushNextCycle      = pushNextCycle;
+assign o_writeFIFOOut		= goNextState && isCurrentStateWriter;
 
 // EXCEPT that we ISSUE READ ONLY IF current command is NOT S5.
-assign sread				= (canPushI && ((pReadAck || reqRead) && (ctrl != S5)));
+assign sread				= (canPushI && ((pReadAck || reqRead) && (!stateDoNotNeedDataForTransition)));
 assign read					= sread;
 
 assign o_aSelABDX = aSelABDX;
@@ -188,7 +203,7 @@ always @(*) begin
 	wbSel		= 1'd0;
 	bSelAB		= 1'dx;
 	
-	if (goNextStep) begin
+	if (goNextState) begin
 		// 0:A
 		// 1:B
 		// 2:D
@@ -387,7 +402,7 @@ always @(*) begin
 	nextX = X_ASIS;
 	nextY = Y_ASIS;
 	
-	if (goNextStep && (!flagStart)) begin
+	if (goNextState && (!enterStateMachine)) begin
 		nextX = nextCoord	?  X_CV_START /*CRLF*/ 
 							:  X_TRI_NEXT /*LEFT*/;
 		if (nextCoord) begin
