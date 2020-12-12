@@ -308,37 +308,37 @@ always @(posedge i_clk) begin
     
     if (i_nrst == 1'b0) begin
         // [TODO : Default value after reset ?]
-        REG_SNDMAP_Stereo       = 1'b0;
-        REG_SNDMAP_SampleRate   = 1'b0;
-        REG_SNDMAP_BitPerSample = 1'b0;
-        REG_SNDMAP_Emphasis     = 1'b0;
+        REG_SNDMAP_Stereo       <= 1'b0;
+        REG_SNDMAP_SampleRate   <= 1'b0;
+        REG_SNDMAP_BitPerSample <= 1'b0;
+        REG_SNDMAP_Emphasis     <= 1'b0;
     
-        IndexREG                = 3'd0;
+        IndexREG                <= 3'd0;
 
-        CD_VOL_LL               = 8'd0;
-        CD_VOL_LR               = 8'd0;
-        CD_VOL_RL               = 8'd0;
-        CD_VOL_RR               = 8'd0;
+        CD_VOL_LL               <= 8'd0;
+        CD_VOL_LR               <= 8'd0;
+        CD_VOL_RL               <= 8'd0;
+        CD_VOL_RR               <= 8'd0;
 
-        CD_VOL_LL_WORK          = 8'd0;
-        CD_VOL_LR_WORK          = 8'd0;
-        CD_VOL_RL_WORK          = 8'd0;
-        CD_VOL_RR_WORK          = 8'd0;
+        CD_VOL_LL_WORK          <= 8'd0;
+        CD_VOL_LR_WORK          <= 8'd0;
+        CD_VOL_RL_WORK          <= 8'd0;
+        CD_VOL_RR_WORK          <= 8'd0;
 
         //
-        REG_ADPCM_Muted         = 1'b0;
+        REG_ADPCM_Muted         <= 1'b0;
 
-        REG_SNDMAP_Stereo       = 1'b0;
-        REG_SNDMAP_SampleRate   = 1'b0;
-        REG_SNDMAP_BitPerSample = 1'b0;
-        REG_SNDMAP_Emphasis     = 1'b0;
-        currentReadColumn       = 1'b0; // LSB first, switch to 1 if MSB first.
+        REG_SNDMAP_Stereo       <= 1'b0;
+        REG_SNDMAP_SampleRate   <= 1'b0;
+        REG_SNDMAP_BitPerSample <= 1'b0;
+        REG_SNDMAP_Emphasis     <= 1'b0;
+        currentReadColumn       <= 1'b0; // LSB first, switch to 1 if MSB first.
     end else begin
         if (i_CDROM_CS) begin
             if (i_write) begin
                 case (i_adr)
                 // 1F801800 (W) : Index/Status Register
-                2'd0: IndexREG = i_dataIn[2:0];
+                2'd0: IndexREG <= i_dataIn[2:0];
                 // 1F801801.0 (W)   : Nothing to do here, sig_issueCommand is set. (Other circuit)
                 // 1F801801.1 (W)   : Nothing to do here, Sound Map Data Out       (Other circuit)
                 // 1F801801.2 (W)   : Sound Map Coding Info
@@ -348,12 +348,12 @@ always @(posedge i_clk) begin
                     2'd0: /* Command is issued, not here        (Other Circuit) */;
                     2'd1: /* Sound Map Audio Out pushed to FIFO (Other Circuit) */;
                     2'd2: begin
-                        REG_SNDMAP_Stereo       = i_dataIn[0];
-                        REG_SNDMAP_SampleRate   = i_dataIn[2];
-                        REG_SNDMAP_BitPerSample = i_dataIn[4];
-                        REG_SNDMAP_Emphasis     = i_dataIn[6];
+                        REG_SNDMAP_Stereo       <= i_dataIn[0];
+                        REG_SNDMAP_SampleRate   <= i_dataIn[2];
+                        REG_SNDMAP_BitPerSample <= i_dataIn[4];
+                        REG_SNDMAP_Emphasis     <= i_dataIn[6];
                     end
-                    2'd3: CD_VOL_RR = i_dataIn;
+                    2'd3: CD_VOL_RR <= i_dataIn;
                     endcase
                 end
                 // 1F801802.0 (W)   : Parameter Fifo                                (Other circuit)
@@ -364,11 +364,11 @@ always @(posedge i_clk) begin
                     case (IndexREG)
                     2'd0: /* Parameter FIFO push, not here         */;
                     2'd1: begin
-                          INT_Enabled   = i_dataIn[4:0];
-                          INT_Garbage   = i_dataIn[7:5];
+                          INT_Enabled   <= i_dataIn[4:0];
+                          INT_Garbage   <= i_dataIn[7:5];
                           end
-                    2'd2: CD_VOL_LL     = i_dataIn;
-                    2'd3: CD_VOL_RL     = i_dataIn;
+                    2'd2: CD_VOL_LL     <= i_dataIn;
+                    2'd3: CD_VOL_RL     <= i_dataIn;
                     endcase
                 end
                 // 1F801803.0 (W)   : Request Register                              [TODO : Spec not understood yet]
@@ -379,8 +379,8 @@ always @(posedge i_clk) begin
                     case (IndexREG)
                     2'd0: /* Request REG */;
                     2'd1: /* Interrupt Flag REG */;
-                    2'd2: CD_VOL_LR         = i_dataIn;
-                    2'd3: REG_ADPCM_Muted   = i_dataIn[0];
+                    2'd2: CD_VOL_LR         <= i_dataIn;
+                    2'd3: REG_ADPCM_Muted   <= i_dataIn[0];
                     endcase
                 endcase
             end
@@ -388,10 +388,10 @@ always @(posedge i_clk) begin
     end
     
     if (sig_applyVolChange) begin
-        CD_VOL_LL_WORK = CD_VOL_LL;
-        CD_VOL_LR_WORK = CD_VOL_LR;
-        CD_VOL_RL_WORK = CD_VOL_RL;
-        CD_VOL_RR_WORK = CD_VOL_RR;
+        CD_VOL_LL_WORK <= CD_VOL_LL;
+        CD_VOL_LR_WORK <= CD_VOL_LR;
+        CD_VOL_RL_WORK <= CD_VOL_RL;
+        CD_VOL_RR_WORK <= CD_VOL_RR;
     end 
 end
 

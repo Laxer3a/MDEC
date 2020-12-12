@@ -22,10 +22,10 @@ module ReadIndex(
 	always @(*)
 	begin
 		case (format)
-		0      : maxValue = 8'd8;   // 4 BIT                  
-		1      : maxValue = 8'd16;  // 8 BIT
-		2      : maxValue = 8'd192; // 24 BIT
-		default: maxValue = 8'd128; // 15 BIT
+		0      : maxValue = 8'd128;  // 4 BIT (Estimate from 8 bit ?     )
+		1      : maxValue = 8'd128;  // 8 BIT (Empiric values, Jakub test)
+		2      : maxValue = 8'd192;  // 24 BIT
+		default: maxValue = 8'd128;  // 15 BIT
 		endcase
 		
 		case (format)
@@ -46,11 +46,11 @@ module ReadIndex(
 		end
 	end
 
-	wire resetLoop = (nextIndex == maxValue);
+	wire resetLoop = i_readNext & (nextIndex == maxValue);
 	
 	always @(posedge i_clk)
 	begin
-		if ((!i_nrst) || (i_readNext & resetLoop)) begin
+		if ((!i_nrst) || (resetLoop)) begin
 			Index	<= 8'd0;
 			Loop    <= 3'd0;
 			LoopCnt	<= 5'd0;

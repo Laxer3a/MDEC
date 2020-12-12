@@ -12,11 +12,20 @@ module RGB2Pack(
 	output			o_dataValid,
 	output	[31:0]	o_dataPacked
 );
-	// TODO C CHECK Can handle RGB or BGR order here. (easiest)
-	wire [7:0]  R = i_r;
-	wire [7:0]  G = i_g;
-	wire [7:0]  B = i_b;
-	wire       Cl = setBit15;
+
+parameter	FMT_04BIT		= 2'd0,
+			FMT_08BIT		= 2'd1,
+			FMT_24BIT		= 2'd2,
+			FMT_15BIT		= 2'd3;
+
+	// TODO Endianorder, V01 23 45 67 and v8/v9 reverse.
+	// TODO RGB or BGR order here. (easiest, swap r/g/b)
+	wire [7:0] R	 = i_r;
+	wire [7:0] G	 = i_g;
+	wire [7:0] B	 = i_b;
+	wire [3:0] GreyM = i_r[7:4];
+	wire [3:0] GreyL = i_r[3:0];
+	wire       Cl	 = setBit15;
 	
 	reg	[2:0] count;
 	reg pWrite;
@@ -33,33 +42,24 @@ module RGB2Pack(
 		end
 	end
 
-	reg  [3:0] v1;
-	reg  [3:0] v2;
-	reg  [3:0] v3;
-	reg  [3:0] v4;
-	reg  [3:0] v5;
-	reg  [3:0] v6;
-	reg  [3:0] v7;
+	reg  [3:0] v0,v1,v2,v3,v4,v5,v6,v7;
 	reg  [9:0] groupBits;
-
-	wire [3:0] GreyM = R[7:4];
-	wire [3:0] GreyL = R[3:0];
 	
-	wire [3:0] v0 = ((count[1:0]==2'd2) && (format==2'd2)) ? B[7:4] : R[7:4]; 
 	always @(*)
 	begin
 		case (format)
-		// 4 BIT
-		0      : begin
+		FMT_04BIT : begin
+			v0 = GreyM; // LSB
 			v1 = GreyM;
 			v2 = GreyM;
 			v3 = GreyM;
 			v4 = GreyM;
 			v5 = GreyM;
 			v6 = GreyM;
-			v7 = GreyM;
+			v7 = GreyM; // MSB
 			
 			case (count[2:0])
+			//                      V98 76543210
 			3'd0   : groupBits = 10'b00_00000001;
 			3'd1   : groupBits = 10'b00_00000010;
 			3'd2   : groupBits = 10'b00_00000100;
@@ -68,85 +68,92 @@ module RGB2Pack(
 			3'd5   : groupBits = 10'b00_00100000;
 			3'd6   : groupBits = 10'b00_01000000;
 			default: groupBits = 10'b00_10000000;
-			endcase               
+			endcase
 		end
-		// 8 BIT                  
-		1      : begin
-			v1 = GreyL;
-			v2 = GreyM;
-			v3 = GreyL;
-			v4 = GreyM;
-			v5 = GreyL;
-			v6 = GreyM;
-			v7 = GreyL;
+		FMT_08BIT : begin
+			v0 = GreyL; // LSB
+			v1 = GreyM;
+			v2 = GreyL;
+			v3 = GreyM;
+			v4 = GreyL;
+			v5 = GreyM;
+			v6 = GreyL;
+			v7 = GreyM; // MSB
 
 			case (count[1:0])
+			//                      V98 76543210
 			2'd0   : groupBits = 10'b00_00000011;
 			2'd1   : groupBits = 10'b00_00001100;
 			2'd2   : groupBits = 10'b00_00110000;
 			default: groupBits = 10'b00_11000000;
 			endcase               
 		end
-		// 24 BIT                 
-		2      : begin
-			v1 = (count[0]==0) ? R[3:0] : B[3:0];
-			v2 = (count[0]==0) ? G[7:4] : R[7:4];
-			v3 = (count[0]==0) ? G[3:0] : R[3:0];
-			v4 = (count[0]==0) ? B[7:4] : G[7:4];
-			v5 = (count[0]==0) ? B[3:0] : G[3:0];
-			v6 = (count[1]==0) ? R[7:4] : B[7:4];
-			v7 = (count[1]==0) ? R[3:0] : B[3:0];
+		FMT_24BIT : begin
+			v0 = count[1] ? B[3:0] : R[3:0];	// LSB
+			v1 = count[1] ? B[7:4] : R[7:4];
+			v2 = count[1] ? R[3:0] : G[3:0];
+			v3 = count[1] ? R[7:4] : G[7:4];
+			v4 = count[1] ? G[3:0] : B[3:0];
+			v5 = count[1] ? G[7:4] : B[7:4];
+			v6 = count[1] ? B[3:0] : R[3:0];
+			v7 = count[1] ? B[7:4] : R[7:4];	// MSB
+		
 			case (count[1:0])
+			//                      V98 76543210
 			2'd0   : groupBits = 10'b00_00111111;
 			2'd1   : groupBits = 10'b01_11000000;
 			2'd2   : groupBits = 10'b10_00000011;
 			default: groupBits = 10'b00_11111100;
 			endcase
 		end
-		// 15 BIT
+		// FMT_15BIT
 		default: begin
-			v1 = { R[3]  , G[7:5] };
-			v2 = { G[4:3], B[7:6] };
-			v3 = { B[5:3], Cl};
-			v4 =   R[7:4];
-			v5 = { R[3]  , G[7:5] };
-			v6 = { G[4:3], B[7:6] };
-			v7 = { B[5:3], Cl};
-			groupBits = count[0] ? 10'b00_00001111 
-			                     : 10'b00_11110000;
+			v0 = { R[6:3]         }; // LSB
+			v1 = { G[5:3], R[7]   };
+			v2 = { B[4:3], G[7:6] };
+			v3 = { Cl    , B[7:5] }; // MSB
+			
+			v4 = { R[6:3]         }; // LSB
+			v5 = { G[5:3], R[7]   };
+			v6 = { B[4:3], G[7:6] };
+			v7 = { Cl    , B[7:5] }; // MSB
+			
+			//                        V98 76543210
+			groupBits = count[0] ? 10'b00_11110000	// MSB second pixel
+			                     : 10'b00_00001111;	// LSB First pixel
 		end
 		endcase
 	end
 	
-	wire [15:0] v8 = { G, B };
-	wire [15:0] v9 = { R, G };
+	wire [15:0] v8 = { B , G };
+	wire [15:0] v9 = { G , R };
 
 	reg [31:0] reg0,reg1;
 	
 	always @(posedge i_clk)
 	begin
 		// we just write forever until the correct data arrive and bit state change.
-		if (groupBits[0])
-			reg0[31:28] <= v0;
-		if (groupBits[1])
-			reg0[27:24] <= v1;
-		if (groupBits[2])
-			reg0[23:20] <= v2;
-		if (groupBits[3])
-			reg0[19:16] <= v3;
-		if (groupBits[4])
-			reg0[15:12] <= v4;
-		if (groupBits[5])
-			reg0[11: 8] <= v5;
-		if (groupBits[6])
-			reg0[ 7: 4] <= v6;
-		if (groupBits[7])
-			reg0[ 3: 0] <= v7;
+		if (groupBits[0] & i_wrtPix)
+			reg0[ 3: 0] <= v0;
+		if (groupBits[1] & i_wrtPix)
+			reg0[ 7: 4] <= v1;
+		if (groupBits[2] & i_wrtPix)
+			reg0[11: 8] <= v2;
+		if (groupBits[3] & i_wrtPix)
+			reg0[15:12] <= v3;
+		if (groupBits[4] & i_wrtPix)
+			reg0[19:16] <= v4;
+		if (groupBits[5] & i_wrtPix)
+			reg0[23:20] <= v5;
+		if (groupBits[6] & i_wrtPix)
+			reg0[27:24] <= v6;
+		if (groupBits[7] & i_wrtPix)
+			reg0[31:28] <= v7;
 			
-		if (groupBits[8])
-			reg1[31:16] <= v8;
-		if (groupBits[9])
-			reg1[15: 0] <= v9;
+		if (groupBits[9] & i_wrtPix)
+			reg1[31:16] <= v9;
+		if (groupBits[8] & i_wrtPix)
+			reg1[15: 0] <= v8;
 	end
 	
 	// In mode 3, write every 2 pixels.
@@ -156,11 +163,11 @@ module RGB2Pack(
 						
 	// Select Reg1 only in format 2, 3rd pixel write.
 	// else   Reg0 for ALL other cases.
-	wire selectReg  = ((format==2'd2) && (count[1:0]==2'd2));
+	wire selectReg  = ((format==FMT_24BIT) && (count[1:0]==2'd3));
 	
 	assign o_dataPacked	= selectReg ? reg1 : reg0;
-	assign o_dataValid	=  ((     count  [0]    && (format==2'd3)) ||
-							((count[1:0]!=2'd0) && (format==2'd2)) ||
-							((count[1:0]==2'd3) && (format==2'd1)) ||
-							((count[2:0]==3'd7) && (format==2'd0))   ) & pWrite;	
+	assign o_dataValid	=  ((  (!count  [0])    && (format==FMT_15BIT)) ||
+							((count[1:0]!=2'd1) && (format==FMT_24BIT)) ||
+							((count[1:0]==2'd0) && (format==FMT_08BIT)) ||
+							((count[2:0]==3'd0) && (format==FMT_04BIT))   ) & pWrite;	
 endmodule

@@ -50,6 +50,9 @@ module streamInput(
 	input				i_nrst,
 	input				bDataWrite,
 	input [15:0]		i_dataIn,
+
+	output				o_lockPipe,
+	
 	input 				i_YOnly,
 	
 //	output				o_outOfRangeblockIndex,
@@ -163,6 +166,9 @@ module streamInput(
 			end
 		end
 	end
+	
+	assign o_lockPipe = isValidBlockComplete && ((nextBlockCounter==BLK_CR)||(nextBlockCounter==BLK_Y_));
+	
 	// --------------------------------------------------------
 
 	// --------------------------------------------------------

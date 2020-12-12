@@ -21,7 +21,6 @@ module IDCT (
 	input	[25:0]		i_cosVal,
 	
 	// Output in order value out
-	input				i_pauseIDCT_YBlock,
 	output	 [7:0]		o_value,
 	output				o_writeValue,
 	output 	 MDEC_BLCK	o_blockNum,
@@ -33,7 +32,11 @@ module IDCT (
 	// Allow to load matrix when IDCT is not busy OR that we are in the second pass.
 	// No need to worry, about internal 64 bit flag reset on pass 0->1, stream input will take >= 1 cycle to send the next data in any case.
 	// No need to worry about stream forced to wait in the middle...
+
+// BASIC VERSION : Matrix loading BETWEEN IDCT WORK.
 	assign o_canLoadMatrix	= (!idctBusy /*| ((pass == 1)  & ((!i_matrixComplete) & !rMatrixComplete))*/);
+// OPTIMIZED VERSION : Allow to load matrix when IDCT is not busy OR that we are in the second pass.
+//	assign o_canLoadMatrix	= (!idctBusy | ((pass == 1)  & ((!i_matrixComplete) & !rMatrixComplete)));
 //	assign o_pass1			= pass;
 // ---------------------------------
 
@@ -180,8 +183,6 @@ module IDCT (
 	wire [1:0]	XCnt		= idctCounter[4:3];	// 2 BIT
 	wire [2:0]	KCnt		= idctCounter[2:0];	// 3 BIT
 	wire        isLast      = (KCnt == 3'b111);
-	wire		freezeIDCT	= i_pauseIDCT_YBlock & pass;	// Freeze only during pass 2 when outputting Y Blocks.
-	reg			pFreeze,ppFreeze;	
 	reg			pLast,ppLast,pPass,ppPass;
 	always @ (posedge clk) begin pLast  <= isLast; pPass  <=  pass; end
 	always @ (posedge clk) begin ppLast <=  pLast; ppPass <= pPass; end
@@ -198,11 +199,8 @@ module IDCT (
 		begin
 			idctCounter 	<= 9'd0;
 			idctBusy    	<= 0;
-			pFreeze			<= 0;
 			rMatrixComplete	<= 0;
 		end else begin
-			pFreeze			<= freezeIDCT;
-			
 			if (!pPass & pass) begin 
 				// Copy Block ID when entering pass1
 				// Will allow to optimize later to load new matrix when entering pass1.
@@ -218,14 +216,14 @@ module IDCT (
 					rMatrixComplete <= 1'b1;
 				end
 				
-				if (idctCounter == 511)
+				if (idctCounter == 9'd511)
 				begin
 					idctCounter <= 9'd0;
 					idctBusy	<= 0; 	// Stop IDCT until new block loading complete.
 				end
 				else
 				begin
-					idctCounter <= idctCounter + { 8'd0 , !freezeIDCT }; // Add 1 only when NOT freezed.
+					idctCounter <= idctCounter + 9'd1;
 				end
 			end else begin
 				// We skip the matrix complete flag if we are busy computing a IDCT.
@@ -291,23 +289,20 @@ module IDCT (
 	//-------------------------------------------------------
 	always @ (posedge clk)
 	begin
-		if (!pFreeze) begin
-			if (pKCnt != 0)
-			begin
-				acc0 <= acc0 + ext_mul0;
-				acc1 <= acc1 + ext_mul1;
-			end else begin
-				acc0 <= ext_mul0;
-				acc1 <= ext_mul1;
-			end
+		if (pKCnt != 0)
+		begin
+			acc0 <= acc0 + ext_mul0;
+			acc1 <= acc1 + ext_mul1;
+		end else begin
+			acc0 <= ext_mul0;
+			acc1 <= ext_mul1;
+		end
 		/* Same without else
 		else
 			// Keep our accumulator out of work when freezing.
 			acc0 <= acc0;
 			acc1 <= acc1;
 		*/
-		end
-		ppFreeze <= pFreeze;
 	end
 
 	// Remove 4 bit at output of pass1 (and pass2)
@@ -315,8 +310,8 @@ module IDCT (
 	wire signed [12:0] v1 = acc1[16:4];
 
 	// Write Accumulator result when At beginning of next line. For last line, wait for beginning of first line of next pass.
-	wire   writeOut             = ppLast && ppPass && (!ppFreeze);	// When arrived to last element done in pass 1
-	assign writeCoefTable2		= ppLast && (!ppPass);				// When arrived to last element done in pass 0
+	wire   writeOut             = ppLast && ppPass;			// When arrived to last element done in pass 1
+	assign writeCoefTable2		= ppLast && (!ppPass);		// When arrived to last element done in pass 0
 	assign writeCoefTable2Index = {ppXCnt,ppYCnt};
 	
 	// Write back values for Pass1 to buffer.

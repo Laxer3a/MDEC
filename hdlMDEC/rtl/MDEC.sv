@@ -32,6 +32,10 @@ module MDEC (
 	wire  resetChip		= (!i_nrst) || (writeReg1 & i_valueIn[31]); // Reset on 1 parts
 	wire nResetChip		= (!resetChip);								// Reset on 0 parts
 	
+	reg resetPipeline;
+	wire nResetPipeline = !resetPipeline;
+	wire nResetPipeAndAll = nResetChip & nResetPipeline;
+	
 	/*
 		Moved cycle counter and state machine to front, because we are the MASTER and decide DMA REQUEST.
 		So we are forced to count the number of WORD BEFORE writing to the FIFO.
@@ -41,49 +45,43 @@ module MDEC (
 	//   Input FIFO
 	// ---------------------------------------------------------------------------------------------------
 	reg			fifoIN_rdL,fifoIN_rdM;
-	wire     fifoIN_emptyL = !fifoIN_validL;
-	wire     fifoIN_emptyM = !fifoIN_validM;	
-	wire 		fifoIN_fullL  ,fifoIN_fullM, fifoIN_validL, fifoIN_validM;
+	reg			PfifoIN_rdL,PfifoIN_rdM;
+	wire 		fifoIN_fullL  ,fifoIN_fullM, fifoIN_emptyL  ,fifoIN_emptyM;
 	wire [15:0]	fifoIN_outputM,fifoIN_outputL;
-	wire [5:0]  unusedLevelM,unusedLevelL;
-	wire		fifoIN_hasData		= (fifoIN_validL&!fifoIN_emptyL) | (fifoIN_validM&!fifoIN_emptyM);
+	wire		fifoIN_hasData		= (!fifoIN_emptyL) | (!fifoIN_emptyM);
 	wire		fifoIN_empty		= fifoIN_emptyL & fifoIN_emptyM;
 	wire		fifoIN_full			= fifoIN_fullL  | fifoIN_fullM;
 
-	Fifo2 #(.DEPTH_WIDTH(5),.DATA_WIDTH(16))
+	Fifo #(.DEPTH_WIDTH(5),.DATA_WIDTH(16))
 	InputFIFOM (
 		// System
-		.i_clk			(i_clk),
-		.i_rst			(resetChip),
-		.i_ena			(1),
+		.clk			(i_clk),
+		.rst			(resetChip | resetPipeline),
 
-		.i_w_data		(i_valueIn[31:16]),	// Data In
-		.i_w_ena		(writeFIFO),		// Write Signal
+		.wr_data_i		(i_valueIn[31:16]),	// Data In
+		.wr_en_i		(writeFIFO),		// Write Signal
 
-		.o_r_data		(fifoIN_outputM),	// Data Out
-		.i_r_taken		(fifoIN_rdM),		// Read signal
+		.rd_data_o		(fifoIN_outputM),	// Data Out
+		.rd_en_i		(fifoIN_rdM),		// Read signal
 
-		.o_w_full		(fifoIN_fullM),
-		.o_r_valid		(fifoIN_validM),
-		.o_level		(unusedLevelM)
+		.full_o			(fifoIN_fullM),
+		.empty_o		(fifoIN_emptyM)
 	);
 
-	Fifo2 #(.DEPTH_WIDTH(5),.DATA_WIDTH(16))
+	Fifo #(.DEPTH_WIDTH(5),.DATA_WIDTH(16))
 	InputFIFOL (
 		// System
-		.i_clk			(i_clk),
-		.i_rst			(resetChip),
-		.i_ena			(1),
+		.clk			(i_clk),
+		.rst			(resetChip | resetPipeline),
         
-		.i_w_data		(i_valueIn[15:0]),	// Data In
-		.i_w_ena		(writeFIFO),		// Write Signal
+		.wr_data_i		(i_valueIn[15:0]),	// Data In
+		.wr_en_i		(writeFIFO),		// Write Signal
         
-		.o_r_data		(fifoIN_outputL),	// Data Out
-		.i_r_taken		(fifoIN_rdL),		// Read signal
+		.rd_data_o		(fifoIN_outputL),	// Data Out
+		.rd_en_i		(fifoIN_rdL),		// Read signal
         
-		.o_w_full		(fifoIN_fullL),
-		.o_r_valid		(fifoIN_validL),
-		.o_level		(unusedLevelL)
+		.full_o			(fifoIN_fullL),
+		.empty_o		(fifoIN_emptyL)
 	);
 	
 	// -------------------------------------------
@@ -143,6 +141,7 @@ module MDEC (
 	reg  [1:0]  decrementCounter;
 	wire isLastHalfWord		= (nextRemainingHalfWord == 17'd0);
 	
+	
 	always @(posedge i_clk)
 	begin
 		if (resetChip) begin
@@ -173,7 +172,7 @@ module MDEC (
 					remainingHalfWord <= isColorQuant ? 17'd64 : 17'd32;							// [32 word (128 byte) vs. 16 word (64 byte)] of 32 bit, but we use half word counter internally [64/32].
 				end else begin
 					// [Unit in WORD] << 1 -> HALF WORD
-					remainingHalfWord <= {(isCommandCosTbl ? 16'd32 : fifoIN_outputL), 1'b0};	//  32 word of 32 bit = 64 word of 16 bit (Cos Table)
+					remainingHalfWord <= {(isCommandCosTbl ? 16'd32 : i_valueIn[15:0]), 1'b0};	//  32 word of 32 bit = 64 word of 16 bit (Cos Table)
 				end
 			end else begin
 				if (decrementCounter != 2'b00) begin
@@ -199,13 +198,32 @@ module MDEC (
 	wire canPushStream			= !dontPushStream;
 	
 	wire isCommandStreamValid	= isCommandStream	& fifoIN_hasData;
-	wire validLoad				= canPushStream		& fifoIN_hasData;
+
+	wire lockPipe,unlockPipe;
+	reg  pipelineAllowed;
+	reg  PreadReg0;
+	always @(posedge i_clk) begin
+		PfifoIN_rdL <= fifoIN_rdL;
+		PfifoIN_rdM <= fifoIN_rdM;
+		PreadReg0   <= readReg0;
 	
+		if (unlockPipe || resetChip || resetPipeline) begin
+			pipelineAllowed <= 1'b1;
+		end else begin
+			if (lockPipe) begin
+				pipelineAllowed <= 1'b0;
+			end
+		end
+	end
+	
+	// Data in FIFO, valid loading phase into the IDCT and pipeline is not locked.
+	wire validLoad				= canPushStream		& fifoIN_hasData & pipelineAllowed & (!endMatrix);
 	always @(*)
 	begin
 		fifoIN_rdL			= 1'b0;
 		fifoIN_rdM			= 1'b0;
 		decrementCounter	= 2'd0;
+		resetPipeline		= 1'b0;
 		
         case (state)
 		default: // Unknown state, roll to default.
@@ -217,7 +235,8 @@ module MDEC (
 			// Read the command...
 			if (isNewCommand && (isCommandStream | isCommandQuant | isCommandCosTbl)) begin
 				if (isCommandStream) begin
-					nextState = LOAD_STREAML;
+					nextState     = LOAD_STREAML;
+					resetPipeline = 1;
 				end else begin
 					nextState = (isCommandQuant ? LOAD_LUMA : LOAD_COS);
 				end
@@ -228,6 +247,7 @@ module MDEC (
 		LOAD_STREAML: // STATE 2.
 		begin
 			if (validLoad) begin
+				decrementCounter= 2'd1;
 				// Consume LSB Value
 				fifoIN_rdL	= validLoad;
 				// Wait for MSB Value now.
@@ -305,24 +325,22 @@ module MDEC (
 	wire i_quantTblSelect	= isLoadLum; // Table 1 for LUMA, 0 for CHROMA.
 
 	// ---- Stream Loading ----
-	
-	wire isLoadStL = (state == LOAD_STREAML);
-	wire isLoadStH = (state == LOAD_STREAMH);
-	
-	wire        writeStream	= ((isLoadStL || isLoadStH) & canPushStream) /* && allowLoad <--- do not have FIFO lock for now */;		// Use FIFO last output, even if data is not asked.
+	wire        writeStream	= ((PfifoIN_rdL | PfifoIN_rdM) & canPushStream) /* && allowLoad <--- do not have FIFO lock for now */;		// Use FIFO last output, even if data is not asked.
 	// FIRST BLOCK is LSB, SECOND BLOCK IS LSB
 	// TODO change name of state L/H by FIRST/SECOND.
-	wire [15:0] streamIn	=  isLoadStL ? fifoIN_outputL : fifoIN_outputM;
-	
+	wire [15:0] streamIn	=  PfifoIN_rdL ? fifoIN_outputL : fifoIN_outputM;
+
 	MDECore mdecInst (
 		// System
 		.clk			(i_clk),
-		.i_nrst			(nResetChip),
+		.i_nrst			(nResetPipeAndAll),
 
 		// Setup
 		.i_bitSetupDepth(regPixelFormat),
 		.i_bitSigned	(regPixelSigned),
 		
+		.o_lockPipe		(lockPipe),
+	
 		// RLE Stream
 		.i_dataWrite	(writeStream),
 		.i_dataIn		(streamIn),
@@ -344,7 +362,6 @@ module MDEC (
 
 		.o_idctBlockNum	(currentBlock),
 		.o_stillIDCT	(commandBusy),
-		.i_stopFillY	(!allowWrite),
 		
 		.o_pixelOut		(wrtPix),
 		.o_pixelAddress	(pixIdx), // 16x16 or 8x8 [yyyyxxxx] or [0yyy0xxx]
@@ -374,10 +391,9 @@ module MDEC (
 	);				
 
 	wire writeRAM;
-	reg  allowWrite;
 	reg  [7:0] writeAdr;
 	wire [7:0] nextWriteAdr			= writeAdr      + 8'd1;
-	wire resetWriteAdr;
+	wire readLastElement;
 	
 	// FIFO like behavior of read/write counters.
 	wire [7:0] readLinearAdr;
@@ -388,9 +404,9 @@ module MDEC (
 	wire [31:0] packedData;
 	RGB2Pack RGB2Pack_inst(
 		.i_clk			(i_clk),
-		.i_nrst			(nResetChip),
+		.i_nrst			(nResetPipeAndAll),
 		
-		.i_wrtPix		(wrtPix & allowWrite),
+		.i_wrtPix		(wrtPix),
 		.format			(outPixelFormat),
 		.setBit15		(regPixelSetMask),
 		.i_r			(finalR),
@@ -401,29 +417,32 @@ module MDEC (
 		.o_dataPacked	(packedData)
 	);
 
+	/*
+		Pipeline management system :
+		-      Feed input, pipeline is closed to guarantee that write will reach only MAX amount. (TODO : Fix for 4/8BIT)
+		-      Write Adress reach max. BUT WILL NOT INCREASE UNTIL PIPELINE UNLOCKED. (Garanteed by lock)
+		
+		...
+		...
+		...
+		
+		- +0 : Read  Adress read max => Signal to Write Adr to zero. Also reset own read counter to 0.
+		- +1 : Write Adress == 0 -> Unlock pipeline. (TODO : 1 cycle hit latency, could manage something like 
+	 */
+	// When (Write Adr == 0) and (Read Adr == Write Adr) => UNLOCK
+	assign unlockPipe = (writeAdr == 8'd0) & (!fifoOUT_hasData);
+
 	always @(posedge i_clk)
 	begin
-		if (resetChip || (resetWriteAdr && writeRAM && allowWrite)) begin
+		// - Chip Reset
+		// - Last Read reached last item.
+		// - New command force reset.
+		if (resetChip || readLastElement || resetPipeline) begin
 			writeAdr		<= 8'd0;
 		end else begin
-			if (writeRAM && allowWrite) begin
+			if (writeRAM) begin
 				// Increment dest linearly.
 				writeAdr	<= nextWriteAdr;
-			end
-		end
-
-		if (resetChip) begin
-			allowWrite <= 1;
-		end else begin
-			// WRITE IS FULL...
-			if (resetWriteAdr) begin
-				if (writeRAM && allowWrite) begin
-					allowWrite <= 0;
-				end
-			end
-				
-			if (!allowWrite && readRAM) begin
-				allowWrite <= 1;
 			end
 		end
 	end
@@ -433,9 +452,10 @@ module MDEC (
 	//
 	wire [7:0] readAdrSel;
 	
+	
 	ReadIndex ReadIndexInst(
 		.i_clk			(i_clk),
-		.i_nrst			(nResetChip),
+		.i_nrst			(nResetPipeAndAll),
 	
 		.format			(regPixelFormat),
 		.isDMARead		(o_DMA1REQ),
@@ -443,7 +463,7 @@ module MDEC (
 		.i_readNext		(readRAM),
 		.o_readIdx		(readAdrSel),
 		.o_linearReadIdx(readLinearAdr),
-		.o_reachedLast	(resetWriteAdr)
+		.o_reachedLast	(readLastElement)
 	);
 
 	wire [31:0] packOut;
@@ -481,6 +501,11 @@ module MDEC (
 	assign reg1Out[18:16]		= isYOnly ? BKL_YONLY : currentBlock;
 	
 	assign reg1Out[15: 0]		= nextRemainingHalfWord[16:1]; 									// 15-0  Number of Parameter Words remaining minus 1  (FFFFh=None)  ;CMD.Bit0-15
+	
+	reg [31:0] PpackOut;
+	always @(posedge i_clk) begin
+		PpackOut <= packOut;
+	end
 	
 	// ---------------------------------------------------------------------------------------------------
 	assign o_valueOut			= pRegSelect ? reg1Out : packOut;

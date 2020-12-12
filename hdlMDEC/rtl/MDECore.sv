@@ -12,6 +12,8 @@ module MDECore (
 	input MDEC_TPIX	i_bitSetupDepth, // [Bit 1..0 = (0=4bit, 1=8bit, 2=24bit, 3=15bit)
 	input MDEC_SIGN	i_bitSigned,
 	
+	output			o_lockPipe,
+	
 	// RLE Stream
 	input			i_dataWrite,
 	input [15:0]	i_dataIn,
@@ -31,7 +33,6 @@ module MDECore (
 	input	 [3:0]	i_quantAdr,
 	input			i_quantTblSelect,
 
-	input			i_stopFillY,
 	output MDEC_BLCK o_idctBlockNum,
 	
 	output			o_stillIDCT,
@@ -47,7 +48,6 @@ module MDECore (
 	// Instance Stream Decoder
 	wire YOnly = !i_bitSetupDepth[1];
 	wire busyIDCT;
-	
 	assign o_stillIDCT	= busyIDCT;
 
 	// ---------------- Directly to state machine and FIFO pusher -------
@@ -64,6 +64,8 @@ module MDECore (
 		.i_nrst				(i_nrst),
 		.bDataWrite			(bDataWrite),			// Never write if pipeline is frozen.
 		.i_dataIn			(i_dataIn),
+		
+		.o_lockPipe			(o_lockPipe),
 		
 		.i_YOnly			(YOnly),
 		.o_dataWrt			(dataWrt_b),
@@ -150,7 +152,7 @@ module MDECore (
 
 	wire			write_c2			= /* selectREGtoIDCT ? REGwrite_c			: */ write_c;
 	wire [5:0]		writeIdx_c2			= /* selectREGtoIDCT ? REGwriteIdx_c		: */ writeIdx_c;
-	wire [2:0]	blockNum_c2			= /* selectREGtoIDCT ? REGblockNum_c		: */ blockNum_c;
+	wire [2:0]	blockNum_c2				= /* selectREGtoIDCT ? REGblockNum_c		: */ blockNum_c;
 	wire [11:0]		coefValue_c2		= /* selectREGtoIDCT ? REGcoefValue_c		: */ coefValue_c;
 	wire			matrixComplete_c2	= /* selectREGtoIDCT ? REGmatrixComplete_c	: */ matrixComplete_c;
 	
@@ -172,7 +174,6 @@ module MDECore (
 		.i_cosVal			(i_cosVal),
 		
 		// Output in order value out
-		.i_pauseIDCT_YBlock	(pauseIDCTYBlock),		// If signal = 1, IDCT pause everthing... Signal sent only for Y blocks. (FIFO RGB full)
 		.o_value			(value_d),
 		.o_writeValue		(writeValue_d),
 		.o_blockNum			(writeValueBlock),
@@ -182,8 +183,6 @@ module MDECore (
 
 	wire		isYOnlyBlock	= (writeValueBlock == BLK_Y_ /* is 7*/);
 	wire		isYBlock  		= isYOnlyBlock | (!writeValueBlock[2] /* range 0..3 */);
-	// [FIFO Out force IDCT to stop pushing Y values because it is near full]
-	wire		pauseIDCTYBlock = isYBlock & i_stopFillY;
 	
 	wire	 [7:0]	value_d;
 	wire 			writeValue_d;
