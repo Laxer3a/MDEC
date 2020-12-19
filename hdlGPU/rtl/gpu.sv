@@ -20,6 +20,7 @@ module gpu
     // DIP Switches to control
 	input			DIP_AllowDither,
 	input			DIP_ForceDither,
+	input			DIP_Allow480i,
     // --------------------------------------
 
     output			IRQRequest,
@@ -117,8 +118,8 @@ module gpu
     input			write,
     input			read,
     input 	[31:0]	cpuDataIn,
-    output reg [31:0]	cpuDataOut,
-    output reg			validDataOut
+    output  [31:0]	cpuDataOut,
+    output 			validDataOut
 );
 
 // Note : we do not have the problem of over transfer in FIFO IN, as DMA know transfer size.
@@ -370,12 +371,11 @@ GPUVideo GPUVideo_inst(
 
 	.currentInterlaceField	(GPU_REG_CurrentInterlaceField),
 	.widthDisplay		(horizRes),
-	.currentLineOddEven	(currentLineOddEven),
-	.heightDisplay		()
+	.currentLineOddEven	(currentLineOddEven)
 );
 
 assign o_HorizRes		= horizRes;
-assign o_VerticalRes	= GPU_REG_VerticalResolution ? 9'd480 : 9'd240;
+assign o_VerticalRes	= (GPU_REG_VerticalResolution & GPU_REG_IsInterlaced) ? 9'd480 : 9'd240;
 assign o_IsInterlace	= GPU_REG_IsInterlaced;
 assign o_CurrentField   = GPU_REG_IsInterlaced & (!GPU_REG_CurrentInterlaceField);	// Note : DISPLAY CURRENT FIELD IS OPPOSITE TO RENDER CURRENT FIELD (
 assign o_DisplayBaseX	= GPU_REG_DispAreaX;
@@ -392,7 +392,7 @@ assign o_VBlank			= VBlank;
 // If [DISABLE WRITE ON DISPLAY] + [INTERLACE] + [RESOLUTION==480] + [NOT A COPY COMMAND] : SPECIAL RENDERING MODE ENABLED
 wire GPU_DisplayEvenOddLinesInterlace	= VBlank ? 1'd0 : (GPU_REG_VerticalResolution ? GPU_REG_CurrentInterlaceField : currentLineOddEven);
 // [Interlace render generate 1 for primitive supporting it : LINE,RECT,TRIANGLE,FILL IF VALID]
-wire InterlaceRender					= ((!GPU_REG_DrawDisplayAreaOn) & GPU_REG_IsInterlaced) & GPU_REG_VerticalResolution & (!bIsCopyCommand);
+wire InterlaceRender					= DIP_Allow480i & ((!GPU_REG_DrawDisplayAreaOn) & GPU_REG_IsInterlaced) & GPU_REG_VerticalResolution & (!bIsCopyCommand);
 // But counter increment +2 is only valid for RECT,TRIANGLE,FILL. (LINE is ALWAYS Y+1 !!!)
 wire IncrementInterlaceRender           = InterlaceRender & (!bIsLineCommand);
 // So Start coordinate offset +0/+1 is only valid for RECT, TRIANGLE, FILL. It depends on the current field.
@@ -667,9 +667,9 @@ reg [31:0] rdebugCnt;
 always @(posedge clk)
 begin
     if (i_nrst == 0) begin
-        rdebugCnt = 32'd0;
+        rdebugCnt <= 32'd0;
     end else begin
-        rdebugCnt = rdebugCnt + 32'd1;
+        rdebugCnt <= rdebugCnt + 32'd1;
     end
 end
 assign mydebugCnt =rdebugCnt;
@@ -680,7 +680,7 @@ assign dbg_canWrite = canWriteFIFO;
 
 // [FIFO Signal for the VRAM Read to CPU]
 wire outFIFO_empty;
-wire outFIFO_full, outFIFO_nearfull;
+wire outFIFO_full;
 
 wire writeFifo		= (!gpuAdrA2 & gpuSel & write & canWriteFIFO) || (gpu_m2p_valid_o && (GPU_REG_DMADirection == DMA_CPUtoGP0));
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
@@ -942,11 +942,11 @@ assign reg1Out = {
                     // Default 1
                     GPU_DisplayEvenOddLinesInterlace,	// 31
                     GPU_REG_DMADirection,				// 29-30
-                    isFifoEmpty32, 						// gpuReadyReceiveDMA,
+                    (currWorkState == NOT_WORKING_DEFAULT_STATE), // 28
 
                     // default 4
                     gpuReadySendToCPU,				// 27
-                    isFifoEmpty32,					// 26 GPU Receive Command Ready (ready when input FIFO is not FULL)
+                    isFifoEmpty32 && (currState == DEFAULT_STATE) && (currWorkState == NOT_WORKING_DEFAULT_STATE),     // 26
                     dmaDataRequest,					// 25
                     GPU_REG_IRQSet,					// 24
 
@@ -1072,6 +1072,10 @@ begin
     if (getGPUInfo) begin
         regGpuInfo <= gpuInfoMux;
     end
+end
+	
+always @(posedge clk)
+begin
 
     if (rstGPU) begin
         GPU_REG_OFFSETX				<= 11'd0;
@@ -1747,7 +1751,7 @@ CVCopyState CVCopyState_Inst(
 	.xb_0			(RegX0[0]),
 	.wb_0			(RegSizeW[0]),
 	
-	.canNearPush		(!outFIFO_nearfull & hasReadSpace),
+    .canNearPush(1'b0),
 	.canPush			(!outFIFO_full & hasReadSpace),
 	.endVertical		(endVertical),
 	.nextPairIsLineLast	(nextPairIsLineLast),
@@ -1786,7 +1790,7 @@ begin
 	pipeToFIFOOut <= pushNextCycle;
 end
 
-SSCfifoNF
+SSCfifo
 #(
     .DEPTH_WIDTH	(2),
     .DATA_WIDTH		(32)
@@ -1802,7 +1806,6 @@ FifoPixOut_inst
     .rd_data_o		(outFIFO_readV),
     .rd_en_i		(outFIFO_read),
 
-	.nearly_full_o	(outFIFO_nearfull),
     .full_o			(outFIFO_full),
     .empty_o		(outFIFO_empty)
 );
@@ -2969,7 +2972,10 @@ end
 wire canReadFIFO			= isFifoNotEmpty32 & canIssueWork;
 assign readFifo				= (nextCondUseFIFO & canReadFIFO);
 wire authorizeNextState     = ((!nextCondUseFIFO) | readFifo);
-assign nextState			= authorizeNextState ? nextLogicalState : currState;
+
+// GENERATE WARNING : assign nextState			= authorizeNextState ? nextLogicalState : currState;
+always @(*) begin nextState = authorizeNextState ? nextLogicalState : currState; end
+
 assign issuePrimitiveReal	= canIssueWork ? /*issue.*/issuePrimitive : NO_ISSUE;
 
 StencilCache StencilCacheInstance(
@@ -3359,17 +3365,17 @@ reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6;
 reg       vecID2,vecID3,vecID4,vecID5,vecID6;
 always @(posedge clk)
 begin
-    compoID6 = compoID5;
-    compoID5 = compoID4;
-    compoID4 = compoID3;
-    compoID3 = compoID2;
-    compoID2 = compoID;
+    compoID6 <= compoID5;
+    compoID5 <= compoID4;
+    compoID4 <= compoID3;
+    compoID3 <= compoID2;
+    compoID2 <= compoID;
 
-    vecID6   = vecID5;
-    vecID5   = vecID4;
-    vecID4   = vecID3;
-    vecID3   = vecID2;
-    vecID2   = vecID;
+    vecID6   <= vecID5;
+    vecID5   <= vecID4;
+    vecID4   <= vecID3;
+    vecID3   <= vecID2;
+    vecID2   <= vecID;
 end
 
 always @(*)
@@ -3553,13 +3559,6 @@ wire signed [7:0] pixVR = RegV0 + offVR[PREC+7:PREC];
 // - Start a new block.
 // -
 assign requestNextPixel = (!missTC) & (!writePixelOnNewBlock) & (!saveLoadOnGoing) & (!commandFifoFull);
-reg lastSaveLoadOnGoing;
-reg lastMissTC;
-always @(posedge clk)
-begin
-    lastSaveLoadOnGoing = saveLoadOnGoing;
-    lastMissTC			= missTC;
-end
 
 // wire notMemoryBusyCurrCycle;
 // wire notMemoryBusyNextCycle;

@@ -310,18 +310,19 @@ module GPUBackend(
 	// ---------------------------------------------
 	// READ BACKGROUND PIXEL FOR BLENDING (Value ignored if not used)
 	// ---------------------------------------------
-	reg [31:0] pixelBG32;
+	reg [14:0] pixelBGL;
+	reg [14:0] pixelBGR;
 	always @(*)
 	begin
 		case (oScrxL[3:1])
-		3'd0: pixelBG32 = cacheBG[ 31:  0];
-		3'd1: pixelBG32 = cacheBG[ 63: 32];
-		3'd2: pixelBG32 = cacheBG[ 95: 64];
-		3'd3: pixelBG32 = cacheBG[127: 96];
-		3'd4: pixelBG32 = cacheBG[159:128];
-		3'd5: pixelBG32 = cacheBG[191:160];
-		3'd6: pixelBG32 = cacheBG[223:192];
-		3'd7: pixelBG32 = cacheBG[255:224];
+		3'd0: begin pixelBGL = cacheBG[ 14:  0]; pixelBGR = cacheBG[ 30: 16]; end
+		3'd1: begin pixelBGL = cacheBG[ 46: 32]; pixelBGR = cacheBG[ 62: 48]; end
+		3'd2: begin pixelBGL = cacheBG[ 78: 64]; pixelBGR = cacheBG[ 94: 80]; end
+		3'd3: begin pixelBGL = cacheBG[110: 96]; pixelBGR = cacheBG[126:112]; end
+		3'd4: begin pixelBGL = cacheBG[142:128]; pixelBGR = cacheBG[158:144]; end
+		3'd5: begin pixelBGL = cacheBG[174:160]; pixelBGR = cacheBG[190:176]; end
+		3'd6: begin pixelBGL = cacheBG[206:192]; pixelBGR = cacheBG[222:208]; end
+		3'd7: begin pixelBGL = cacheBG[238:224]; pixelBGR = cacheBG[254:240]; end
 		endcase
 	end
 	
@@ -357,12 +358,12 @@ module GPUBackend(
 		.iB_R						(oBR),
 
 		// BG If needed.
-		.rBG_L						(pixelBG32[ 4: 0]),
-		.gBG_L						(pixelBG32[ 9: 5]),
-		.bBG_L						(pixelBG32[14:10]),
-		.rBG_R						(pixelBG32[20:16]),
-		.gBG_R						(pixelBG32[25:21]),
-		.bBG_R						(pixelBG32[30:26]),
+		.rBG_L						(pixelBGL[ 4: 0]),
+		.gBG_L						(pixelBGL[ 9: 5]),
+		.bBG_L						(pixelBGL[14:10]),
+		.rBG_R						(pixelBGR[ 4: 0]),
+		.gBG_R						(pixelBGR[ 9: 5]),
+		.bBG_R						(pixelBGR[14:10]),
 		
 		// Final PIXEL to write back.
 		.write32					(writeBack32)

@@ -25,8 +25,7 @@ module GPUVideo(
 	
 	output			currentInterlaceField,
 	output			currentLineOddEven,
-	output  [9:0]	widthDisplay,
-	output	[8:0]	heightDisplay
+	output  [9:0]	widthDisplay
 );
 
 /*
