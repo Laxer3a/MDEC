@@ -195,8 +195,14 @@ wire [16:0] adrTexRead = requTexCacheUpdateL ? adrTexCacheUpdateL : adrTexCacheU
 // [CONVERT GPU COMMAND AND PACK INTO FIFO]
 // --------------------------------------------------
 // MEM SIDE
-parameter	READ_PAIR			= 3'b110;
-			
+parameter	READ_32B			= 3'b000,
+			WRITE_32B			= 3'b001,
+			READ_8B				= 3'b010,
+			WRITE_4B			= 3'b011,
+			READ_32B_VVCP		= 3'b100,
+			WRITE_32B_VVCP		= 3'b101,
+			READ_4B				= 3'b110;
+			// 111 UNDEFINED / UNUSED
 
 assign isTexL    = (state     == READ_TEX_L);
 assign isTexR    = (state     == READ_TEX_R);
@@ -248,7 +254,7 @@ begin
 							// 15 bit (14:0)
 							, memoryWriteCommand[21:7] 
 							// 3 Bit
-							, READ_PAIR
+							, READ_4B
 							};	// 11 Bit : Ignore, 3 Bit : Adr sub block, 2 bit : pixel mask. 
 				nextState = READ_PIX2;
 			end
@@ -262,7 +268,7 @@ begin
 							// 15 bit (14:0)
 							, memoryWriteCommand[21:7] 
 							// 3 Bit
-							, 3'b011
+							, WRITE_4B
 							};	// 11 Bit : Ignore, 3 Bit : Adr sub block, 2 bit : pixel mask.  
 			end
 			MEM_CMD_RDBURST:
@@ -271,7 +277,7 @@ begin
 							  memoryWriteCommand[55:40] 
 							, 250'dx , memoryWriteCommand[23:22] , 3'd0 , memoryWriteCommand[3]	// 6 bit parameters.
 							, memoryWriteCommand[21:7] 
-							, 3'b100 
+							, READ_32B_VVCP
 							};
 			end
 			MEM_CMD_WRBURST:
@@ -280,7 +286,7 @@ begin
 							  memoryWriteCommand[55:40] 
 							, 246'dx, memoryWriteCommand[27:22] ,memoryWriteCommand[6:3]
 							, memoryWriteCommand[21:7] 
-							, 3'b101 
+							, WRITE_32B_VVCP
 							};
 			end
 			default: // MEM_CMD_FILL:
@@ -289,7 +295,7 @@ begin
 							  16'hFFFF
 							, {15{memoryWriteCommand[55:40]}}/*Ignore*/ , memoryWriteCommand[55:40] 
 							, memoryWriteCommand[21:7] 
-							, 3'b001 
+							, WRITE_32B
 							}; 
 			end
 			endcase
@@ -302,7 +308,7 @@ begin
 									  16'dx 
 									, 256'dx 
 									, loadAdr 
-									, 3'b000 
+									, READ_32B
 									};
 						nextState	= READ_BG;
 					end else begin
@@ -311,7 +317,7 @@ begin
 									  exportedMSKBGBlock 
 									, exportedBGBlock 
 									, saveAdr 
-									, 3'b001 
+									, WRITE_32B
 									};
 						nextState	= WRITE_BG;
 					end
@@ -322,7 +328,7 @@ begin
 										  16'dx 
 										, 256'dx 
 										, adrClutCacheUpdate 
-										, 3'b000 
+										, READ_32B
 									};
 					end else begin
 						if (isTexReq) begin
@@ -331,7 +337,7 @@ begin
 											  { 11'dx, adrTexRead[1:0], 1'd0, 2'dx } 
 											, 256'dx 
 											, adrTexRead[16:2] 
-											, 3'b010 
+											, READ_8B
 											};
 							nextState	= requTexCacheUpdateL ? READ_TEX_L : READ_TEX_R;
 						end else begin
@@ -347,7 +353,7 @@ begin
 					  16'dx 
 					, 256'dx 
 					, loadAdr 
-					, 3'b000 
+					, READ_32B 
 				};
 				nextState	= READ_BG;
 			end
@@ -462,27 +468,31 @@ reg loadVVIndexW;
 reg loadVVBank;
 reg clearBanksCheck;
 
+wire [2:0] memCmd          = cmdExec[2:0];
+wire       memCmdIsWrite   = memCmd[0];
+wire       isNOT_WR_VVCP   = (memCmd != WRITE_32B_VVCP);
+
 always @(*) begin
 	// TRICK : when doing a WRITEBURST we wait 1 cycle to perform the WRITE, because data needs to be loaded with the previous READ. 1 cycle latency
-	sendCommandToMemory = (!i_busy && hasCommand && ((!waitRead) || (cmdExec[2:0] != 3'd5)));
-	sendCommandToMemoryNOBUSY = (hasCommand && ((!waitRead) || (cmdExec[2:0] != 3'd5)));
-	resetWait			= 0;
+	sendCommandToMemory       = (!i_busy && hasCommand && ((!waitRead) || isNOT_WR_VVCP));
+	sendCommandToMemoryNOBUSY =            (hasCommand && ((!waitRead) || isNOT_WR_VVCP));
+	resetWait			      = 0;
 	
-	case (cmdExec[2:0])
-	3'd2   : commandSize = CMD_8BYTE;	// _,_,2,_,_,_,_,_
-	3'd3   : commandSize = CMD_4BYTE;	// _,_,_,3,_,_,_,_
-	3'd6   : commandSize = CMD_4BYTE;	// _,_,_,_,_,_,6,_
-	default: commandSize = CMD_32BYTE;	// 0,1,_,_,4,5,_,7
+	case (memCmd)
+	READ_8B  : commandSize = CMD_8BYTE;	// _,_,2,_,_,_,_,_
+	WRITE_4B : commandSize = CMD_4BYTE;	// _,_,_,3,_,_,_,_
+	READ_4B  : commandSize = CMD_4BYTE;	// _,_,_,_,_,_,6,_
+	default  : commandSize = CMD_32BYTE;// 0,1,_,_,4,5,_,7
 	endcase
 	
 	// We execute the flags ONLY when the operation is ALSO PERFORMING THE MEMORY OPERATION TO THE DDR !
 	// So flag must stay to zero until we properly pop the command from the FTFW FIFO. (And not execute the command as the value are at the FIFO out (cmdExec))
-	case (cmdExec[2:0])
-	3'd4: begin // READBRT
+	case (memCmd)
+	READ_32B_VVCP: begin
 		loadBank		= 1;
 		loadVVIndexW	= 0;
 	end
-	3'd5: begin // WRITEBRT
+	WRITE_32B_VVCP: begin
 		loadBank		= 1;
 		loadVVIndexW	= 1;
 	end
@@ -623,23 +633,16 @@ wire [255:0] currVVPixelWFinal		= {
 
 wire [15:0] currVVPixelWFinalSel	= ({16{!VV_GPU_ChkMsk}} | (~cmdMask /*Here is it a stencil, not a mask*/)) & storageMask; // Write all pixels if VV_GPU_ChkMsk=0, else write Pixel when Stencil IS 0.
 
-assign o_write		= cmdExec[0] & sendCommandToMemoryNOBUSY; // TODO OPTIMIZE : & sendCommandToMemory is to have a cleaner signal.
+assign o_write		= memCmdIsWrite & sendCommandToMemoryNOBUSY; // TODO OPTIMIZE : & sendCommandToMemory is to have a cleaner signal.
 assign o_command	= sendCommandToMemory;
-assign o_dataOut	= (cmdExec[2:0] != 3'b101) ? cmdExec[273: 18] : currVVPixelWFinal;
-assign o_writeMask	= (cmdExec[2:0] != 3'b101) ? cmdMask          : currVVPixelWFinalSel;
+
+
+assign o_dataOut	= isNOT_WR_VVCP ? cmdExec[273: 18] : currVVPixelWFinal;
+assign o_writeMask	= isNOT_WR_VVCP ? cmdMask          : currVVPixelWFinalSel;
 assign o_adr		= cmdExec[17:3];
-// Access 4/8 byte or 32 byte.
-assign o_subadr		= ((cmdExec[2:0] == 3'b010) || (cmdExec[2:0] == 3'b011) || (cmdExec[2:0] == READ_PAIR)) ? cmdExec[278:276] : 3'd0;
+assign o_subadr		= (commandSize  != CMD_32BYTE)     ? cmdExec[278:276] : 3'd0; // Not necessary problably but cleaner.
 assign o_commandSize= commandSize;
 
-// DONE [000:READBG ][15 Bit Adr]----------------------
-// DONE [001:WRITEBG][15 Bit Adr][256 Bit][16 bit Mask]
-// DONE [010:READ8  ][15 Bit Adr]         [10][2 bit:Adr]0[2---]
-// DONE [011:WRITEPR][15 Bit Adr]    [32B][10][3 bit:Adr ][2msk]
-//      [100:READBRT][15 Bit Adr]         [Msk Read   ] + CpyBankFlag + clearOtherBank + 1'b1(23) ?
-//      [101:WRITBRT][15 Bit Adr]         [StencilRead] + writeBankOld + GPUREG_ForcePixel15 + GPU_Reg_CheckMaskBit + clearBank0 + clearBank1 + cpyIdx
-//       110
-//       111
 wire resEmpty;
 wire answerFull;
 // FIFO is 256, depth 1.
