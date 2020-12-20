@@ -41,6 +41,36 @@ wire [9:0] scanlineCount = i_PAL ? 10'd314 : 10'd263;
 reg [3:0] dotClockDiv;
 reg [3:0] dotLastDiv;
 reg [9:0] horizRes;
+reg  [3:0] gpuPixClkCount;
+reg  [3:0] gpuPixEnableCount;
+reg REG_CurrentInterlaceField;
+reg [11:0]	VidXCounter;
+reg [11:0]  PureVidX;
+reg [9:0]	VidYCounter;
+
+wire [3:0] nextgpuPixClkCount    = gpuPixClkCount    + 4'd1;
+
+wire [3:0] nextgpuPixEnableCount = gpuPixEnableCount + 4'd1;
+
+wire [11:0] nextVidXCounter = VidXCounter + { 8'd0 , dotClockDiv };
+wire goNextLine;
+wire goNextFrame = VidYCounter == scanlineCount;
+
+// wire DisplayHSync        = (PureVidX >= 12'd0); <--- Always TRUE
+wire DisplayNoHSync			= (PureVidX >= 12'd268); // 53,693,175 Hz * 0.000,005 Sec = 268.465875 => 5uSec dip of HSync, for now same in NTSC and PAL.
+wire VideoStarted           = (PureVidX >= 12'd488);
+wire DisplayStarted         = (VidXCounter >= GPU_REG_RangeX0);
+wire DisplayEnded           = (VidXCounter >= GPU_REG_RangeX1);
+wire DisplayStartedY		= (VidYCounter >= GPU_REG_RangeY0);
+wire DisplayEndedY			= (VidYCounter >= GPU_REG_RangeY1);
+//---------------------------------------------------------------------------------------------------
+
+wire hbl = DisplayEnded | (!VideoStarted);
+wire vbl = DisplayEndedY| (!DisplayStartedY);
+
+wire dotClockFlag  = (nextgpuPixClkCount    == dotClockDiv);			// USED BY TIMER0
+wire dotEnableFlag = ((nextgpuPixEnableCount == dotClockDiv) && !hbl);
+
 always @(*) begin
 	if (GPU_REG_HorizResolution368) begin
 		dotClockDiv /*368*/ = 4'd7;
@@ -56,14 +86,6 @@ always @(*) begin
 	end
 end
 
-reg  [3:0] gpuPixClkCount;
-wire [3:0] nextgpuPixClkCount    = gpuPixClkCount    + 4'd1;
-
-reg  [3:0] gpuPixEnableCount;
-wire [3:0] nextgpuPixEnableCount = gpuPixEnableCount + 4'd1;
-
-wire dotClockFlag  = (nextgpuPixClkCount    == dotClockDiv);			// USED BY TIMER0
-wire dotEnableFlag = ((nextgpuPixEnableCount == dotClockDiv) && !hbl);
 always @(posedge i_gpuPixClk) begin
 	gpuPixClkCount    <= dotClockFlag ? 4'd0 :    nextgpuPixClkCount;
 
@@ -73,15 +95,6 @@ always @(posedge i_gpuPixClk) begin
 		gpuPixEnableCount <= dotEnableFlag ? 4'd0 : nextgpuPixEnableCount;
 	end
 end
-
-reg [11:0]	VidXCounter;
-reg [11:0]  PureVidX;
-
-reg [9:0]	VidYCounter;
-wire [11:0] nextVidXCounter = VidXCounter + { 8'd0 , dotClockDiv };
-wire goNextLine;
-wire goNextFrame = VidYCounter == scanlineCount;
-reg REG_CurrentInterlaceField;
 
 always @(posedge i_gpuPixClk) begin // In GPU CLOCK ANYWAY
 	if (goNextLine) begin
@@ -94,12 +107,6 @@ always @(posedge i_gpuPixClk) begin // In GPU CLOCK ANYWAY
 	VidYCounter					<= goNextFrame ? 10'd0                      : VidYCounter + { 9'd0, goNextLine };
 	REG_CurrentInterlaceField	<= goNextFrame ? !REG_CurrentInterlaceField : REG_CurrentInterlaceField;
 end
-
-// wire DisplayHSync        = (PureVidX >= 12'd0); <--- Always TRUE
-wire DisplayNoHSync			= (PureVidX >= 12'd268); // 53,693,175 Hz * 0.000,005 Sec = 268.465875 => 5uSec dip of HSync, for now same in NTSC and PAL.
-wire VideoStarted           = (PureVidX >= 12'd488);
-wire DisplayStarted         = (VidXCounter >= GPU_REG_RangeX0);
-wire DisplayEnded           = (VidXCounter >= GPU_REG_RangeX1);
 
 /*	https://wiki.neogeodev.org/index.php?title=Display_timing
 	Corrected from and added on from mvstech.txt (by Charles MacDonald).
@@ -121,12 +128,6 @@ wire DisplayNoVSync			= (VidYCounter >= 10'd8);
 assign goNextLine			= (PureVidX    ==  (i_PAL  ? {                 12'd3406 }		// PAL
                                                        : { 11'd1706, VidYCounter[0] }));	// NTSC : 3412 on ODD line, 3413 on EVEN LINE.
 													   
-wire DisplayStartedY		= (VidYCounter >= GPU_REG_RangeY0);
-wire DisplayEndedY			= (VidYCounter >= GPU_REG_RangeY1);
-//---------------------------------------------------------------------------------------------------
-
-wire hbl = DisplayEnded | (!VideoStarted);
-wire vbl = DisplayEndedY| (!DisplayStartedY);
 
 assign widthDisplay			= horizRes;								// TODO : Abstract value, not real...
 assign currentInterlaceField= REG_CurrentInterlaceField;

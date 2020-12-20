@@ -75,6 +75,19 @@ parameter	CMD_32BYTE		= 2'd1,
 			CMD_4BYTE		= 2'd2;
 
 	reg dataToPSXValid;
+	reg [255:0] dataInOut;
+	reg  [15:0] dataMask;
+	reg         is32Bit;
+	reg         isUnAlign;
+	reg			isWrite;
+	reg	  [1:0] lastCounter;
+	
+	reg [14:0] burstAdr;
+	reg  [2:0] burstAdrSub;
+	
+	reg   [1:0] blkCounterEmit;
+	reg   [1:0] blkCounterRecv;
+	reg   [1:0] regSize;
 	
 	
 	// --------------- State Machine ------------------
@@ -87,9 +100,6 @@ parameter	CMD_32BYTE		= 2'd1,
 	state_t currState, nextState;
 	always @(posedge i_clk) begin currState <= (!i_nRst) ? DEFAULT_STATE : nextState; end
 	
-	reg   [1:0] blkCounterEmit;
-	reg   [1:0] blkCounterRecv;
-	reg   [1:0] regSize;
 	
 	// On cycle 0, when PSX requst mem to DDR,
 	reg readSigDDR, writeSigDDR;
@@ -138,15 +148,6 @@ parameter	CMD_32BYTE		= 2'd1,
 		endcase
 	end
 	
-	reg [255:0] dataInOut;
-	reg  [15:0] dataMask;
-	reg         is32Bit;
-	reg         isUnAlign;
-	reg			isWrite;
-	reg	  [1:0] lastCounter;
-	
-	reg [14:0] burstAdr;
-	reg  [2:0] burstAdrSub;
 	always @(posedge i_clk) begin
 	   if ( (nextState == WRITE_STATE1 || nextState == READ_STATE1) && currState==DEFAULT_STATE ) begin
 		 burstAdr    <= i_targetAddr;

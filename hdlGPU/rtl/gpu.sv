@@ -122,6 +122,12 @@ module gpu
     output 			validDataOut
 );
 
+wire isFifoFullLSB, isFifoFullMSB,isFifoEmptyLSB, isFifoEmptyMSB;
+wire isINFifoFull;
+wire isFifoEmpty32;
+wire isFifoNotEmpty32;
+wire rstInFIFO;
+
 // Note : we do not have the problem of over transfer in FIFO IN, as DMA know transfer size.
 // But in case we still REQ and DMA was reloaded super fast, we would need to put a COUNTER in the GPU
 // that would compute size based on command parameters instead of this check...
@@ -130,6 +136,17 @@ module gpu
 //                      CPU to VRAM transfer + in transfer state + FIFO has space to store data.
 //                      => Should not overtransfer because DMA knows size.
 // DMA REQ
+typedef enum logic[1:0] {
+	DMA_DirOff		= 2'd0,
+	DMA_FIFO		= 2'd1,
+	DMA_CPUtoGP0	= 2'd2,
+	DMA_GP0toCPU	= 2'd3
+} DMADirection;
+
+DMADirection      GPU_REG_DMADirection;
+reg firstRead;
+reg unconsummed;
+wire [31:0] outFIFO_readV;
 
 assign gpu_m2p_dreq_i   = ((GPU_REG_DMADirection == DMA_CPUtoGP0) && (isFifoEmptyLSB && isFifoEmptyMSB));
 assign gpu_m2p_accept_i = 1'b1;
@@ -139,13 +156,6 @@ assign gpu_p2m_valid_i = gpu_p2m_dreq_i;
 assign gpu_p2m_data_i  = outFIFO_readV;
 
 // Notes: Manually sending/reading data by software (non-DMA) is ALWAYS possible, regardless of the GP1(04h) setting. The GP1(04h) setting does affect the meaning of GPUSTAT.25.
-
-typedef enum logic[1:0] {
-	DMA_DirOff		= 2'd0,
-	DMA_FIFO		= 2'd1,
-	DMA_CPUtoGP0	= 2'd2,
-	DMA_GP0toCPU	= 2'd3
-} DMADirection;
 
 typedef enum logic[5:0] {
     NOT_WORKING_DEFAULT_STATE	= 6'd0,
@@ -293,12 +303,6 @@ parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
             // Other command to come later...
             MEM_CMD_NONE		= 3'b000;
 
-wire isFifoFullLSB, isFifoFullMSB,isFifoEmptyLSB, isFifoEmptyMSB;
-wire isINFifoFull;
-wire isFifoEmpty32;
-wire isFifoNotEmpty32;
-wire rstInFIFO;
-
 // ----------------------------- Parsing Stage -----------------------------------
 reg signed [10:0] GPU_REG_OFFSETX;
 reg signed [10:0] GPU_REG_OFFSETY;
@@ -330,7 +334,6 @@ reg               GPU_REG_VideoMode;
 reg               GPU_REG_VerticalResolution;
 reg         [1:0] GPU_REG_HorizResolution;
 reg               GPU_REG_HorizResolution368;
-DMADirection      GPU_REG_DMADirection;
 reg				  GPU_REG_ReverseFlag;
 
 //---------------------------------------------------------------
@@ -385,18 +388,6 @@ assign o_VBlank			= VBlank;
 //  Video Module END
 //---------------------------------------------------------------
 
-
-//---------------------------------------------------------------------------------------------------
-// Stuff to handle INTERLACED RENDERING !!!
-//
-// If [DISABLE WRITE ON DISPLAY] + [INTERLACE] + [RESOLUTION==480] + [NOT A COPY COMMAND] : SPECIAL RENDERING MODE ENABLED
-wire GPU_DisplayEvenOddLinesInterlace	= VBlank ? 1'd0 : (GPU_REG_VerticalResolution ? GPU_REG_CurrentInterlaceField : currentLineOddEven);
-// [Interlace render generate 1 for primitive supporting it : LINE,RECT,TRIANGLE,FILL IF VALID]
-wire InterlaceRender					= DIP_Allow480i & ((!GPU_REG_DrawDisplayAreaOn) & GPU_REG_IsInterlaced) & GPU_REG_VerticalResolution & (!bIsCopyCommand);
-// But counter increment +2 is only valid for RECT,TRIANGLE,FILL. (LINE is ALWAYS Y+1 !!!)
-wire IncrementInterlaceRender           = InterlaceRender & (!bIsLineCommand);
-// So Start coordinate offset +0/+1 is only valid for RECT, TRIANGLE, FILL. It depends on the current field.
-wire renderYOffsetInterlace				= (IncrementInterlaceRender ? (RegY0[0] ^ GPU_REG_CurrentInterlaceField) : 1'b0);
 
 reg [31:0] regGpuInfo;
 
@@ -697,8 +688,6 @@ wire        outFIFO_read = ((((GPU_REG_DMADirection == DMA_GP0toCPU) && (!uncons
 // Pipeline FIFO read to validate data out (1 cycle latency)
 reg pReadFifoOut;
 reg pACK;
-reg firstRead;
-reg unconsummed;
 always @(posedge clk) begin
     if (i_nrst == 0) begin
         pReadFifoOut <= 1'd0;
@@ -718,8 +707,6 @@ always @(posedge clk) begin
 		pReadFifoOut <= outFIFO_read;
     end
 end
-
-wire [31:0] outFIFO_readV;
 
 //---------------------------------------------------------------
 //  Handling READ including pipelined latency for read result.
@@ -935,6 +922,12 @@ always @(*) begin
 	DMA_GP0toCPU : dmaDataRequest = gpuReadySendToCPU;	// Follow No$ specs, delegate signal logic to GPUSTAT.27 interpretation.
 	endcase
 end
+
+// If [DISABLE WRITE ON DISPLAY] + [INTERLACE] + [RESOLUTION==480] + [NOT A COPY COMMAND] : SPECIAL RENDERING MODE ENABLED
+wire GPU_DisplayEvenOddLinesInterlace	= VBlank ? 1'd0 : (GPU_REG_VerticalResolution ? GPU_REG_CurrentInterlaceField : currentLineOddEven);
+
+state_t currState,nextLogicalState;
+state_t nextState;
 
 assign reg1Out = {
                     // Default : 1480.2.000h
@@ -1424,6 +1417,17 @@ wire isDoubleLoad			= xCopyDirectionIncr ? dblLoadL2R : dblLoadR2L;
 wire isLongLine				= RegSizeW[9] | RegSizeW[10]; // At least >= 512
 
 
+//---------------------------------------------------------------------------------------------------
+// Stuff to handle INTERLACED RENDERING !!!
+//
+// [Interlace render generate 1 for primitive supporting it : LINE,RECT,TRIANGLE,FILL IF VALID]
+wire InterlaceRender					= DIP_Allow480i & ((!GPU_REG_DrawDisplayAreaOn) & GPU_REG_IsInterlaced) & GPU_REG_VerticalResolution & (!bIsCopyCommand);
+// But counter increment +2 is only valid for RECT,TRIANGLE,FILL. (LINE is ALWAYS Y+1 !!!)
+wire IncrementInterlaceRender           = InterlaceRender & (!bIsLineCommand);
+// So Start coordinate offset +0/+1 is only valid for RECT, TRIANGLE, FILL. It depends on the current field.
+wire renderYOffsetInterlace				= (IncrementInterlaceRender ? (RegY0[0] ^ GPU_REG_CurrentInterlaceField) : 1'b0);
+
+
 reg dir;
 reg memW0,memW1,memW2;
 
@@ -1632,9 +1636,6 @@ end
 wire tstRightEqu0 = maxTriDAX1[0] ? w0R[EQUMSB] : w0L[EQUMSB];
 wire tstRightEqu1 = maxTriDAX1[0] ? w1R[EQUMSB] : w1L[EQUMSB];
 wire tstRightEqu2 = maxTriDAX1[0] ? w2R[EQUMSB] : w2L[EQUMSB];
-
-state_t currState,nextLogicalState;
-state_t nextState;
 
 wire bStateLeave = (currState != nextState);
 

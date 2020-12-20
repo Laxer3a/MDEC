@@ -7,6 +7,7 @@ module GPU_DDR
     // DIP Switches to control
 	input			i_DIP_AllowDither,
 	input			i_DIP_ForceDither,
+	input			i_DIP_Allow480i,
     // --------------------------------------
 
     output			o_IRQRequest,
@@ -91,6 +92,7 @@ gpu	gpu_inst(
 
 	.DIP_AllowDither(i_DIP_AllowDither),
 	.DIP_ForceDither(i_DIP_ForceDither),
+	.DIP_Allow480i	(i_DIP_Allow480i),
 
 	.IRQRequest		(o_IRQRequest),
 
