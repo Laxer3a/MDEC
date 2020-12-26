@@ -22,8 +22,6 @@ u8 gBFRD;				// Not used yet
 // u8
 u8 gValueParam;
 
-
-
 // ===== 1F801801.0  W (HARDWARE)
 u8 gHasNewCommand;
 u8 gResetNewCommandFlag;
@@ -58,9 +56,9 @@ void	ResetBusy			()					{ gSetBusy = 0;					}
 
 void	WriteResponse		(u8 resp)			{ EXT_WriteResponse(resp);		}
 
-BOOL	IsOpen				()					{ lax_assert("NOT IMPLEMENTED."); }
+BOOL	IsOpen				()					{ return gIsOpen; }
 
-BOOL	HasMedia			()					{ lax_assert("NOT IMPLEMENTED."); }
+BOOL	HasMedia			()					{ lax_assert("NOT IMPLEMENTED."); return 0; }
 
 u32		ReadHW_TimerDIV8	() {
 	// 33.8 Mhz / 8.
@@ -70,4 +68,28 @@ u32		ReadHW_TimerDIV8	() {
 	return 100; 
 }
 
+void InitPorting() {
+	gSetIRQ			= 0;
+	gSetBusy		= 0;
+	gResetBusy		= 0;
+	gRequestParam	= 0;
+	gHasMedia		= 0;
+	gIsOpen			= 0;
 
+	gDataWrite		= 0;
+	gRequDataWrite	= 0;
+
+	gSMEN			= 0;
+	gBFWR			= 0;
+	gBFRD			= 0;
+
+	gValueParam		= 0;
+
+	gHasNewCommand	= 0;
+	gResetNewCommandFlag= 0;
+	gCommand		= 0;
+
+	gIsFifoParamEmpty = 0;
+	gINTSetBit		= 0;
+	gEnabledInt		= 0;
+}

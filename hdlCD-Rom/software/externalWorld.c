@@ -126,6 +126,10 @@ u8   CDROM_Read (int adr) {
 	case 3:
 		if (gIndex == 0 || gIndex == 2) { return ReadINTEnableReg(); }
 		else							{ return ReadINTFlagReg	 (); }
+	default:
+		// NEver arrive here but avoid warnings.
+		lax_assert("UNREACHABLE");
+		return 0;
 	}
 }
 
@@ -295,6 +299,7 @@ u8   ReadINTFlagReg		() {
 
     u8 flags = 0;
 	switch (gINTSetBit) {
+	case 0x00: flags = 0; break; // NONE OK ?
 	case 0x01: flags = 1; break; // READY_BIT
 	case 0x02: flags = 2; break; // COMPLETE_BIT
 	case 0x04: flags = 3; break; // ACK_BIT

@@ -43,6 +43,7 @@ u32		ReadHW_TimerDIV8	(); // 33.8 Mhz / 8.
 //
 // Run the firmware.
 //
+void	InitPorting				();
 void	InitFirmware			();
 void	EvaluateFirmware		();
 void	EvaluateFirmwareEndless	();

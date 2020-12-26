@@ -315,7 +315,12 @@ enum {
 
 u8 gDriveState;
 
-u8 maxTrackCount; // TODO
+u8 maxTrackCount = 0;
+u8 GetMaxTrackCount() {
+	// TODO load value of maxTrackCount.
+	lax_assert("UNIMPLEMENTED MAX TRACK COUNT");
+	return maxTrackCount;
+}
 
 // PSX SIDE PIN, ADR PIN ???
 // Later replace with IO pin reading.
@@ -325,18 +330,14 @@ typedef void (*sequenceF)(int);
 
 void Launch(int delay, sequenceF fct, int param) {
 	// TODO Register call back function when we reach a certain state or delay... (Param may change)
+	lax_assert("UNIMPLEMENTED Launch... delay ? state ?");
 }
 
-u8 CanReadMedia() { return IsOpen() || (!HasMedia());}
+BOOL CanReadMedia() { return IsOpen() || (!HasMedia());}
+BOOL IsAudioDisc () { lax_assert("UNIMPLEMENTED"); return 0; }
 
 void FifoResponse(u8 responseToWrite) {
 	WriteResponse(responseToWrite);
-}
-
-u8 checkParam(u8 paramCount) {
-	// TODO Send response when wrong number of parameters.
-
-	return (paramCount != gParamCnt); // True if not valid.
 }
 
 // To make code more compact if possible.
@@ -518,8 +519,6 @@ void commandInvalid(u8 errCode) {
 
 //0x01
 void commandGetStatus() {
-	if (checkParam(0)) { return; }
-
 	FifoResponseStatus();
 	if (CanReadMedia()) { // DuckStation
 		ssrStatus &= ~SHELL_OPEN; // Shell Close;
@@ -545,8 +544,6 @@ void commandSetLocation() {
 	u8 minute = BCDtoBinary(gParam[0]);
 	u8 second = BCDtoBinary(gParam[1]);
 	u8 frame  = BCDtoBinary(gParam[2]);
-
-	if (checkParam(3)) { return; }
 
 	// Probably AFTER error check.
 	ssrStatus &= ~READING; // Not reading.
@@ -590,7 +587,7 @@ void commandPlay() {
 
 //0x06
 void commandReadWithRetry(BOOL is1BCommand) {
-	if (!CanReadMedia) {
+	if (!CanReadMedia()) {
 		commandInvalid(ERROR_REASON_NOT_READY);
 	} else {
 		// Logic DuckStation
@@ -728,8 +725,6 @@ void commandSetFilter() {
 
 //0x0e
 void commandSetMode() {
-	if (checkParam(1)) { return; }
-
 	gDriveState = gParam[0];
 	FifoResponseStatus();
 	IRQAckPoll();
@@ -737,6 +732,7 @@ void commandSetMode() {
 
 //0x0f
 void commandGetParam() {
+	lax_assert("TODO IMPLEMENT");
 /* TODO
 
 	[DuckStation]
@@ -755,7 +751,7 @@ void commandGetParam() {
 /*
  */
 void commandGetLocationL() {
-	// TODO
+	lax_assert("TODO IMPLEMENT");
 	/* DuckStation
       if (!m_last_sector_header_valid)
       {
@@ -858,10 +854,8 @@ void commandGetTrackStart() {
 	u8 minute = 0xFF, second = 0xFF; // Invalid setup.
 	u8 trackID = gParam[0];
 
-	if (checkParam(1)) { return; }
-
 	if (CanReadMedia()) {
-		if (trackID > maxTrackCount) {
+		if (trackID > GetMaxTrackCount()) {
 			commandInvalid(ERROR_REASON_INVALID_ARGUMENT);
 		} else {
 			if (!trackID) {
@@ -924,8 +918,6 @@ void commandTest() {
 	u8 operation    = 0x19;
 	u8 suboperation = gParam[0];
 
-	if (checkParam(1)) { return; }
-
 	switch(suboperation) {
 	case 0x20:	commandTestControllerDate	();							break;
 	default:	commandUnimplemented		(operation, suboperation);	break;
@@ -947,16 +939,19 @@ void commandGetID(int sequ) {
 			// Drive Open
 			FifoResponse(0x11);
 			FifoResponse(0x80);
+
+			
+			lax_assert("UNIMPLEMENTED GetID");
 #if 0
 			IRQCompletePoll ?
 			IRQErrorPoll    ?
 			postInterrupt(5); // Avocado
 #endif
 			return;
-		} else if ( FALSE /*trackCount == 0 TODO */) {
+		} else if (!HasMedia()) {
 			// No Disc
 			specialCase = 0x40;
-		} else if ( FALSE /* isAudioDisc() TODO */ ) {
+		} else if (IsAudioDisc()) {
 			// Audio CD
 			specialCase = 0x90;
 		}
@@ -1000,6 +995,7 @@ void commandGetID(int sequ) {
 //TODO 0x1E
 void commandReadTOC() {
 	if (CanReadMedia()) {
+		lax_assert("UNIMPLEMENTED ReadTOC.");
 		/*	DuckStation
 
 			SendACKAndStat();
@@ -1012,15 +1008,15 @@ void commandReadTOC() {
 }
 
 void commandUnimplemented(u8 operation, u8 suboperation) {
-	// TODO
+	lax_assert("UNIMPLEMENTED commandUnimplemented error.");
 }
 
 void commandUnimplementedNoSub	(u8 operation) {
-	// TODO
+	lax_assert("UNIMPLEMENTED commandUnimplemented no sub error.");
 }
 
 void commandVideoCD				() {
-	// TODO
+	lax_assert("UNIMPLEMENTED commandUnimplemented no sub error.");
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -1028,7 +1024,7 @@ void commandVideoCD				() {
 // ----------------------------------------------------------------------------------------------
 
 void Ouput44100Hz(u8 isRight, s16 sample) {
-	// TODO
+	lax_assert("UNIMPLEMENTED Output 44.1Khz.");
 }
 
 s16 gOutput			[28<<8]; // Thats a LOT for STACK !!!
@@ -1317,7 +1313,7 @@ void decodeBlock(u8* sectorData, BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, s16
 	static const u32 WordsPerBlock    = 28;
 	             u32 Blocks           = is8bit ? 4 : 8;
 
-	for(int block = 0; block < Blocks; block++) {
+	for(u32 block = 0; block < Blocks; block++) {
 		 u8 isRight  = (block & 1);
 		 u8 header   = sectorData[address + 4 + block];
 		 u8 shift    = (header & 0x0f) > 12 ? 9 : (header & 0x0f);
@@ -1488,4 +1484,12 @@ void EvaluateFirmwareEndless() {
 	while (TRUE) {
 		EvaluateFirmware();
 	}
+}
+
+#include <stdio.h>
+void CDRomDebug() {
+	printf("-----------------------------------------------------\n");
+	printf("LID      : %s\n", IsOpen()   ? "OPEN" : "CLOSE");
+	printf("HasMedia : %s\n", HasMedia() ? "YES"  : "NO"   );
+	printf("NewCommand : ");
 }
