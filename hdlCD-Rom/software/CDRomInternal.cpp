@@ -13,34 +13,65 @@ void compareRead(u8 adr, u8 resExpect) {
 
 int main()
 {
-	initExternalWorld();
-	InitFirmware();
+	initExternalWorld	(); // Registers/FIFO simulation of HW
+	InitPorting			(); // Fake signals, Closed drive default.
+	InitFirmware		();	// Firmware internal variables.
 
-	CDROM_Write(0,0x01);
-	CDROM_Write(3,0x1F);
-	CDROM_Write(0,0x01);
-	CDROM_Write(2,0x1F);
-
-	compareRead(0,0x19);
-
-	CDROM_Write(0,0x01);
-	CDROM_Write(3,0x40);
-	CDROM_Write(0,0x00);
-	CDROM_Write(2,0x20);
-	CDROM_Write(1,0x19);
+	CDROM_Write(0, 0x01);
+	CDROM_Write(3, 0x1f);
+	//CDROM:W INTF: 0x1f
+	CDROM_Write(0, 0x01);
+	CDROM_Write(2, 0x1f);
+	//CDROM:W INTE: 0x1f
+	compareRead(0, 0x19);
+	//CDROM:R STATUS: 0x19
+	CDROM_Write(0, 0x01);
+	CDROM_Write(3, 0x40);
+	//CDROM:W INTF: 0x40
+	CDROM_Write(0, 0x00);
+	CDROM_Write(2, 0x20);
+	CDROM_Write(1, 0x19);
+	//CDROM: cmdTest(0x20) -> (0x94, 0x09, 0x19, 0xc0)
+	compareRead(0, 0x38);
 
 	EvaluateFirmware();
 
-	compareRead(0,0x38);
+	//CDROM:R STATUS: 0x38
+	CDROM_Write(0, 0x01);
+	compareRead(3, 0xe3);
+	//CDROM:R INTF: 0xe3
+	compareRead(1, 0x95);
+	//CDROM:R RESPONSE: 0x94
+	compareRead(1, 0x05);
+	//CDROM:R RESPONSE: 0x09
+	compareRead(1, 0x16);
+	//CDROM:R RESPONSE: 0x19
+	compareRead(1, 0xc1);
+	//CDROM:R RESPONSE: 0xc0
 
-	CDROM_Write(0,0x01);
-	compareRead(3,0xE3);
+	CDROM_Write(0, 0x01);
+	CDROM_Write(3, 0x07);
+	//CDROM:W INTF: 0x07
+	CDROM_Write(0, 0x00);
+	compareRead(0, 0x18);
+	//CDROM:R STATUS: 0x18
+	CDROM_Write(0, 0x01);
+	compareRead(3, 0xe0);
+	//CDROM:R INTF: 0xe0
+	CDROM_Write(0, 0x01);
+	CDROM_Write(3, 0x07);
+	//CDROM:W INTF: 0x07
+	CDROM_Write(0, 0x00);
+//	System Controller ROM Version 94/09/19 c0
+	CDROM_Write(0, 0x01);
+	CDROM_Write(3, 0x40);
+	//CDROM:W INTF: 0x40
+	CDROM_Write(0, 0x00);
+	CDROM_Write(1, 0x01);
+////	CDROM: cmdGetstat -> 0x02
 
-	                     // Old Version from Jakub CD-Rom drive.
-	compareRead(1,0x95); // 0x94 
-	compareRead(1,0x05); // 0x09
-	compareRead(1,0x16); // 0x19
-	compareRead(1,0xC1); // 0xC0
+	EvaluateFirmware();
+
 
     std::cout << "Hello World!\n";
 }
