@@ -354,17 +354,53 @@ u8 BCDtoBinary(u8 bcd) {
     return (hi*10) + lo;
 }
 
-// TODO avoid div/
+int div10(int n) {
+	if ((n < 0) || (n>=100)) { lax_assert("UNVERIFIED RANGE"); }
+
+	// Verified for 0..99 range out of div10.
+	int div10p = (n * 6553)>>16;
+	// if (div75p != div75) {
+	int count = div10p * 10;
+	int rem   = n - count;
+	if (rem >= 10)  { div10p++; }
+	return div10p;
+}
+
 // ==> u8[] Table 0..99 ?
 u8 toBCD(u8 value) {
-	return ((value / 10) << 4) | (value % 10);
+	int d10 = div10(value);		// / 10
+	int m10 = value - (d10*10);	// % 10
+	return (d10 << 4) | m10;
+}
+
+int div75(int n) {
+	if ((n < 0) || (n>=450000)) { lax_assert("UNVERIFIED RANGE"); }
+
+	// Verified for 0..449999 range from CD-Rom
+	int div75p = (n * 3496)>>18;
+	int count = div75p * 75;
+	int rem   = n - count;
+	if (rem < 0)   { div75p--; }
+	if (rem < -75) { div75p--; }
+	return div75p;
+}
+
+int div60(int n) {
+	if ((n < 0) || (n>=6001)) { lax_assert("UNVERIFIED RANGE"); }
+
+	// Verified for 0..6000 range out of div75.
+	int div60p = (n * 1092)>>16;
+	int count  = div60p * 60;
+	int rem    = n - count;
+	if (rem >= 60)  { div60p++; }
+	return div60p;
 }
 
 void fromLBA(int lba, u8* min, u8* sec, u8* frame) {
 	if((lba < 0) || (lba >= 450000) /*100 * 60 * 75*/)	{
 		*min = 0xFF; *sec = 0xFF; *frame = 0xFF;
 	} else {
-		int tmpDiv75   = (lba      / 75);
+		int tmpDiv75   = div75(lba);
 		int tmpDiv75_60= (tmpDiv75 / 60);
 
 		*min		= tmpDiv75_60;				/* % 100 NOT NEEDED !!!! GARANTEE 0..99 by IF*/

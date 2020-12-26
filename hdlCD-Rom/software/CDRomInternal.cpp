@@ -35,11 +35,12 @@ int main()
 
 	CDROM_Write(0,0x01);
 	compareRead(3,0xE3);
-	compareRead(1,0x94);
-	compareRead(1,0x09);
-	compareRead(1,0x19);
-	compareRead(1,0xC0);
 
+	                     // Old Version from Jakub CD-Rom drive.
+	compareRead(1,0x95); // 0x94 
+	compareRead(1,0x05); // 0x09
+	compareRead(1,0x16); // 0x19
+	compareRead(1,0xC1); // 0xC0
 
     std::cout << "Hello World!\n";
 }
