@@ -39,6 +39,15 @@ BOOL	HasMedia			();
 
 u32		ReadHW_TimerDIV8	(); // 33.8 Mhz / 8.
 
+
+//
+// Run the firmware.
+//
+void	InitFirmware			();
+void	EvaluateFirmware		();
+void	EvaluateFirmwareEndless	();
+
+
 void	lax_assert			(const char* str);
 
 #ifdef __cplusplus

@@ -330,7 +330,6 @@ void Launch(int delay, sequenceF fct, int param) {
 u8 CanReadMedia() { return IsOpen() || (!HasMedia());}
 
 void FifoResponse(u8 responseToWrite) {
-	// TODO
 	WriteResponse(responseToWrite);
 }
 
@@ -433,31 +432,10 @@ u8   ValidateParamSize			(u8 command) {
 	}
 }
 
-/*
-	switch (s_irqFlags & 7) {
-        case 1:
-            dataReady(); // COMMAND READ BINAIRE SECTEUR. 0x1B 0x06
-            break;
-        case 2:
-            complete();
-            break;
-        case 3:
-            acknowledge();
-            break;
-        case 4:
-            end();
-            break;
-        case 5:
-            discError();
-            break;
-    }
-
-*/
-
 void IRQCompletePoll() {
 	u8 mask = GetEnabledINT();
 	SetINT(2);
-	if (mask & (1<<1)) {
+	if (mask & (1<<1)) { // INT2 -> Bit 1
 		SetIRQ();
 	}
 }
@@ -465,7 +443,7 @@ void IRQCompletePoll() {
 void IRQAckPoll() {
 	u8 mask = GetEnabledINT();
 	SetINT(3);
-	if (mask & (1<<2)) {
+	if (mask & (1<<2)) { // INT3 -> Bit 2
 		SetIRQ();
 	}
 }
@@ -473,7 +451,7 @@ void IRQAckPoll() {
 void IRQErrorPoll() {
 	u8 mask = GetEnabledINT();
 	SetINT(5);
-	if (mask & (1<<4)) {
+	if (mask & (1<<4)) { // INT5 -> Bit 4
 		SetIRQ();
 	}
 }
@@ -1388,82 +1366,90 @@ void DecodeSectorXA(u8* sectorData) {
 	// monaural = !stereo;
 }
 
-void mainCDRoomLoop() {
-	u8 command;
+void EvaluateFirmware() {
 
+	if (DRV_Update(ReadHW_TimerDIV8())) {
+		// Something changed... State / Sector reading / etc...
+	}
+
+	// TODO : Decompressed ADPCM etc...
+
+	if (HasNewCommand()) {
+		u8 command;
+		SetBusy();
+		ResetHasNewCommand();
+		gParamCnt = 0;
+		command	 = ReadCommand();
+
+		// Pump the parameters locally.
+		while (!IsFifoParamEmpty()) {
+			// Signal to read from FIFO.
+			RequestParam(1);							// TODO : HW Detect transition to pop a SINGLE ITEM, (FIFO READ , NO FTFW !)
+			// Read value
+			gParam[gParamCnt++] = ReadValueParam();
+			RequestParam(0);							// Can be before Read for HW, but software check for flag.
+		}
+
+		if (ValidateParamSize(command)) {
+			switch(command) {
+			case 0x00: commandInvalid(ERROR_CODE_INVALID_COMMAND); break;
+			case 0x01: commandGetStatus();						break;
+			case 0x02: commandSetLocation();					break;
+			case 0x03: commandPlay();							break;
+			case 0x04: respStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_FastForward); /* commandFastForward(); */	break;
+			case 0x05: respStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_Rewind     ); /* commandRewind();		 */ break;
+			case 0x06: commandReadWithRetry	(FALSE);			break;
+			case 0x07: commandMotorOn		(0);				break;
+			case 0x08: commandStop			(0);				break;
+			case 0x09: commandPause			(0);				break;
+			case 0x0a: commandInitialize	(0);				break;
+			case 0x0b: commandMute();							break;
+			case 0x0c: commandUnmute();							break;
+			case 0x0d: commandSetFilter();						break;
+			case 0x0e: commandSetMode();						break;
+			case 0x0f: commandGetParam();						break;
+			case 0x10: commandGetLocationL();					break;
+			case 0x11: commandGetLocationPlaying();				break;
+			case 0x12: commandSetSession	(0);				break;
+			case 0x13: commandGetFirstAndLastTrackNumbers();	break;
+			case 0x14: commandGetTrackStart();					break;
+			case 0x15: commandSeek(FALSE);						break;
+			case 0x16: commandSeek(TRUE);						break;
+			case 0x17: commandInvalid(ERROR_CODE_INVALID_COMMAND);		break;  //SetClock
+			case 0x18: commandInvalid(ERROR_CODE_INVALID_COMMAND);		break;  //GetClock
+			case 0x19: commandTest();							break;
+			case 0x1a: commandGetID			(0);				break;
+			case 0x1b: commandReadWithRetry(TRUE);				break;
+			// 1c Unimplemented.
+			// 1d Unimplemented.
+			case 0x1e: commandReadTOC();						break;
+			case 0x1f: commandVideoCD();						break;
+			default: 
+				if (command >= 0x20 && command <= 0xFF) {
+					commandInvalid(ERROR_CODE_INVALID_COMMAND);
+				} else {
+					commandUnimplementedNoSub(command);
+				}
+				break;
+			}
+		} else {
+			commandInvalid(ERROR_REASON_INCORRECT_NUMBER_OF_PARAMETERS);
+		}
+	} else {
+		ResetBusy();
+	}
+}
+
+void InitFirmware() {
 	initDecoderADPCM();
 	DRV_Reset();
+}
+
+void EvaluateFirmwareEndless() {
+	InitFirmware();
 
 	// Infinite loop...
 	while (TRUE) {
-
-		if (DRV_Update(ReadHW_TimerDIV8())) {
-			// Something changed... State / Sector reading / etc...
-		}
-
-		// TODO : Decompressed ADPCM etc...
-
-		if (HasNewCommand()) {
-			SetBusy();										// TODO : HW clear Has New Command when Busy 0->1.
-			gParamCnt = 0;
-			command	 = ReadCommand();
-
-			// Pump the parameters locally.
-			while (!IsFifoParamEmpty()) {
-				// Signal to read from FIFO.
-				RequestParam(1);							// TODO : HW Detect transition to pop a SINGLE ITEM
-				RequestParam(0);							//        (FIFO READ , NO FTFW !)
-				// Read value
-				gParam[gParamCnt++] = ReadValueParam();
-			}
-
-			if (ValidateParamSize(command)) {
-				switch(command) {
-				case 0x00: commandInvalid(ERROR_CODE_INVALID_COMMAND); break;
-				case 0x01: commandGetStatus();						break;
-				case 0x02: commandSetLocation();					break;
-				case 0x03: commandPlay();							break;
-				case 0x04: respStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_FastForward); /* commandFastForward(); */	break;
-				case 0x05: respStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_Rewind     ); /* commandRewind();		 */ break;
-				case 0x06: commandReadWithRetry	(FALSE);			break;
-				case 0x07: commandMotorOn		(0);				break;
-				case 0x08: commandStop			(0);				break;
-				case 0x09: commandPause			(0);				break;
-				case 0x0a: commandInitialize	(0);				break;
-				case 0x0b: commandMute();							break;
-				case 0x0c: commandUnmute();							break;
-				case 0x0d: commandSetFilter();						break;
-				case 0x0e: commandSetMode();						break;
-				case 0x0f: commandGetParam();						break;
-				case 0x10: commandGetLocationL();					break;
-				case 0x11: commandGetLocationPlaying();				break;
-				case 0x12: commandSetSession	(0);				break;
-				case 0x13: commandGetFirstAndLastTrackNumbers();	break;
-				case 0x14: commandGetTrackStart();					break;
-				case 0x15: commandSeek(FALSE);						break;
-				case 0x16: commandSeek(TRUE);						break;
-				case 0x17: commandInvalid(ERROR_CODE_INVALID_COMMAND);		break;  //SetClock
-				case 0x18: commandInvalid(ERROR_CODE_INVALID_COMMAND);		break;  //GetClock
-				case 0x19: commandTest();							break;
-				case 0x1a: commandGetID			(0);				break;
-				case 0x1b: commandReadWithRetry(TRUE);				break;
-				// 1c Unimplemented.
-				// 1d Unimplemented.
-				case 0x1e: commandReadTOC();						break;
-				case 0x1f: commandVideoCD();						break;
-				default: 
-					if (command >= 0x20 && command <= 0xFF) {
-						commandInvalid(ERROR_CODE_INVALID_COMMAND);
-					} else {
-						commandUnimplementedNoSub(command);
-					}
-					break;
-				}
-			} else {
-				commandInvalid(ERROR_REASON_INCORRECT_NUMBER_OF_PARAMETERS);
-			}
-		} else {
-			ResetBusy();
-		}
+		EvaluateFirmware();
 	}
 }

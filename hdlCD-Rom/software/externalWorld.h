@@ -40,7 +40,6 @@ extern "C" {
 #endif
 
 	void initExternalWorld();
-
 	u8   CDROM_Read (int adr);
 	void CDROM_Write(int adr, u8 v);
 

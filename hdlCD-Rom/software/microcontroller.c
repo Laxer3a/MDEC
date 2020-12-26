@@ -28,49 +28,46 @@ u8 gValueParam;
 u8 gHasNewCommand;
 u8 gResetNewCommandFlag;
 u8 gCommand;
-BOOL	HasNewCommand		() { return gHasNewCommand;		}
-void	ResetHasNewCommand	() { gHasNewCommand = 0;		}
-u8		ReadCommand			() { return gCommand;			}
+BOOL	HasNewCommand		()					{ return gHasNewCommand;		}
+void	ResetHasNewCommand	()					{ gHasNewCommand = 0;			}
+u8		ReadCommand			()					{ return gCommand;				}
 
 // ===== 1F801802.0  Internal R
 u8 gIsFifoParamEmpty;
-BOOL	IsFifoParamEmpty	() { return gIsFifoParamEmpty;	}
-u8		ReadValueParam		() { return EXT_ReadParameter(); }
+BOOL	IsFifoParamEmpty	()					{ return gIsFifoParamEmpty;		}
+u8		ReadValueParam		()					{ return EXT_ReadParameter();	}
 // Real HW pin 1/0 + Transition detection in HW.
-void	RequestParam		(BOOL readOnOff) { }
+void	RequestParam		(BOOL readOnOff)	{ gRequestParam = readOnOff;	}
 
 // ===== 1F801802.0  Internal R
 u8 gINTSetBit;
 u8 gEnabledInt;
-u8		GetEnabledINT		() { return gEnabledInt; }
+u8		GetEnabledINT		()					{ return gEnabledInt;			}
 
 void	SetINT				(int id) {
 	if (gINTSetBit != 0) { lax_assert("WAS NOT ACK !!!"); }
-	gINTSetBit = 1<<id;
+	if (id == 0) { lax_assert("ID ZERO SHIFT TRICK FAIL. (id-1)"); }
+	gINTSetBit = 1<<(id-1);
 }
 
-void	SetIRQ				() {
-	gSetIRQ = 1;
-}
+void	SetIRQ				()					{ gSetIRQ = 1;					}
 
-void	SetBusy				() {
-}
+void	SetBusy				()					{ gSetBusy = 1;					}
 
-void	ResetBusy			() {
-}
+void	ResetBusy			()					{ gSetBusy = 0;					}
 
-void	WriteResponse		(u8 resp) {
-}
+void	WriteResponse		(u8 resp)			{ EXT_WriteResponse(resp);		}
 
-BOOL	IsOpen				() {
-}
+BOOL	IsOpen				()					{ lax_assert("NOT IMPLEMENTED."); }
 
-BOOL	HasMedia			() {
-}
+BOOL	HasMedia			()					{ lax_assert("NOT IMPLEMENTED."); }
 
 u32		ReadHW_TimerDIV8	() {
 	// 33.8 Mhz / 8.
-	return 0;
+	// For now we advance at 100 cycle at 4.225 Mhz => 0.00002366863905325444 sec.
+	//												=> 0.02366863905325444    msec
+	//												=> 23.66863905325444      microsec
+	return 100; 
 }
 
 

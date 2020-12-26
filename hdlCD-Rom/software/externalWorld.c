@@ -29,12 +29,13 @@ u8 respFIFO[16];
 u8 respRDIndex = 0;
 u8 respWRIndex = 0;
 u8 isRespEmpty() { return (respWRIndex == respRDIndex) ? 1:0 ; }
+u8 isRespFull()  { return (((respWRIndex+1 & 0xF)) == respRDIndex) ? 1 : 0; }
 
-u8 dataFIFO[2352];
+u8 dataFIFO[8192];
 u16 dataRDIndex = 0;
 u16 dataWRIndex = 0;
 u8 isDataEmpty() { return (dataWRIndex == dataRDIndex) ? 1:0 ; }
-u8 isDataFull()  { return (((dataWRIndex+1 & 0xF)) == dataRDIndex) ? 1 : 0; }
+u8 isDataFull()  { return (((dataWRIndex+1 & 0x1FFF)) == dataRDIndex) ? 1 : 0; }
 
 // ----------------------------------------------------------
 extern u8 gCommand;				// Command written
@@ -144,6 +145,7 @@ void WriteCommand		(u8 command_) {
 // ===== 1F801801.1  W
 void WriteSoundMapDataOut(u8 v) {
 	// Data Audio Input path from outside instead of CD-ROM.
+	lax_assert("NOT IMPLEMENTED.");
 }
 
 // ===== 1F801801.2  W
@@ -161,6 +163,8 @@ void WriteSoundCodingInfo(u8 v) {
 	gIs18_9Khz = v & (1<<2);
 	gIs8BitSmp = v & (1<<4);
 	gIsEmphasis= v & (1<<6);
+
+	lax_assert("NOT IMPLEMENTED.");
 }
 
 // ===== 1F801801.3  W
@@ -178,6 +182,14 @@ u8   ReadResponse		() {
 	return v;
 }
 
+void EXT_WriteResponse(u8 value) {
+	if (!isRespFull()) {
+		respFIFO[respWRIndex]	= value;
+		respWRIndex				= (respWRIndex + 1) & 0xF;
+		// None for now : gIsFifoRespEmpty		= 0;
+	}
+}
+
 // ########################################
 
 // ===== 1F801802.0  W
@@ -185,8 +197,8 @@ void WriteParameter		(u8 param  ) {
 	// Done by HW.
 	if (!isParamFull()) {
 		paramFIFO[paramWRIndex]	= param;
-		paramWRIndex				= (paramWRIndex + 1) & 0xF;
-		gIsFifoParamEmpty			= 0;
+		paramWRIndex			= (paramWRIndex + 1) & 0xF;
+		gIsFifoParamEmpty		= 0;
 	}
 }
 
@@ -194,7 +206,6 @@ u8 EXT_ReadParameter() {
 	// Real HW will detect transition req 0->1 to create a flag.
 	// CPU will just set a pin 0->1 then 1->0 when completed.
 	if (!gIsFifoParamEmpty && gRequestParam) {
-		gRequestParam	= 0;
 		gValueParam		= paramFIFO[paramRDIndex];
 		paramRDIndex	= (paramRDIndex + 1) & 0xF;
 		gIsFifoParamEmpty=(paramRDIndex == paramWRIndex);
@@ -297,7 +308,7 @@ u8   ReadINTFlagReg		() {
 	u8 err = (gINTSetBit & ERROR_BIT)>>4;
 	u8 end = (gINTSetBit & END_BIT  )>>3;
 
-	return gINTSetBit| (err<<4) | (end<<3) | (7<<5);
+	return flags | (err<<4) | (end<<3) | (7<<5);
 }
 
 #include <stdio.h>

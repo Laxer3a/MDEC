@@ -7,12 +7,14 @@
 void compareRead(u8 adr, u8 resExpect) {
 	u8 v = CDROM_Read(adr);
 	if (v != resExpect) {
-		printf("ERROR\n");
+		printf("ERROR Got:%x Expect:%x\n", v,resExpect);
 	}
 }
+
 int main()
 {
 	initExternalWorld();
+	InitFirmware();
 
 	CDROM_Write(0,0x01);
 	CDROM_Write(3,0x1F);
@@ -26,6 +28,8 @@ int main()
 	CDROM_Write(0,0x00);
 	CDROM_Write(2,0x20);
 	CDROM_Write(1,0x19);
+
+	EvaluateFirmware();
 
 	compareRead(0,0x38);
 
