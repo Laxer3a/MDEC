@@ -154,34 +154,34 @@ wire [3:0] cpuWrtCRGB	= {4{i_WritReg}} & { accCRGB, accCRGB2, accCRGB1 , accCRGB
 always @(posedge i_clk)
 begin
 	if (i_nRst == 1'b0) begin
-		CRGB0.r = 8'd0; CRGB1.r = 8'd0; CRGB2.r = 8'd0; CRGB.r = 8'd0;
-		CRGB0.g = 8'd0; CRGB1.g = 8'd0; CRGB2.g = 8'd0; CRGB.g = 8'd0;
-		CRGB0.b = 8'd0; CRGB1.b = 8'd0; CRGB2.b = 8'd0; CRGB.b = 8'd0;
-		CRGB0.c = 8'd0; CRGB1.c = 8'd0; CRGB2.c = 8'd0; CRGB.c = 8'd0;
+		CRGB0.r <= 8'd0; CRGB1.r <= 8'd0; CRGB2.r <= 8'd0; CRGB.r <= 8'd0;
+		CRGB0.g <= 8'd0; CRGB1.g <= 8'd0; CRGB2.g <= 8'd0; CRGB.g <= 8'd0;
+		CRGB0.b <= 8'd0; CRGB1.b <= 8'd0; CRGB2.b <= 8'd0; CRGB.b <= 8'd0;
+		CRGB0.c <= 8'd0; CRGB1.c <= 8'd0; CRGB2.c <= 8'd0; CRGB.c <= 8'd0;
 	end else begin
 		// R Fifo
-		if (i_wb.pushR | cpuWrtCRGB[0]) CRGB0.r = i_wb.pushR ? CRGB1.r   : i_dataIn[ 7: 0]; // R
-		if (i_wb.pushR | cpuWrtCRGB[1]) CRGB1.r = i_wb.pushR ? CRGB2.r   : i_dataIn[ 7: 0]; // R
-		if (i_wb.pushR | cpuWrtCRGB[2]) CRGB2.r = i_wb.pushR ? gteWR.colV: i_dataIn[ 7: 0]; // R
+		if (i_wb.pushR | cpuWrtCRGB[0]) CRGB0.r <= i_wb.pushR ? CRGB1.r   : i_dataIn[ 7: 0]; // R
+		if (i_wb.pushR | cpuWrtCRGB[1]) CRGB1.r <= i_wb.pushR ? CRGB2.r   : i_dataIn[ 7: 0]; // R
+		if (i_wb.pushR | cpuWrtCRGB[2]) CRGB2.r <= i_wb.pushR ? gteWR.colV: i_dataIn[ 7: 0]; // R
 		// G Fifo
-		if (i_wb.pushG | cpuWrtCRGB[0]) CRGB0.g = i_wb.pushG ? CRGB1.g   : i_dataIn[15: 8]; // G
-		if (i_wb.pushG | cpuWrtCRGB[1]) CRGB1.g = i_wb.pushG ? CRGB2.g   : i_dataIn[15: 8]; // G
-		if (i_wb.pushG | cpuWrtCRGB[2]) CRGB2.g = i_wb.pushG ? gteWR.colV: i_dataIn[15: 8]; // G
+		if (i_wb.pushG | cpuWrtCRGB[0]) CRGB0.g <= i_wb.pushG ? CRGB1.g   : i_dataIn[15: 8]; // G
+		if (i_wb.pushG | cpuWrtCRGB[1]) CRGB1.g <= i_wb.pushG ? CRGB2.g   : i_dataIn[15: 8]; // G
+		if (i_wb.pushG | cpuWrtCRGB[2]) CRGB2.g <= i_wb.pushG ? gteWR.colV: i_dataIn[15: 8]; // G
 		// B    Fifo
 		// Code Fifo (Move on BLUE)
-		if (i_wb.pushB | cpuWrtCRGB[0]) CRGB0.b = i_wb.pushB ? CRGB1.b   : i_dataIn[23:16]; // B
-		if (i_wb.pushB | cpuWrtCRGB[1]) CRGB1.b = i_wb.pushB ? CRGB2.b   : i_dataIn[23:16]; // B
-		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.b = i_wb.pushB ? gteWR.colV: i_dataIn[23:16]; // B
-		if (i_wb.pushB | cpuWrtCRGB[0]) CRGB0.c = i_wb.pushB ? CRGB1.c   : i_dataIn[31:24]; // Code
-		if (i_wb.pushB | cpuWrtCRGB[1]) CRGB1.c = i_wb.pushB ? CRGB2.c   : i_dataIn[31:24]; // Code
-		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.c = i_wb.pushB ? CRGB.c    : i_dataIn[31:24]; // Code
+		if (i_wb.pushB | cpuWrtCRGB[0]) CRGB0.b <= i_wb.pushB ? CRGB1.b   : i_dataIn[23:16]; // B
+		if (i_wb.pushB | cpuWrtCRGB[1]) CRGB1.b <= i_wb.pushB ? CRGB2.b   : i_dataIn[23:16]; // B
+		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.b <= i_wb.pushB ? gteWR.colV: i_dataIn[23:16]; // B
+		if (i_wb.pushB | cpuWrtCRGB[0]) CRGB0.c <= i_wb.pushB ? CRGB1.c   : i_dataIn[31:24]; // Code
+		if (i_wb.pushB | cpuWrtCRGB[1]) CRGB1.c <= i_wb.pushB ? CRGB2.c   : i_dataIn[31:24]; // Code
+		if (i_wb.pushB | cpuWrtCRGB[2]) CRGB2.c <= i_wb.pushB ? CRGB.c    : i_dataIn[31:24]; // Code
 		
 		// Cache codeReg
 		if (cpuWrtCRGB[3]) begin
-			CRGB.r = i_dataIn[ 7: 0];
-			CRGB.g = i_dataIn[15: 8];
-			CRGB.b = i_dataIn[23:16];
-			CRGB.c = i_dataIn[31:24];
+			CRGB.r <= i_dataIn[ 7: 0];
+			CRGB.g <= i_dataIn[15: 8];
+			CRGB.b <= i_dataIn[23:16];
+			CRGB.c <= i_dataIn[31:24];
 		end
 	end
 end
@@ -213,23 +213,23 @@ wire [15:0] dataPathSZ	= i_WritReg ? i_dataIn[15: 0] : gteWR.OTZV;
 always @(posedge i_clk)
 begin
 	if (i_nRst == 1'b0) begin
-		SX0 = 16'd0; SX1 = 16'd0; SX2 = 16'd0;
-		SY0 = 16'd0; SY1 = 16'd0; SY2 = 16'd0;
-		SZ0 = 16'd0; SZ1 = 16'd0; SZ2 = 16'd0; SZ3 = 16'd0;
+		SX0 <= 16'd0; SX1 <= 16'd0; SX2 <= 16'd0;
+		SY0 <= 16'd0; SY1 <= 16'd0; SY2 <= 16'd0;
+		SZ0 <= 16'd0; SZ1 <= 16'd0; SZ2 <= 16'd0; SZ3 <= 16'd0;
 	end else begin
 		// SX Fifo
-		if (wrtFSPX | cpuWrtSXY[0]) SX0 = wrtFSPX ? SX1 : i_dataIn[15: 0];
-		if (wrtFSPX | cpuWrtSXY[1]) SX1 = wrtFSPX ? SX2 : i_dataIn[15: 0];
-		if (wrtFSPX | cpuWrtSXY[2]) SX2 = dataPathSX;
+		if (wrtFSPX | cpuWrtSXY[0]) SX0 <= wrtFSPX ? SX1 : i_dataIn[15: 0];
+		if (wrtFSPX | cpuWrtSXY[1]) SX1 <= wrtFSPX ? SX2 : i_dataIn[15: 0];
+		if (wrtFSPX | cpuWrtSXY[2]) SX2 <= dataPathSX;
 		// SY Fifo
-		if (wrtFSPY | cpuWrtSXY[0]) SY0 = wrtFSPY ? SY1 : i_dataIn[31:16];
-		if (wrtFSPY | cpuWrtSXY[1]) SY1 = wrtFSPY ? SY2 : i_dataIn[31:16];
-		if (wrtFSPY | cpuWrtSXY[2]) SY2 = dataPathSY;
+		if (wrtFSPY | cpuWrtSXY[0]) SY0 <= wrtFSPY ? SY1 : i_dataIn[31:16];
+		if (wrtFSPY | cpuWrtSXY[1]) SY1 <= wrtFSPY ? SY2 : i_dataIn[31:16];
+		if (wrtFSPY | cpuWrtSXY[2]) SY2 <= dataPathSY;
 		// SZ Fifo : No$ spec wrong : GTE ONLY FIFO. Not CPU SIDE !
-		if (wrtFSPZ | cpuWrtSZ [0]) SZ0 = wrtFSPZ ? SZ1 : i_dataIn[15: 0];
-		if (wrtFSPZ | cpuWrtSZ [1]) SZ1 = wrtFSPZ ? SZ2 : i_dataIn[15: 0];
-		if (wrtFSPZ | cpuWrtSZ [2]) SZ2 = wrtFSPZ ? SZ3 : i_dataIn[15: 0];
-		if (wrtFSPZ | cpuWrtSZ [3]) SZ3 = dataPathSZ;
+		if (wrtFSPZ | cpuWrtSZ [0]) SZ0 <= wrtFSPZ ? SZ1 : i_dataIn[15: 0];
+		if (wrtFSPZ | cpuWrtSZ [1]) SZ1 <= wrtFSPZ ? SZ2 : i_dataIn[15: 0];
+		if (wrtFSPZ | cpuWrtSZ [2]) SZ2 <= wrtFSPZ ? SZ3 : i_dataIn[15: 0];
+		if (wrtFSPZ | cpuWrtSZ [3]) SZ3 <= dataPathSZ;
 	end
 end
 
@@ -244,49 +244,49 @@ wire [15:0] B16 = { 4'd0 , i_dataIn[14:10] , 7'd0 };
 always @(posedge i_clk)
 begin
 	if (i_nRst == 1'b0) begin
-		OTZ = 16'd0;
-		IR0 = 16'd0; IR1 = 16'd0; IR2 = 16'd0; IR3 = 16'd0;
-		MAC0= 32'd0; MAC1= 32'd0; MAC2= 32'd0; MAC3= 32'd0;
-		FLAGS = 19'd0;
+		OTZ <= 16'd0;
+		IR0 <= 16'd0; IR1 <= 16'd0; IR2 <= 16'd0; IR3 <= 16'd0;
+		MAC0<= 32'd0; MAC1<= 32'd0; MAC2<= 32'd0; MAC3<= 32'd0;
+		FLAGS <= 19'd0;
 	end else begin
 		// OTZ
-		if (((i_regID == DR_OTZ_) & i_WritReg) | i_wb.wrOTZ  ) OTZ = i_wb.wrOTZ   ? gteWR.OTZV : i_dataIn[15: 0];
+		if (((i_regID == DR_OTZ_) & i_WritReg) | i_wb.wrOTZ  ) OTZ <= i_wb.wrOTZ   ? gteWR.OTZV : i_dataIn[15: 0];
 		// IRO,IR1,IR2,IR3
-		if (((i_regID == DR_IR0_) & i_WritReg) | i_wb.wrIR[0]) IR0 = i_wb.wrIR[0] ? gteWR.IR0  : i_dataIn[15: 0];
+		if (((i_regID == DR_IR0_) & i_WritReg) | i_wb.wrIR[0]) IR0 <= i_wb.wrIR[0] ? gteWR.IR0  : i_dataIn[15: 0];
 		if (((i_regID == DR_IR1_) & i_WritReg) | wrIRGB | i_wb.wrIR[1]) begin
 			if (wrIRGB) begin
-				IR1 = R16;
+				IR1 <= R16;
 			end else begin
-				IR1 = i_wb.wrIR[1] ? gteWR.IR13 : i_dataIn[15: 0];
+				IR1 <= i_wb.wrIR[1] ? gteWR.IR13 : i_dataIn[15: 0];
 			end
 		end
 		if (((i_regID == DR_IR2_) & i_WritReg) | wrIRGB | i_wb.wrIR[2]) begin
 			if (wrIRGB) begin
-				IR2 = G16;
+				IR2 <= G16;
 			end else begin
-				IR2 = i_wb.wrIR[2] ? gteWR.IR13 : i_dataIn[15: 0];
+				IR2 <= i_wb.wrIR[2] ? gteWR.IR13 : i_dataIn[15: 0];
 			end
 		end
 		if (((i_regID == DR_IR3_) & i_WritReg) | wrIRGB | i_wb.wrIR[3]) begin
 			if (wrIRGB) begin
-				IR3 = B16;
+				IR3 <= B16;
 			end else begin
-				IR3 = i_wb.wrIR[3] ? gteWR.IR13 : i_dataIn[15: 0];
+				IR3 <= i_wb.wrIR[3] ? gteWR.IR13 : i_dataIn[15: 0];
 			end
 		end
 		// MAC0,MAC1,MAC2,MAC3
-		if (((i_regID == DR_MAC0) & i_WritReg) | i_wb.wrMAC[0]) MAC0 = i_wb.wrMAC[0] ? gteWR.MAC0  : i_dataIn;
-		if (((i_regID == DR_MAC1) & i_WritReg) | i_wb.wrMAC[1]) MAC1 = i_wb.wrMAC[1] ? gteWR.MAC13 : i_dataIn;
-		if (((i_regID == DR_MAC2) & i_WritReg) | i_wb.wrMAC[2]) MAC2 = i_wb.wrMAC[2] ? gteWR.MAC13 : i_dataIn;
-		if (((i_regID == DR_MAC3) & i_WritReg) | i_wb.wrMAC[3]) MAC3 = i_wb.wrMAC[3] ? gteWR.MAC13 : i_dataIn;
+		if (((i_regID == DR_MAC0) & i_WritReg) | i_wb.wrMAC[0]) MAC0 <= i_wb.wrMAC[0] ? gteWR.MAC0  : i_dataIn;
+		if (((i_regID == DR_MAC1) & i_WritReg) | i_wb.wrMAC[1]) MAC1 <= i_wb.wrMAC[1] ? gteWR.MAC13 : i_dataIn;
+		if (((i_regID == DR_MAC2) & i_WritReg) | i_wb.wrMAC[2]) MAC2 <= i_wb.wrMAC[2] ? gteWR.MAC13 : i_dataIn;
+		if (((i_regID == DR_MAC3) & i_WritReg) | i_wb.wrMAC[3]) MAC3 <= i_wb.wrMAC[3] ? gteWR.MAC13 : i_dataIn;
 		
 		if ((i_regID == CR_FLAGS___) & i_WritReg) begin
-			FLAGS = i_dataIn[30:12];
+			FLAGS <= i_dataIn[30:12];
 		end else begin
 			if (i_loadInstr) begin
-				FLAGS = gteWR.updateFlags;
+				FLAGS <= gteWR.updateFlags;
 			end else begin
-				FLAGS = FLAGS | gteWR.updateFlags; 
+				FLAGS <= FLAGS | gteWR.updateFlags; 
 			end
 		end
 	end
@@ -299,128 +299,128 @@ end
 always @(posedge i_clk)
 begin
 	if (i_nRst == 1'b0) begin
-		R11 = 16'd0; R12 = 16'd0; R13 = 16'd0;
-		R21 = 16'd0; R22 = 16'd0; R23 = 16'd0;
-		R31 = 16'd0; R32 = 16'd0; R33 = 16'd0;
-		L11 = 16'd0; L12 = 16'd0; L13 = 16'd0;
-		L21 = 16'd0; L22 = 16'd0; L23 = 16'd0;
-		L31 = 16'd0; L32 = 16'd0; L33 = 16'd0;
-		LR1 = 16'd0; LR2 = 16'd0; LR3 = 16'd0;
-		LG1 = 16'd0; LG2 = 16'd0; LG3 = 16'd0;
-		LB1 = 16'd0; LB2 = 16'd0; LB3 = 16'd0;
+		R11 <= 16'd0; R12 <= 16'd0; R13 <= 16'd0;
+		R21 <= 16'd0; R22 <= 16'd0; R23 <= 16'd0;
+		R31 <= 16'd0; R32 <= 16'd0; R33 <= 16'd0;
+		L11 <= 16'd0; L12 <= 16'd0; L13 <= 16'd0;
+		L21 <= 16'd0; L22 <= 16'd0; L23 <= 16'd0;
+		L31 <= 16'd0; L32 <= 16'd0; L33 <= 16'd0;
+		LR1 <= 16'd0; LR2 <= 16'd0; LR3 <= 16'd0;
+		LG1 <= 16'd0; LG2 <= 16'd0; LG3 <= 16'd0;
+		LB1 <= 16'd0; LB2 <= 16'd0; LB3 <= 16'd0;
 				
-		H   = 16'd0; DQA = 16'd0;
-		ZSF3= 16'd0; ZSF4= 16'd0;
+		H   <= 16'd0; DQA <= 16'd0;
+		ZSF3<= 16'd0; ZSF4<= 16'd0;
 		
-		TRX = 32'd0; TRY = 32'd0; TRZ = 32'd0;
-		RBK = 32'd0; GBK = 32'd0; BBK = 32'd0;
-		RFC = 32'd0; GFC = 32'd0; BFC = 32'd0;
+		TRX <= 32'd0; TRY <= 32'd0; TRZ <= 32'd0;
+		RBK <= 32'd0; GBK <= 32'd0; BBK <= 32'd0;
+		RFC <= 32'd0; GFC <= 32'd0; BFC <= 32'd0;
 		
-		OFX = 32'd0; OFY = 32'd0;
-		DQB = 32'd0;
+		OFX <= 32'd0; OFY <= 32'd0;
+		DQB <= 32'd0;
 		
-		RES1 = 32'd0;
-		REG_lzcs = 32'd0;
+		RES1 <= 32'd0;
+		REG_lzcs <= 32'd0;
 		
-		VY0 = 16'd0; VX0 = 16'd0; VZ0 = 16'd0;
-		VY1 = 16'd0; VX1 = 16'd0; VZ1 = 16'd0;
-		VY2 = 16'd0; VX2 = 16'd0; VZ2 = 16'd0;
+		VY0 <= 16'd0; VX0 <= 16'd0; VZ0 <= 16'd0;
+		VY1 <= 16'd0; VX1 <= 16'd0; VZ1 <= 16'd0;
+		VY2 <= 16'd0; VX2 <= 16'd0; VZ2 <= 16'd0;
 		
 	end else begin
 		// VX0,VY0,VZ0
-		if ((i_regID == DR_VXY0) & i_WritReg) VY0 = i_dataIn[31:16];
-		if ((i_regID == DR_VXY0) & i_WritReg) VX0 = i_dataIn[15: 0];
-		if ((i_regID == DR_VZ0_) & i_WritReg) VZ0 = i_dataIn[15: 0];
+		if ((i_regID == DR_VXY0) & i_WritReg) VY0 <= i_dataIn[31:16];
+		if ((i_regID == DR_VXY0) & i_WritReg) VX0 <= i_dataIn[15: 0];
+		if ((i_regID == DR_VZ0_) & i_WritReg) VZ0 <= i_dataIn[15: 0];
 		// VX1,VY1,VZ1
-		if ((i_regID == DR_VXY1) & i_WritReg) VY1 = i_dataIn[31:16];
-		if ((i_regID == DR_VXY1) & i_WritReg) VX1 = i_dataIn[15: 0];
-		if ((i_regID == DR_VZ1_) & i_WritReg) VZ1 = i_dataIn[15: 0];
+		if ((i_regID == DR_VXY1) & i_WritReg) VY1 <= i_dataIn[31:16];
+		if ((i_regID == DR_VXY1) & i_WritReg) VX1 <= i_dataIn[15: 0];
+		if ((i_regID == DR_VZ1_) & i_WritReg) VZ1 <= i_dataIn[15: 0];
 		// VX2,VY2,VZ2
-		if ((i_regID == DR_VXY2) & i_WritReg) VY2 = i_dataIn[31:16];
-		if ((i_regID == DR_VXY2) & i_WritReg) VX2 = i_dataIn[15: 0];
-		if ((i_regID == DR_VZ2_) & i_WritReg) VZ2 = i_dataIn[15: 0];
+		if ((i_regID == DR_VXY2) & i_WritReg) VY2 <= i_dataIn[31:16];
+		if ((i_regID == DR_VXY2) & i_WritReg) VX2 <= i_dataIn[15: 0];
+		if ((i_regID == DR_VZ2_) & i_WritReg) VZ2 <= i_dataIn[15: 0];
 		// ------------------------------------------------------
 		if ((i_regID == CR_RT11RT12) & i_WritReg) begin
-			R12 = i_dataIn[31:16];
-			R11 = i_dataIn[15: 0];
+			R12 <= i_dataIn[31:16];
+			R11 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_RT13RT21) & i_WritReg) begin
-			R21 = i_dataIn[31:16];
-			R13 = i_dataIn[15: 0];
+			R21 <= i_dataIn[31:16];
+			R13 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_RT22RT23) & i_WritReg) begin
-			R23 = i_dataIn[31:16];
-			R22 = i_dataIn[15: 0];
+			R23 <= i_dataIn[31:16];
+			R22 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_RT31RT32) & i_WritReg) begin
-			R32 = i_dataIn[31:16];
-			R31 = i_dataIn[15: 0];
+			R32 <= i_dataIn[31:16];
+			R31 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_RT33____) & i_WritReg) begin
-			R33 = i_dataIn[15: 0];
+			R33 <= i_dataIn[15: 0];
 		end
 		// ------------------------------------------------------
 		if ((i_regID == CR_L11L12__) & i_WritReg) begin
-			L12 = i_dataIn[31:16];
-			L11 = i_dataIn[15: 0];
+			L12 <= i_dataIn[31:16];
+			L11 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_L13L21__) & i_WritReg) begin
-			L21 = i_dataIn[31:16];
-			L13 = i_dataIn[15: 0];
+			L21 <= i_dataIn[31:16];
+			L13 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_L22L23__) & i_WritReg) begin
-			L23 = i_dataIn[31:16];
-			L22 = i_dataIn[15: 0];
+			L23 <= i_dataIn[31:16];
+			L22 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_L31L32__) & i_WritReg) begin
-			L32 = i_dataIn[31:16];
-			L31 = i_dataIn[15: 0];
+			L32 <= i_dataIn[31:16];
+			L31 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_L33_____) & i_WritReg) begin
-			L33 = i_dataIn[15: 0];
+			L33 <= i_dataIn[15: 0];
 		end
 		// ------------------------------------------------------
 		if ((i_regID == CR_LR1LR2__) & i_WritReg) begin
-			LR2 = i_dataIn[31:16];
-			LR1 = i_dataIn[15: 0];
+			LR2 <= i_dataIn[31:16];
+			LR1 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_LR3LG1__) & i_WritReg) begin
-			LG1 = i_dataIn[31:16];
-			LR3 = i_dataIn[15: 0];
+			LG1 <= i_dataIn[31:16];
+			LR3 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_LG2LG3__) & i_WritReg) begin
-			LG3 = i_dataIn[31:16];
-			LG2 = i_dataIn[15: 0];
+			LG3 <= i_dataIn[31:16];
+			LG2 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_LB1LB2__) & i_WritReg) begin
-			LB2 = i_dataIn[31:16];
-			LB1 = i_dataIn[15: 0];
+			LB2 <= i_dataIn[31:16];
+			LB1 <= i_dataIn[15: 0];
 		end
 		if ((i_regID == CR_LB3_____) & i_WritReg) begin
-			LB3 = i_dataIn[15: 0];
+			LB3 <= i_dataIn[15: 0];
 		end
 		// ------------------------------------------------------
-		if ((i_regID == CR_H_______) & i_WritReg) H   = i_dataIn[15:0];
-		if ((i_regID == CR_DQA_____) & i_WritReg) DQA = i_dataIn[15:0];
-		if ((i_regID == CR_ZSF3____) & i_WritReg) ZSF3= i_dataIn[15:0];
-		if ((i_regID == CR_ZSF4____) & i_WritReg) ZSF4= i_dataIn[15:0];
+		if ((i_regID == CR_H_______) & i_WritReg) H   <= i_dataIn[15:0];
+		if ((i_regID == CR_DQA_____) & i_WritReg) DQA <= i_dataIn[15:0];
+		if ((i_regID == CR_ZSF3____) & i_WritReg) ZSF3<= i_dataIn[15:0];
+		if ((i_regID == CR_ZSF4____) & i_WritReg) ZSF4<= i_dataIn[15:0];
 		
-		if ((i_regID == CR_TRX_____) & i_WritReg) TRX = i_dataIn;
-		if ((i_regID == CR_TRY_____) & i_WritReg) TRY = i_dataIn;
-		if ((i_regID == CR_TRZ_____) & i_WritReg) TRZ = i_dataIn;
-		if ((i_regID == CR_RBK_____) & i_WritReg) RBK = i_dataIn;
-		if ((i_regID == CR_GBK_____) & i_WritReg) GBK = i_dataIn;
-		if ((i_regID == CR_BBK_____) & i_WritReg) BBK = i_dataIn;
-		if ((i_regID == CR_RFC_____) & i_WritReg) RFC = i_dataIn;
-		if ((i_regID == CR_GFC_____) & i_WritReg) GFC = i_dataIn;
-		if ((i_regID == CR_BFC_____) & i_WritReg) BFC = i_dataIn;
+		if ((i_regID == CR_TRX_____) & i_WritReg) TRX <= i_dataIn;
+		if ((i_regID == CR_TRY_____) & i_WritReg) TRY <= i_dataIn;
+		if ((i_regID == CR_TRZ_____) & i_WritReg) TRZ <= i_dataIn;
+		if ((i_regID == CR_RBK_____) & i_WritReg) RBK <= i_dataIn;
+		if ((i_regID == CR_GBK_____) & i_WritReg) GBK <= i_dataIn;
+		if ((i_regID == CR_BBK_____) & i_WritReg) BBK <= i_dataIn;
+		if ((i_regID == CR_RFC_____) & i_WritReg) RFC <= i_dataIn;
+		if ((i_regID == CR_GFC_____) & i_WritReg) GFC <= i_dataIn;
+		if ((i_regID == CR_BFC_____) & i_WritReg) BFC <= i_dataIn;
 		
-		if ((i_regID == CR_OFX_____) & i_WritReg) OFX = i_dataIn;
-		if ((i_regID == CR_OFY_____) & i_WritReg) OFY = i_dataIn;
-		if ((i_regID == CR_DQB_____) & i_WritReg) DQB = i_dataIn;
+		if ((i_regID == CR_OFX_____) & i_WritReg) OFX <= i_dataIn;
+		if ((i_regID == CR_OFY_____) & i_WritReg) OFY <= i_dataIn;
+		if ((i_regID == CR_DQB_____) & i_WritReg) DQB <= i_dataIn;
 
-		if ((i_regID == DR_RES1    ) & i_WritReg) RES1 = i_dataIn;
-		if ((i_regID == DR_LZCS    ) & i_WritReg) REG_lzcs = i_dataIn;
+		if ((i_regID == DR_RES1    ) & i_WritReg) RES1 <= i_dataIn;
+		if ((i_regID == DR_LZCS    ) & i_WritReg) REG_lzcs <= i_dataIn;
 	end
 end
 

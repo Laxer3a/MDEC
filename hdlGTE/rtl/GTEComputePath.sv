@@ -273,7 +273,7 @@ FlagsS44 FlagS44Local2(
 /*
 reg  [44:0]  pipe_part2Sum;
 always @(posedge i_clk) begin
-	pipe_part2Sum = part2Sum;
+	pipe_part2Sum <= part2Sum;
 end
 */
 
@@ -430,15 +430,15 @@ assign o_RegCtrl.IR13  = IRnPostClip;
 
 always @(posedge i_clk) begin
 	if (i_computeCtrl.assignIRtoTMP) begin
-		TMP1 = i_registers.IR1;
-		TMP2 = i_registers.IR2;
-		TMP3 = i_registers.IR3;
+		TMP1 <= i_registers.IR1;
+		TMP2 <= i_registers.IR2;
+		TMP3 <= i_registers.IR3;
 	end
-	if (i_computeCtrl.wrTMP1)   begin TMP1 = IRnPostClip; end
-	if (i_computeCtrl.wrTMP2)   begin TMP2 = IRnPostClip; end
-	if (i_computeCtrl.wrTMP3)   begin TMP3 = IRnPostClip; end
+	if (i_computeCtrl.wrTMP1)   begin TMP1 <= IRnPostClip; end
+	if (i_computeCtrl.wrTMP2)   begin TMP2 <= IRnPostClip; end
+	if (i_computeCtrl.wrTMP3)   begin TMP3 <= IRnPostClip; end
 //	if (i_computeCtrl.wrDivRes) begin divResREG = divRes; end NOT USED ANYMORE, BUT WANT TO KEEP ROM SIGNAL FOR NOW [TODO CLEAN AFTER DEBUG]
-	if (i_computeCtrl.storeFull) begin tempSumREG = (~finalSum + 45'd1); end // Negative value. TODO OPTIMIZE : Move to NEG post REG ?
+	if (i_computeCtrl.storeFull) begin tempSumREG <= (~finalSum + 45'd1); end // Negative value. TODO OPTIMIZE : Move to NEG post REG ?
 end
 
 endmodule
