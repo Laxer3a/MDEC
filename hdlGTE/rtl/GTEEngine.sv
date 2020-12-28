@@ -62,6 +62,14 @@ GTERegs GTERegs_inst (
 //   Compute Path
 // ----------------------------------------------------------------------------------------------
 
+CTRL            ctrlInput;
+assign ctrlInput.lm  = loadInstr ? i_Instruction[10]    : ctrl.lm;
+assign ctrlInput.sf  = loadInstr ? i_Instruction[19]    : ctrl.sf;
+assign ctrlInput.cv  = loadInstr ? i_Instruction[14:13] : ctrl.cv;
+assign ctrlInput.vec = loadInstr ? i_Instruction[16:15] : ctrl.vec;
+assign ctrlInput.mx  = loadInstr ? i_Instruction[18:17] : ctrl.mx;
+assign ctrlInput.executing = ctrl.executing; // Not used.
+
 GTEComputePath GTEComputePath_inst(
 	.i_clk			(i_clk),
 	.i_nRst			(i_nRst),
@@ -69,7 +77,7 @@ GTEComputePath GTEComputePath_inst(
 	.isMVMVA        (isMVMVA | isMVMVAWire),
 	.WIDE			(i_DIP_FIXWIDE),
 	
-	.i_instrParam	(ctrl),				// Instruction Parameter bits
+	.i_instrParam	(ctrlInput),				// Instruction Parameter bits
 	.i_computeCtrl	(computeCtrl),		// Control from Microcode Module.
 	.i_DIP_FIXWIDE	(i_DIP_FIXWIDE),
 
