@@ -3,12 +3,19 @@
  */
 #include "if.h"
 
+
+// -----------------------------------------
+// Forward declaration Debug API
+// -----------------------------------------
+void CDRomLogCommand(u8 command);
+void CDRecordRespLog(u8 responseToWrite);
+void CDRomLogResponse();
+
 // -----------------------------------------
 // Forward declaration ADPCM
 // -----------------------------------------
 void initDecoderADPCM	();
 void DecodeSectorXA		(u8* sectorData);
-
 
 // DIP Switch
 u8 SYS_DISC = 0x1 /*NTSC-A*/;
@@ -18,61 +25,149 @@ u8 SYS_DISC = 0x1 /*NTSC-A*/;
 // GLOBAL VARIABLE SPACE.
 u8 gParam[16];
 u8 gParamCnt;
+u16 gLatencyResetBusy;
 
+// -------------------------------------------------------------
+//   Drive Physical simulation
+// -------------------------------------------------------------
+
+#include "disc.h"
+
+struct Disc discInternal;
+
+static inline u32 ToUint(u24* pComp) { return (pComp->d[0]) || (pComp->d[1]<<8) || (pComp->d[2]<<16); }
 
 // -------------------------------------------------------------
 //   Drive Physical simulation
 // -------------------------------------------------------------
 
 enum {
-	DRIVE_STATE_STOPPED	= 1,	// MOTOR DOWN
-	DRIVE_STATE_SPINDOWN= 2,	// MOTOR DOWN
-
-	DRIVE_STATE_SPINUP  = 3,	// All motor up
-	DRIVE_STATE_SEEK    = 4,
-	DRIVE_STATE_READ    = 5,
-	DRIVE_STATE_PAUSE   = 6,
+	// Possible target
+	DRIVE_STATE_STOPPED	= 0,
+	DRIVE_STATE_SEEK    = 1,
+	DRIVE_STATE_READ    = 2,
+	DRIVE_STATE_PAUSE   = 3,
+		// Internal transitionnal states.
+		DRIVE_STATE_INTERNAL= 4, // Usefull constant
+			DRIVE_STATE_SPINDOWN= 4,
+			DRIVE_STATE_DETECTMEDIA = 5,
+			DRIVE_STATE_SPINUP  = 6,
+//			DRIVE_STATE_READTOC	= 7,
+			DRIVE_STATE_SEEKTOC = 8,
 };
 
+enum {
+	// WARNING : NEVER STORE IN SSR STATUS !!!!
+	// SPIKE during result sent to PSX, use | to send it.
+	HAS_ERROR		= 0x01,
+
+	IS_MOTOR_ON		= 0x02,
+	SEEK_ERROR		= 0x04,
+	ID_ERROR		= 0x08,
+	SHELL_OPEN		= 0x10,
+	READING			= 0x20,
+	SEEKING			= 0x40,
+	PLAYING_CDDA	= 0x80
+};
+u8 ssrStatus; // CD Rom Controller Status.
+
+#define BASECLOCK		(33800000)
+
+#define TOTIMER(s)		((u32)(s*(BASECLOCK>>3)))
 
 typedef struct DriveSimulator_ {
 	// Timing simulation in ms ? microsec ? sysclk ?
 	// PB : 32 bit counter loop must be handled.
 	u32 currCycle;
 
+	// HW Counter related internal timers.
+	s32 transitionTime;
+	s32 newSectorTime;
+
+	u32 currTrackStartIncluded;
+	u32 currTrackEndExcluded;
+
+	u32 currSector;
+
+	u8 knownTOC;
+	u8 lastOpen;
 	u8 currState;
 	u8 lastState;
 	u8 targetState;
 
 	u8 doubleSpeed;
-	u8 reqSector;		// Number of sector to 
+//	u8 reqSector;		// Number of sector to 
 
-	u32 currSector;
-	u32 targetSector;
+	u8  currTrackType;
 
-	// HW Counter related internal timers.
-	s32 transitionTime;
-	s32 newSectorTime;
+//	u32 targetSector;
+
 } DriveSimulator;
 
 DriveSimulator gDriveSim;
 
 void DRV_SetTargetState		(u8 drv_state) {
 	// Stop, Seek, Read, Pause (all other are intermediate states)
-	if ((drv_state == DRIVE_STATE_SPINUP) || (drv_state == DRIVE_STATE_SPINDOWN)) {
+	if (drv_state >= DRIVE_STATE_INTERNAL) {
 		lax_assert("Forbidden state target");
 	}
+
+	gDriveSim.targetState = drv_state;
+}
+
+u8   DRV_NextState			(u8 drv_state, u8 target) {
+	u8 out = drv_state;
+
+	switch (target) {
+	case DRIVE_STATE_STOPPED:
+	case DRIVE_STATE_PAUSE:
+	case DRIVE_STATE_READ:
+	case DRIVE_STATE_SEEK:
+		break;
+	default:
+		lax_assert("UNAUTORIZED TARGET");
+	}
+
+	// Generic code to go toward stopping the drive if not stopped.
+	// If working       -> SPIN DOWN.
+	// If spinning down -> STOP.
+	if (target == DRIVE_STATE_STOPPED && (drv_state!=target)) {
+		out = (drv_state == DRIVE_STATE_SPINDOWN) ? DRIVE_STATE_STOPPED
+			                                      : DRIVE_STATE_SPINDOWN;
+	} else {
+		switch (drv_state) {
+		case DRIVE_STATE_STOPPED: out = DRIVE_STATE_DETECTMEDIA;  break;
+		case DRIVE_STATE_DETECTMEDIA: out = DRIVE_STATE_SPINUP; break;
+		case DRIVE_STATE_SPINUP : out = DRIVE_STATE_SEEKTOC; break;
+		case DRIVE_STATE_SEEKTOC: out = DRIVE_STATE_PAUSE; break;
+
+		case DRIVE_STATE_PAUSE:
+		case DRIVE_STATE_SEEK:
+		case DRIVE_STATE_READ:
+			// Read, Seek, Pause can switch from each other ?
+			// Can switch to themselves ? (No
+			out = target;
+			break;
+		}
+	}
+
+	return out;
 }
 
 void DRV_Reset				() {
 	gDriveSim.currCycle	  = 0;
 	gDriveSim.currState   = gDriveSim.lastState = DRIVE_STATE_STOPPED;
 	gDriveSim.doubleSpeed = 0;
-	gDriveSim.reqSector   = 0;
 	gDriveSim.currSector  = 0;
-	gDriveSim.targetSector= 0;
+
+	gDriveSim.currTrackStartIncluded	= -1;
+	gDriveSim.currTrackEndExcluded		= -1;
+	gDriveSim.currTrackType				= 0;
+
 	gDriveSim.transitionTime = 0;
 	gDriveSim.newSectorTime  = 0;
+	gDriveSim.lastOpen		= 0xFF; // UNDEFINED to be sure we check value change.
+	gDriveSim.knownTOC		= FALSE;
 }
 
 /*	- Will use a sysclk / 8 timer.
@@ -94,16 +189,35 @@ u8   DRV_Update				(u32 deltaTdiv8) {
 		newTimer = (~oldTimer) + newTimer;
 	}
 
-
 	// TODO : Handle state machine
 	//   if state change...
 	s32 transitionTime = gDriveSim.transitionTime;
 	u8  oldState       = gDriveSim.currState;
+	u8  requestTOC     = 0;
+
 	gDriveSim.lastState= oldState;
 
-	if (transitionTime != 0) {
+	u8 currOpen = IsOpen();
+	if (gDriveSim.lastOpen != currOpen) {
+		gDriveSim.lastOpen = currOpen;
+		if (currOpen) {
+			// Close -> Open
+			DRV_SetTargetState(DRIVE_STATE_STOPPED);
+			ssrStatus |= SHELL_OPEN;
+			gDriveSim.knownTOC= FALSE;
+		} else {
+			gDriveSim.currState = DRIVE_STATE_STOPPED;
+			// Open  -> Close
+			if (HasMedia()) {
+				DRV_SetTargetState(DRIVE_STATE_PAUSE);
+			}
+			ssrStatus &= ~SHELL_OPEN;
+		}
+	}
+
+	if (TRUE) {
 		s32 newTransition = transitionTime-deltaTdiv8;
-		u8  completed     = (newTransition <= 0);
+		u8  completed     = (newTransition <= 0); // Or [new target when current==lastTarget.]
 		transitionTime	  = newTransition;
 
 		switch (gDriveSim.targetState) {
@@ -112,108 +226,135 @@ u8   DRV_Update				(u32 deltaTdiv8) {
 			// --------------------------------------
 			case DRIVE_STATE_STOPPED:
 				// Do nothing.
+				ssrStatus &= ~IS_MOTOR_ON;
 				break;
 			// --------------------------------------
 			case DRIVE_STATE_SPINDOWN:
 				if (completed) { gDriveSim.currState = DRIVE_STATE_STOPPED; }
 				break;
 			// --------------------------------------
-			case DRIVE_STATE_SPINUP:
-			case DRIVE_STATE_SEEK:
-			case DRIVE_STATE_PAUSE:
-			case DRIVE_STATE_READ:
-				gDriveSim.currState  = DRIVE_STATE_SPINDOWN;
-				transitionTime      += ((gDriveSim.doubleSpeed ? 50700000 : 33800000)*2 / 8); // 2 seconds to slow down at 1x, 3 sec at 2x.
+			default:
+				// Any state will spin down.
+				if (completed) {
+					gDriveSim.currState  = DRIVE_STATE_SPINDOWN;
+					transitionTime      += TOTIMER(0.342);
+				}
 				break;
 			}
 			// --------------------------------------
 			break;
 
-		// TRANSITION STATE, THEY ARE NOT POSSIBLE AS TARGETS.
-		// case DRIVE_STATE_SPINDOWN:
-		// case DRIVE_STATE_SPINUP:
-
-		case DRIVE_STATE_SEEK:
-			switch (gDriveSim.currState) {
-			// --------------------------------------
-			case DRIVE_STATE_STOPPED:
-				// => SPINUP
-				break;
-			// --------------------------------------
-			case DRIVE_STATE_SPINDOWN:
-				// => SPINUP
-				break;
-			// --------------------------------------
-			case DRIVE_STATE_SPINUP:
-				// => SEEK
-				break;
-			// --------------------------------------
-			case DRIVE_STATE_SEEK:
-				// => Another SEEK ? Cancel current one ?
-				break;
-			// --------------------------------------
-			case DRIVE_STATE_PAUSE:
-			case DRIVE_STATE_READ:
-				// => SEEK
-				break;
-			}
-			// --------------------------------------
-			break;
 		case DRIVE_STATE_PAUSE:
 			switch (gDriveSim.currState) {
 			// --------------------------------------
 			case DRIVE_STATE_STOPPED:
-				// => SPINUP
+				if (completed) {
+					if (gDriveSim.knownTOC) {
+						// If we already know the TOC (Lid stay closed)
+						// 
+						gDriveSim.currState  = DRIVE_STATE_SPINUP;
+						ssrStatus           |= IS_MOTOR_ON;
+						transitionTime      += TOTIMER(1.816);
+					} else {
+						gDriveSim.currState  = DRIVE_STATE_DETECTMEDIA;
+						transitionTime      += TOTIMER(1.287);
+					}
+				}
 				break;
 			// --------------------------------------
-			case DRIVE_STATE_SPINDOWN:
-				// => SPINUP
+			case DRIVE_STATE_DETECTMEDIA:
+				// MEDIA DETECTION TAKES 1.287 Second
+				if (completed) {
+					gDriveSim.currState  = DRIVE_STATE_SPINUP;
+					ssrStatus           |= IS_MOTOR_ON;
+					transitionTime      += TOTIMER(5.853);
+				}
 				break;
 			// --------------------------------------
 			case DRIVE_STATE_SPINUP:
-				// => SEEK
+				if (completed) {
+					gDriveSim.currState  = DRIVE_STATE_SEEKTOC;
+					requestTOC			 = 4;
+					ssrStatus           |= SEEKING;
+					transitionTime      += TOTIMER(0.412);
+				}
+				break;
+			// --------------------------------------
+			case DRIVE_STATE_SEEKTOC: // Include TOC READ TIME.
+				if (completed) {
+					ssrStatus &= ~SEEKING;
+					gDriveSim.currState  = DRIVE_STATE_PAUSE;
+				}
+				break;
+			// --------------------------------------
+			case DRIVE_STATE_READ:
+				// PAUSE->READ : No problem
+				if (completed) {
+					ssrStatus &= ~READING;
+					gDriveSim.currState = DRIVE_STATE_PAUSE;
+				}
 				break;
 			// --------------------------------------
 			case DRIVE_STATE_SEEK:
-				// => PAUSE (reached sector ?)
+				if (completed) {
+					ssrStatus &= ~SEEKING;
+					gDriveSim.currState = DRIVE_STATE_PAUSE;
+				}
 				break;
-			// --------------------------------------
 			case DRIVE_STATE_PAUSE:
-				// Do nothing.
+				// Do nothing, self state.
 				break;
-			case DRIVE_STATE_READ:
-				// => PAUSE
+			default:
+				lax_assert("UNIMPLEMENTED, FORGOT TRANSITION ?");
 				break;
 			}
-			// --------------------------------------
 			break;
+
 		case DRIVE_STATE_READ:
 			switch (gDriveSim.currState) {
-			// --------------------------------------
-			case DRIVE_STATE_STOPPED:
-				// => SPINUP
-				break;
-			// --------------------------------------
-			case DRIVE_STATE_SPINDOWN:
-				// => SPINUP
-				break;
-			// --------------------------------------
-			case DRIVE_STATE_SPINUP:
-				// => SEEK
-				break;
-			// --------------------------------------
-			case DRIVE_STATE_SEEK:
-				// => READ (reached sector ?)
-				break;
-			// --------------------------------------
 			case DRIVE_STATE_PAUSE:
-				// => READ
+				if (completed) {
+					ssrStatus |= READING;
+					gDriveSim.currState = DRIVE_STATE_READ;
+				}
+				break;
+			case DRIVE_STATE_SEEK:
+				if (completed) {
+					ssrStatus &= ~SEEKING;
+					ssrStatus |= READING;
+					gDriveSim.currState = DRIVE_STATE_READ;
+				}
 				break;
 			case DRIVE_STATE_READ:
-				// Do nothing.
+				// Do nothing, self state.
+				break;
+			default:
+				lax_assert("UNIMPLEMENTED, FORGOT TRANSITION ?");
 				break;
 			}
-			// --------------------------------------
+			break;
+		case DRIVE_STATE_SEEK:
+			switch (gDriveSim.currState) {
+			case DRIVE_STATE_PAUSE:
+				if (completed) {
+					ssrStatus |= SEEKING;
+					gDriveSim.currState = DRIVE_STATE_SEEK;
+				}
+				break;
+			case DRIVE_STATE_READ:
+				if (completed) {
+					ssrStatus &= ~READING;
+					ssrStatus |= SEEKING;
+					gDriveSim.currState = DRIVE_STATE_SEEK;
+				}
+				break;
+			case DRIVE_STATE_SEEK:
+				// Do nothing, self state.
+				break;
+			default:
+				lax_assert("UNIMPLEMENTED, FORGOT TRANSITION ?");
+				break;
+			}
 			break;
 		}
 
@@ -227,48 +368,43 @@ u8   DRV_Update				(u32 deltaTdiv8) {
 	}
 
 	// State change announced to loop.
-	work |= (gDriveSim.currState != oldState) ? 2 : 0;
+	{
+		u8 stateChange = (gDriveSim.currState != oldState);
+		if (stateChange) {
+			printf("@%i => State Change : %i->%i (STATUS:%02X)\n",newTimer,oldState,gDriveSim.currState, ssrStatus);
+		}
+		work |= stateChange ? 2 : 0;
+	}
 
 	//
-	// Fetching sectors...
+	// Fetching sectors... (Not TOC)
 	//
 	if (gDriveSim.currState == DRIVE_STATE_READ) {
 		s32 newSectorTime = gDriveSim.newSectorTime;
-		newSectorTime -= deltaTdiv8;
 		if (newSectorTime <= 0) {
 			newSectorTime += gDriveSim.doubleSpeed ? 28166 : 56333; // 1/75th of a second approx. (1 sector)
-			gDriveSim.currSector++;
-			gDriveSim.reqSector++;
 			work |= 1; // Fetching sector.
 		}
+		newSectorTime -= deltaTdiv8;
+		gDriveSim.newSectorTime = newSectorTime;
 	}
 
 	gDriveSim.currCycle = newTimer;
 
-	return work;
+	return work | requestTOC;
 }
 
 // TODO Macro later.
-u8   DRV_ReadNextSector		()					{ return gDriveSim.reqSector;  } // Number of sector to fetch
-void DRV_SetTargetSector	(u32 targetSector)	{ gDriveSim.targetSector = targetSector; }
 void DRV_SetSpeedMode		(u8 speed)			{ gDriveSim.doubleSpeed = speed-1; } // Works only for x1 / x2.
 u8   DRV_GetCurrentState	()					{ return gDriveSim.currState;  }
 u8   DRV_StateChanged		()					{ return gDriveSim.currState != gDriveSim.lastState; }
 u32  DRV_GetCurrentSector	()					{ return gDriveSim.currSector; }
 
 // PB : what if Spinup/Spindown ? (Neither reading/playing)
-u8 isSeeking() {
-	return (DRV_GetCurrentState() == DRIVE_STATE_SEEK);
-}
 
-u8 isReading() {
-	return (DRV_GetCurrentState() == DRIVE_STATE_READ);
-}
-
-u8 isPlaying() {
-	return (DRV_GetCurrentState() == DRIVE_STATE_READ) /* TODO : && PLAYING_CDDA */;
-}
-
+u8 isSeeking() { return (DRV_GetCurrentState() == DRIVE_STATE_SEEK); }
+u8 isReading() { return (DRV_GetCurrentState() == DRIVE_STATE_READ); }
+u8 isPlaying() { return (DRV_GetCurrentState() == DRIVE_STATE_READ) /* TODO : && PLAYING_CDDA */; }
 
 // -------------------------------------------------------------
 
@@ -279,22 +415,6 @@ enum {
 	ERROR_REASON_INCORRECT_NUMBER_OF_PARAMETERS = 0x20,
 	ERROR_REASON_INVALID_ARGUMENT				= 0x10,
 };
-
-enum {
-	// WARNING : NEVER STORE IN SSR STATUS !!!!
-	// SPIKE during result sent to PSX, use | to send it.
-	HAS_ERROR		= 0x01,
-
-	IS_MOTOR_ON		= 0x02,
-	SEEK_ERROR		= 0x04,
-	ID_ERROR		= 0x08,
-	SHELL_OPEN		= 0x10,
-	READING			= 0x20,
-	SEEKING			= 0x40,
-	PLAYING_CDDA	= 0x80
-};
-
-u8 ssrStatus; // CD Rom Controller Status.
 
 enum {
 	EPlayMode_Normal		= 0,
@@ -313,7 +433,11 @@ enum {
 	DRV_SPEED		= 0x80,
 };
 
-u8 gDriveState;
+u8 gDriveMode;
+u8 gSectorSkip; u16 gSectorLength; u16 gSectorTransfered;
+u8 gFilterFile;
+u8 gFilterChannel;
+u8 audio_mute;
 
 u8 maxTrackCount = 0;
 u8 GetMaxTrackCount() {
@@ -328,15 +452,91 @@ u8 GetMaxTrackCount() {
 
 typedef void (*sequenceF)(int);
 
-void Launch(int delay, sequenceF fct, int param) {
-	// TODO Register call back function when we reach a certain state or delay... (Param may change)
-	lax_assert("UNIMPLEMENTED Launch... delay ? state ?");
+enum {
+	EVENT_TYPE_DELAY = 0,
+	EVENT_TYPE_STATE = 1,
+	EVENT_ITEMFREE   = 0xFF
+};
+typedef struct _launchItem {
+	sequenceF	functionToCallBack;	// 
+	u32			trigger;			// Delay Mode = 
+	u8			type;				// 0=Delay, 1=Event, ... , 0xFF=Cancelled
+	u8			parameter;			// Sequence number.
+} LaunchItem;
+
+LaunchItem gLaunchList[8];
+u8 gLaunchListActive;
+
+void ParseQueue(u32 deltaT) {
+	if (gLaunchListActive) {
+		LaunchItem* p  = gLaunchList;
+		LaunchItem* pE = p + (gLaunchListActive-1);
+		while (p <= pE) {
+			switch (p->type) {
+			case EVENT_TYPE_DELAY:
+				{
+					u32 newTime = p->trigger - deltaT;
+
+					if (newTime > p->trigger) { // newTime overflowed. negative value.
+						p->functionToCallBack(p->parameter);
+						p->type = EVENT_ITEMFREE;
+					}
+				}
+				break;
+			case EVENT_TYPE_STATE:
+				lax_assert("UNIMPLEMENTED");
+				if (FALSE) {
+					p->functionToCallBack(p->parameter);
+					p->type = EVENT_ITEMFREE;
+				}
+				break;
+			case EVENT_ITEMFREE:
+				// If last element is inactive, reduce the list size.
+				if (p == pE) { gLaunchListActive--; }
+				break;
+			}
+		}
+	}
 }
 
-BOOL CanReadMedia() { return IsOpen() || (!HasMedia());}
+void Launch(int delay, sequenceF fct, int param) {
+	lax_assert("ERROR. DEPRECATED, SWITCH TO NEW STUFF");
+}
+
+void LaunchTimer(int delay, sequenceF fct, int param) {
+	// [Effort to make the code smaller, readability probably suffers.
+
+	LaunchItem* p  =     gLaunchList;
+	LaunchItem* pE = p + gLaunchListActive;
+	// 1st find a free element.
+	while (p < pE) {
+		// Free slot
+		if (p->type == EVENT_ITEMFREE) {
+			goto registerEntry;
+		}
+		p++;
+	}
+
+	if (gLaunchListActive < 8) {
+		// Allocate new element.
+		p = &gLaunchList[gLaunchListActive++];
+	} else {
+		lax_assert("ERROR. LAUNCH LIST FULL.");
+		return;
+	}
+
+registerEntry:
+	p->functionToCallBack	= fct;
+	p->parameter			= param;
+	p->type					= 0;
+	p->trigger				= delay;
+}
+
+BOOL CanReadMedia() { return (!IsOpen()) && (HasMedia());}
 BOOL IsAudioDisc () { lax_assert("UNIMPLEMENTED"); return 0; }
 
 void FifoResponse(u8 responseToWrite) {
+	CDRecordRespLog(responseToWrite);
 	WriteResponse(responseToWrite);
 }
 
@@ -410,12 +610,14 @@ void fromLBA(int lba, u8* min, u8* sec, u8* frame) {
 	}
 }
 
+int toLBA(u8 min, u8 sec, u8 frame) { return frame + ((sec + (min*60)) * 75); }
+
 // TODO : CDRom RemoveMedia from DuckStation.
 
 void commandTest				();
 void commandInvalid				(u8 errorCode);
 void commandGetStatus			();
-void commandSetLocation			();
+void commandSetLocation			(int sequ);
 void commandPlay				();
 void commandReadWithRetry		(BOOL is1Bcommand);
 void commandStop				(int sequ);
@@ -461,7 +663,7 @@ u8   ValidateParamSize			(u8 command) {
 	default: expectParam = 0; break;
 	}
 
-	if (gParamCnt < expectParam) {
+	if ((gParamCnt < expectParam) || ((command != 0x3) /*PLAY*/ && (gParamCnt > expectParam))) {
 		commandInvalid(ERROR_REASON_INCORRECT_NUMBER_OF_PARAMETERS);
 		return 0;
 	} else {
@@ -510,9 +712,9 @@ void respStatus_IRQAckPoll_CDDAPlayMode(u8 playmode) {
 
 //0x00
 void commandInvalid(u8 errCode) {
-	FifoResponse(0x10 | 0x1 /*STAT_ERROR BIT*/);	// Source DuckStation <= m_secondary_status.bits | stat_bits (STAT_ERROR (=0x01) here).
-													// Source PCSXR
-													// Source Avocado
+	FifoResponse(ssrStatus | 0x1 /*STAT_ERROR BIT*/);	// Source DuckStation <= m_secondary_status.bits | stat_bits (STAT_ERROR (=0x01) here).
+														// Source PCSXR
+														// Source Avocado
 	FifoResponse(errCode);
 	IRQErrorPoll();
 }
@@ -520,9 +722,6 @@ void commandInvalid(u8 errCode) {
 //0x01
 void commandGetStatus() {
 	FifoResponseStatus();
-	if (CanReadMedia()) { // DuckStation
-		ssrStatus &= ~SHELL_OPEN; // Shell Close;
-	}
 	IRQAckPoll();
 }
 
@@ -538,21 +737,30 @@ void commandGetStatus() {
 
 */
 
+RequestSectorFirm() {
+	
+}
+
 //0x02
-void commandSetLocation() {
+void commandSetLocation(int sequ) {
 
-	u8 minute = BCDtoBinary(gParam[0]);
-	u8 second = BCDtoBinary(gParam[1]);
-	u8 frame  = BCDtoBinary(gParam[2]);
+	if (sequ == 0) {
+		u8 minute = BCDtoBinary(gParam[0]);
+		u8 second = BCDtoBinary(gParam[1]);
+		u8 frame  = BCDtoBinary(gParam[2]);
 
-	// Probably AFTER error check.
-	ssrStatus &= ~READING; // Not reading.
-#if 0
-	drive.lba.request = CD::MSF(minute, second, frame).toLBA();
-#endif
+		// Probably AFTER error check.
+		ssrStatus &= ~READING; // Not reading.
 
-	FifoResponseStatus();
-	IRQAckPoll();
+		RequestSectorFirm(toLBA(minute, second, frame));
+		LaunchTimer(TOTIMER(0.2),commandSetLocation,1);
+	}
+
+
+	if (sequ == 1) {
+		FifoResponseStatus();
+		IRQAckPoll();
+	}
 }
 
 //0x03
@@ -580,7 +788,7 @@ void commandPlay() {
 	ssrStatus |= (READING | PLAYING_CDDA);
 
 #if 0
-	counter.report = 33'868'800 / 75;
+	counter.report = 33868800 / 75;
 #endif
 	respStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_Normal);
 }
@@ -617,18 +825,27 @@ void commandReadWithRetry(BOOL is1BCommand) {
 
 //0x07
 void commandMotorOn(int sequ) {
+	// Issuing [0x07] MotorOn
+	// [0.2  s] < CD IRQ=3, status=0x10 
+	// [1.816s] < CD IRQ=2, status=0x12 
 	if(sequ == 0) {
 		if (ssrStatus & IS_MOTOR_ON) {
 			// Motor already on.
 			commandInvalid(ERROR_REASON_INCORRECT_NUMBER_OF_PARAMETERS /*0x20 USED AS INVALID PARAMETER COMMAND => MOTOR ALREADY ON.*/);
 		} else {
-			Launch(50'000, commandMotorOn, 1);
-			FifoResponseStatus();
-			IRQAckPoll();
+			DRV_SetTargetState(DRIVE_STATE_PAUSE);
+			Launch(TOTIMER(0.2), commandMotorOn, 1);
 		}
 	}
+
 	if (sequ == 1) {
-		ssrStatus |= IS_MOTOR_ON;
+		FifoResponseStatus();
+		IRQAckPoll();
+	}
+
+	if (sequ == 2) {
+		lax_assert("RETURN WHEN MOTOR WENT ON !!!! ");
+		// ssrStatus |= IS_MOTOR_ON;
 		FifoResponseStatus();
 		IRQCompletePoll();
 	}
@@ -637,7 +854,7 @@ void commandMotorOn(int sequ) {
 //0x08
 void commandStop(int sequ) {
 	if(sequ == 0) {
-		Launch(50'000, commandStop, 1);
+		Launch(50000, commandStop, 1);
 		FifoResponseStatus();
 		IRQAckPoll();
 	}
@@ -655,7 +872,7 @@ void commandPause(int sequ) {
 			// Can't pause during seeking.
 			commandInvalid(ERROR_REASON_NOT_READY);
 		} else {
-			Launch(1'000'000, commandPause,1);
+			Launch(1000000, commandPause,1);
 			ssrStatus &= ~READING;
 			FifoResponseStatus();
 			IRQAckPoll();
@@ -671,7 +888,7 @@ void commandPause(int sequ) {
 //0x0a
 void commandInitialize(int sequ) {
 	if (sequ == 0) {
-		Launch(475'000,commandInitialize,1);
+		Launch(475000,commandInitialize,1);
 #if 0
 		drive.mode.cdda       = 0;
 		drive.mode.autoPause  = 0;
@@ -696,9 +913,7 @@ void commandInitialize(int sequ) {
 
 //0x0b
 void commandMute() {
-#if 0
-	audio.mute = 1;
-#endif
+	audio_mute = 1;
 
 	FifoResponseStatus();
 	IRQAckPoll();
@@ -706,26 +921,29 @@ void commandMute() {
 
 //0x0c
 void commandUnmute() {
-#if 0
-	audio.mute = 0;
-#endif
+	audio_mute = 0;
+
 	FifoResponseStatus();
 	IRQAckPoll();
 }
 
 //0x0d
 void commandSetFilter() {
-#if 0
-	cdxa.filter.file	= fifo.parameter.read(0);
-	cdxa.filter.channel = fifo.parameter.read(0);
-#endif
+	gFilterFile			= gParam[0];
+	gFilterChannel		= gParam[1];
 	FifoResponseStatus();
 	IRQAckPoll();
 }
 
 //0x0e
 void commandSetMode() {
-	gDriveState = gParam[0];
+	gDriveMode = gParam[0];
+	switch ((gDriveMode>>4) & 3) {
+	case 1: gSectorSkip = 0x0C; gSectorLength = 2340; break;
+	case 3: gSectorSkip = 0x18; gSectorLength = 2048; break;
+	default:gSectorSkip = 0x18; gSectorLength = 2328; break;
+	}
+	
 	FifoResponseStatus();
 	IRQAckPoll();
 }
@@ -815,7 +1033,7 @@ void commandSetSession(int sequ) {
 		} else if (gSession == 0) {
 			commandInvalid(ERROR_REASON_INVALID_ARGUMENT);
 		} else {
-			Launch(50'000,commandSetSession,1);
+			Launch(50000,commandSetSession,1);
 
 			gSession = gParam[0];
 			if (gSession != 1) {
@@ -927,7 +1145,7 @@ void commandTest() {
 //0x1a
 void commandGetID(int sequ) {
 	if(sequ == 0) {
-		Launch(50'000, commandGetID, 1);
+		Launch(50000, commandGetID, 1);
 		FifoResponseStatus();
 		IRQAckPoll();
 	}
@@ -935,7 +1153,7 @@ void commandGetID(int sequ) {
 	if(sequ == 1) {
 		u8 specialCase = 0;
 
-		if (gDriveState & SHELL_OPEN) {
+		if (ssrStatus & SHELL_OPEN) {
 			// Drive Open
 			FifoResponse(0x11);
 			FifoResponse(0x80);
@@ -1023,25 +1241,373 @@ void commandVideoCD				() {
 //   ADPCM Decoding Logic
 // ----------------------------------------------------------------------------------------------
 
+u16 PCMbuffL[256];
+u16 PCMbuffR[256];
+u8  PCMLCnt;
+u8  PCMRCnt;
+
 void Ouput44100Hz(u8 isRight, s16 sample) {
-	lax_assert("UNIMPLEMENTED Output 44.1Khz.");
+	if (isRight) {
+		PCMbuffR[PCMRCnt++] = sample;
+		if (PCMRCnt >= 256) { lax_assert("REACH END OF PCM BUFFER"); }
+	} else {
+		PCMbuffL[PCMLCnt++] = sample;
+		if (PCMLCnt >= 256) { lax_assert("REACH END OF PCM BUFFER"); }
+	}
 }
 
-s16 gOutput			[28<<8]; // Thats a LOT for STACK !!!
-int ringbuf			[0x20];  // Ring buffer.
+int ringbufL		[0x20];  // Ring buffer.
+int ringbufR		[0x20];  // Ring buffer.
 s32 previousSamples	[4];
 
-void initDecoderADPCM() {
-	for (int n=0; n < 0x20;		n++) { ringbuf        [n]= 0; }
-	for (int n=0; n < 0x4;		n++) { previousSamples[n]= 0; }
-	for (int n=0; n < (28<<8);	n++) { gOutput		  [n]= 0; }
+/*	Sector is 2352 byte.
+	PCM  :       4 byte per sample @ 44.1 Khz (L/R 16 bit)
+	ADPCM:128 x 28 block
+*/
+u8	last128Byte		[128];
+u8  idx128 = 0;
+u8  receiveHeader	= 1;
+u8  ADPCMblockCount	= 0;
+BOOL ADPCM_is18_9Khz = 0;
+BOOL ADPCM_isStero   = 0;
+BOOL ADPCM_is8Bit    = 0;
+
+u8  sectorType;
+
+enum {
+	TOC_DATA_TYPE		= 0,
+	PCM_SECTOR_TYPE		= 1,
+	DATA_SECTOR_TYPE	= 2,
+	ADPCM_SECTOR_TYPE	= 3,
+};
+
+u8 LLVol;
+u8 LRVol;
+u8 RRVol;
+u8 RLVol;
+
+// Forward declaration.
+void decodeBlock(u8* sectorData, BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, int address);
+
+u8 fetchBytes(u8 amount) {
+	// Fetch 16 byte at once.
+	u8 base = idx128 & 0x7F;
+	u8* p = &last128Byte[base];	// Mod 128
+	u8* pE= p + amount;
+	while (p<pE) { *p++ = PopInputData(); }
+	idx128 += amount;
+	return base;
 }
 
-s16 ZigZagInterpolate(int p, const s16* TableX) {
+u8 gIgnoreSector;
+
+// TODO : Attempt delivery -> update gIgnoreSector
+void TransferToData(u8 amount, u8 base, u8* pPCM) {
+	// Skip logic is active only during the first 128 bytes...
+	// And we do transfer data.
+	// => Skippable parts.
+	if (amount && (base < gSectorSkip) && (gSectorTransfered < 128)) {
+		int skipLocal = gSectorSkip - base;
+		if (skipLocal > amount) { skipLocal = amount; }
+		amount -= skipLocal;
+		pPCM   += skipLocal;
+	}
+	
+	for (int n=0; n < amount; n++) {
+		if (gSectorTransfered < gSectorLength) {
+			gSectorTransfered++;
+
+			// Not performance optimized, but makes code smaller (test byte by byte if sector can be sent to user)
+			if ((!gIgnoreSector) && !IsOutputDataFULL()) { 
+				PushOutputData(*pPCM++);					
+			} else {
+				lax_assert("DATA FIFO OVERFLOW");
+			}
+		}
+	}
+}
+
+// Flag to know we started parsing a new sector...
+u8 gGetNewSector;
+
+void sendDataOrPCM() {
+	if (HasInputData()) {
+
+		PCMLCnt = 0;
+		PCMRCnt = 0;
+
+		/*	Audio
+
+			  000h 930h Audio Data (2352 bytes) (LeftLsb,LeftMsb,RightLsb,RightMsb)
+
+			Mode0 (Empty)
+
+			  000h 0Ch  Sync
+			  00Ch 4    Header (Minute,Second,Sector,Mode=00h)
+			  010h 920h Zerofilled
+
+			Mode1 (Original CDROM)
+
+			  000h 0Ch  Sync
+			  --------------------
+			  00Ch 4    Header (Minute,Second,Sector,Mode=01h)
+			  010h 800h Data (2048 bytes)
+			  810h 4    EDC (checksum accross [000h..80Fh])
+			  814h 8    Zerofilled
+			  81Ch 114h ECC (error correction codes)
+
+			Mode2/Form1 (CD-XA)
+
+			  000h 0Ch  Sync
+			  ---------------------------------------------------------------
+			  00Ch 4    Header (Minute,Second,Sector,Mode=02h)
+			  010h 4    Sub-Header (File, Channel, Submode AND DFh, Codinginfo)
+			  014h 4    Copy of Sub-Header
+			  018h 800h Data (2048 bytes)
+			  818h 4    EDC (checksum accross [010h..817h])
+			  81Ch 114h ECC (error correction codes)
+
+			Mode2/Form2 (CD-XA)
+
+			  000h 0Ch  Sync
+			  00Ch 4    Header (Minute,Second,Sector,Mode=02h)
+			  010h 4    Sub-Header (File, Channel, Submode OR 20h, Codinginfo)
+			  014h 4    Copy of Sub-Header
+			  018h 914h Data (2324 bytes)
+			  92Ch 4    EDC (checksum accross [010h..92Bh]) (or 00000000h if no EDC)
+
+			  010h 4    Sub-Header (File, Channel, Submode OR 20h , Codinginfo)
+			  010h 4    Sub-Header (File, Channel, Submode AND DFh, Codinginfo)
+			----------------------------------------------------------------------------------
+			  
+			1st Subheader byte - File Number (FN)
+			  0-7 File Number    (00h..FFh) (for Audio/Video Interleave, see below)
+
+			2nd Subheader byte - Channel Number (CN)
+			  0-4 Channel Number (00h..1Fh) (for Audio/Video Interleave, see below)
+			  5-7 Should be always zero
+
+
+			3rd Subheader byte - Submode (SM)
+			  0   End of Record (EOR) (all Volume Descriptors, and all sectors with EOF)
+			  1   Video     ;\Sector Type (usually ONE of these bits should be set)
+			  2   Audio     ; Note: PSX .STR files are declared as Data (not as Video)
+			  3   Data      ;/
+			  4   Trigger           (for application use)
+			  5   Form2             (0=Form1/800h-byte data, 1=Form2, 914h-byte data)
+			  6   Real Time (RT)
+			  7   End of File (EOF) (or end of Directory/PathTable/VolumeTerminator)
+
+			The EOR bit is set in all Volume Descriptor sectors, the last sector (ie. the Volume Descriptor Terminator) additionally has the EOF bit set. Moreover, EOR and EOF are set in the last sector of each Path Table, and last sector of each Directory, and last sector of each File.
+
+			4th Subheader byte - Codinginfo (CI)
+			When used for Data sectors:
+
+			  0-7 Reserved (00h)
+
+			When used for XA-ADPCM audio sectors:
+
+			  0-1 Mono/Stereo     (0=Mono, 1=Stereo, 2-3=Reserved)
+			  2-2 Sample Rate     (0=37800Hz, 1=18900Hz, 2-3=Reserved)
+			  4-5 Bits per Sample (0=Normal/4bit, 1=8bit, 2-3=Reserved)
+			  6   Emphasis        (0=Normal/Off, 1=Emphasis)
+			  7   Reserved        (0)
+			  
+		 */
+
+
+		/*
+			TODO : MAKE SURE TRANSFER OF PREVIOUS SECTOR IS COMPLETED BEFORE STARTING A NEW ONE HERE !!!!
+			Normaly CPU will transfer/decode fast enough for 1/150 sec ?
+		*/
+
+		switch (sectorType) {
+		case TOC_DATA_TYPE:
+			{
+				// trust compiler that we have both the same CPU on each SIDE !
+				// and same disc.h for definition !!!
+				u8* p  = (u8*)&discInternal;
+				// Size of 'struct Disc'
+				u8* pE = p + sizeof(struct Disc);
+
+				while (p < pE) { *p++ = PopInputData(); }
+			}
+			break;
+		case DATA_SECTOR_TYPE:
+			{
+				// Send 8 byte TO DATA FIFO OUT
+				u8  base = fetchBytes(8);
+				u8* pPCM = last128Byte;
+				
+				if (gGetNewSector) {
+					gGetNewSector	  = 0;
+					gSectorTransfered = 0;
+					gIgnoreSector     = 0;
+				}
+				
+				if (base < 8) {
+					// Keep buffering, do nothing...
+				} else {
+					u8 amount;
+					if (base == 8) {
+						// Byte 0..15 loaded.
+						
+						// From No$ Docs :
+						// try_deliver_as_adpcm_sector:
+						//	reject if CD-DA AUDIO format			<-- Done by track filtering.
+						//	reject if sector isn't MODE2 format
+						u8 deliverADPCM = (last128Byte[15] == 0x02);
+						//	reject if adpcm_disabled(setmode.6)
+						u8 adpcmEnabled = gDriveMode & DRV_XAADPCM;
+						
+						//=> deliver: send sector to xa-adpcm decoder when passing above cases
+						if (deliverADPCM && adpcmEnabled) {
+							// We continue to load things into the buffer...
+							// Next will be [16..23] with ADPCM type.
+							// WARNING : WE MAY BE REVERT TO DATA_SECTOR IF REJECTED...
+							amount     = 0;
+							sectorType = ADPCM_SECTOR_TYPE;
+						} else {
+							// Transfer as DATA
+							amount = 16;
+						}
+					} else {
+						amount = 8;
+						pPCM  += base;
+					}
+
+					TransferToData(amount, base, pPCM);
+				}
+			}
+			break;
+		case PCM_SECTOR_TYPE:
+			{
+				if (gDriveMode & DRV_CDDA) {
+					// Send 8 byte TO PCM OUT
+					u8* pPCM = &last128Byte[fetchBytes(8)];	// Mod 128
+					// Read 8 byte, send to SPU.
+					for (int n=0; n < 2; n++) {
+						Ouput44100Hz(FALSE, pPCM[0] | (pPCM[1]<<8));
+						Ouput44100Hz(TRUE , pPCM[2] | (pPCM[3]<<8));
+						pPCM += 4;
+					}
+				} else {
+					// [TODO]
+				}
+			}
+			break;
+		case ADPCM_SECTOR_TYPE:
+			{
+				u8 base = fetchBytes(8);
+				if (receiveHeader) {
+					if (base == 16) {
+						//	reject if submode isn't audio+realtime (bit2 and bit6 must be both set)
+						u8 subModeOK    = (last128Byte[16] & ((1<<6) | (1<<2))) == ((1<<6)|(1<<2));
+						
+						//	reject if filter_enabled(setmode.3) AND selected file/channel doesn't match
+						u8 filterOK     = (!(gDriveMode & DRV_XAFILTER)) || ((gFilterFile == last128Byte[16]) && (gFilterChannel == last128Byte[17]));
+						
+						if (filterOK && subModeOK) {
+							receiveHeader	= 0;
+							ADPCMblockCount	= 0;
+							idx128			= 0; // Next start at zero.
+
+							u8 codingInfo  	= last128Byte[19];
+
+							ADPCM_isStero   = codingInfo      & 1;
+							ADPCM_is18_9Khz = (codingInfo>>2) & 1;
+							ADPCM_is8Bit    = (codingInfo>>4) & 1;
+						} else {
+							gIgnoreSector   = (gDriveMode & DRV_XAFILTER) && subModeOK;
+							
+							// Roll back to standard DATA SECTOR, NOT AN ADPCM.
+							sectorType = DATA_SECTOR_TYPE;
+							// Process the first 24 bytes we have already received...
+							TransferToData(24, 0, last128Byte);
+						}
+					}
+				} else {
+					// Full ADPCM block of 128 byte !!!
+					if (base == 112) {
+						// 128 byte -> 
+						decodeBlock(last128Byte, ADPCM_is18_9Khz, ADPCM_isStero, ADPCM_is8Bit, 0);
+						ADPCMblockCount++;
+						if (ADPCMblockCount == 28) {
+							ADPCMblockCount = 0;
+							receiveHeader   = 1;
+						}
+					}
+				}
+			}
+			break;
+		}
+
+		if (PCMLCnt) {
+			if (PCMLCnt != PCMRCnt) { lax_assert("MIX DOES NOT MATCH"); }
+
+			// Update internal volume.
+			if (ApplyVolumes()) {
+				ResetApplyVolumes();
+				LLVol = GetLLVolume();
+				LRVol = GetLRVolume();
+				RLVol = GetRLVolume();
+				RRVol = GetRRVolume();
+			}
+
+			// Mixing
+			{
+				u8 LL,LR,RL,RR;
+				if (audio_mute || ((sectorType == ADPCM_SECTOR_TYPE) && MuteADPCM())) {
+					LL = LR = RL = RR = 0;
+				} else {
+					LL = LLVol;
+					LR = LRVol;
+					RL = RLVol;
+					RR = RRVol;
+				}
+
+				if (!IsSPUFifoFULL()) {
+					for (int n=0; n < PCMLCnt; n++) {
+						int sampleL = PCMbuffL[n];
+						int sampleR = PCMbuffR[n];
+
+						int outL    = ((sampleL * LLVol) + (sampleR * RLVol)) >> 7;
+						int outR    = ((sampleL * LRVol) + (sampleR * RRVol)) >> 7;
+
+						// Clipping, no bit trick/optimization.
+						if (outL < -32768) { outL = -32768; }
+						if (outR < -32768) { outR = -32768; }
+						if (outL >  32767) { outL =  32767; }
+						if (outR >  32767) { outR =  32767; }
+
+						PushSPUFIFOL(outL);
+						PushSPUFIFOR(outR);
+					}
+				} else {
+					lax_assert("FULL SPU FIFOs.");
+				}
+			}
+		}
+	} else {
+	/*
+		TODO
+		if (timeTorequest) {
+			disableTimeToRequest();
+			RequestSector();
+		}
+	*/
+	}
+}
+
+void initDecoderADPCM() {
+	for (int n=0; n < 0x20;		n++) { ringbufL       [n]= ringbufR       [n]= 0; }
+	for (int n=0; n < 0x4;		n++) { previousSamples[n]= 0; }
+}
+
+s16 ZigZagInterpolate(int p, int* ringbuf, const s16* TableX) {
 	int sum=0;
     for (int i=1; i < 30; i++) {
 		int v = (ringbuf[(p-i) & 0x1F]*TableX[i]);
-
 		// Avoid using / 0x8000 -> slow.
 		sum += ((v<=-1) && (v>=-32767)) ? 0 : v >> 15;	// div / 0x8000
 	}
@@ -1053,8 +1619,10 @@ s16 ZigZagInterpolate(int p, const s16* TableX) {
 }
 
 void OutputXA(u8 isRight, u8 is18_9Khz, s16 sample) {
-	static int sixstep = 6;
-	static int p       = 0;
+	static int sixstepL = 6;
+	static int pL       = 0;
+	static int sixstepR = 6;
+	static int pR       = 0;
 	
 	int countTotal     = 1 + is18_9Khz; // 1 or 2
 	
@@ -1291,23 +1859,28 @@ void OutputXA(u8 isRight, u8 is18_9Khz, s16 sample) {
 	
 	// Export sample twice if 18.9 Khz...
 
+	int* ringbuf = isRight ? ringbufR : ringbufL;
+	int  p       = isRight ? pR       : pL;
+	int  sixstep = isRight ? sixstepR : sixstepL;
+
 	for (int count=0; count < countTotal; count++) {
+
 		ringbuf[p & 0x1F] = sample; p++; sixstep--;
-		
+
 		if (sixstep==0) {
 			sixstep = 6;
-			Ouput44100Hz(isRight, ZigZagInterpolate(p,Table1));
-			Ouput44100Hz(isRight, ZigZagInterpolate(p,Table2));
-			Ouput44100Hz(isRight, ZigZagInterpolate(p,Table3));
-			Ouput44100Hz(isRight, ZigZagInterpolate(p,Table4));
-			Ouput44100Hz(isRight, ZigZagInterpolate(p,Table5));
-			Ouput44100Hz(isRight, ZigZagInterpolate(p,Table6));
-			Ouput44100Hz(isRight, ZigZagInterpolate(p,Table7));
+			Ouput44100Hz(isRight, ZigZagInterpolate(p,ringbuf,Table1));
+			Ouput44100Hz(isRight, ZigZagInterpolate(p,ringbuf,Table2));
+			Ouput44100Hz(isRight, ZigZagInterpolate(p,ringbuf,Table3));
+			Ouput44100Hz(isRight, ZigZagInterpolate(p,ringbuf,Table4));
+			Ouput44100Hz(isRight, ZigZagInterpolate(p,ringbuf,Table5));
+			Ouput44100Hz(isRight, ZigZagInterpolate(p,ringbuf,Table6));
+			Ouput44100Hz(isRight, ZigZagInterpolate(p,ringbuf,Table7));
 		}
 	}
 }
 
-void decodeBlock(u8* sectorData, BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, s16* output, int address) {
+void decodeBlock(u8* sectorData, BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, int address) {
 	static const s32 filterPositive[] = {0, 60, 115, 98};
 	static const s32 filterNegative[] = {0, 0, -52, -55};
 	static const u32 WordsPerBlock    = 28;
@@ -1320,9 +1893,10 @@ void decodeBlock(u8* sectorData, BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, s16
 		 u8 filter   = (header & 0x30) >> 4;
 		s32 positive = filterPositive[filter];
 		s32 negative = filterNegative[filter];
+		/* USE GLOBAL ARRAY FOR BLOCK DECODING.
 		int index    = isStereo	? ((block >> 1) * (WordsPerBlock << 1) + isRight)
 								: (block * WordsPerBlock);
-
+		 */
 		u32 dataPtr  = address + 16;
 		u8* secDataP = &sectorData[dataPtr];
 		u8* secDataPE= &secDataP[WordsPerBlock];
@@ -1345,13 +1919,9 @@ void decodeBlock(u8* sectorData, BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, s16
 			previous[1]      = previous[0];
 			previous[0]      = interpolated;
 
-			output[index]    = (s16)outSample;
-
 			if (isStereo) {
-				index		+= 2;
 				OutputXA	(isRight, is18_9Khz, outSample);
 			} else {
-				index		+= 1;
 				OutputXA	(      0, is18_9Khz, outSample);
 				OutputXA	(      1, is18_9Khz, outSample);
 			}
@@ -1361,6 +1931,7 @@ void decodeBlock(u8* sectorData, BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, s16
 }
 
 void decodeADPCM(BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, u8* sectorData) {
+	// One sector is 18x128 Bytes.
 	const u32 Blocks			= 18;
 	const u32 BlockSize			= 128;
 	const u32 WordsPerBlock		= 28;
@@ -1369,11 +1940,7 @@ void decodeADPCM(BOOL is18_9Khz, BOOL isStereo, BOOL is8bit, u8* sectorData) {
 	
 	for(unsigned int block = 0; block < Blocks; block++) {
 		// Push to FIFO is done inside...
-		decodeBlock(sectorData, is18_9Khz, isStereo, is8bit, gOutput, 24 + block * BlockSize);
-		/*
-		for(auto sample : output) {
-		  if(!samples.full()) samples.write(sample);
-		}*/
+		decodeBlock(sectorData, is18_9Khz, isStereo, is8bit, 24 + block * BlockSize);
 	}
 }
 
@@ -1398,17 +1965,77 @@ void DecodeSectorXA(u8* sectorData) {
 	// monaural = !stereo;
 }
 
-void EvaluateFirmware() {
+u8 internalBusy;
+void SetBusyFirm	() { internalBusy = TRUE;  }
+void ResetBusyFirm	() { internalBusy = FALSE; }
+u8   GetBusyFirm    () { return internalBusy;  }
 
-	if (DRV_Update(ReadHW_TimerDIV8())) {
-		// Something changed... State / Sector reading / etc...
+u8 ResolveSectorType(u32 sectorID) {
+	if ((sectorID < gDriveSim.currTrackStartIncluded) || (sectorID >= gDriveSim.currTrackEndExcluded)) {
+		// Reset
+		gDriveSim.currTrackEndExcluded   = 0;
+
+		struct Track* pT = NULL;
+		if (discInternal.trackCount) {
+			u8  found = 0;
+			u32 start;
+			for (int n=1; n <= discInternal.trackCount; n++) {
+				pT = &discInternal.tracks[n];
+				start = ToUint(&pT->indices[0]);
+				if (sectorID >= start) {
+					found = 1;
+					gDriveSim.currTrackType          = pT->trackType; // 0:Undef, 1:AUDIO
+					gDriveSim.currTrackStartIncluded = start;
+				} else {
+					gDriveSim.currTrackEndExcluded   = start;
+					return gDriveSim.currTrackType;
+				}
+			}
+			gDriveSim.currTrackEndExcluded = ToUint(&pT->size) + start;
+			if (!found) {
+				lax_assert("[SECTOR NOT FOUND IN TOC]");
+			}
+		} else {
+			lax_assert("[NO TRACKS]");
+		}
+	}
+	return gDriveSim.currTrackType/* TODO =>  | IsADPCM ? 1:0  DATA->ADPCM type */;
+}
+
+void EvaluateFirmware(u32 clockCount) {
+	if (gLatencyResetBusy > 0) {
+		gLatencyResetBusy--;
+		if (gLatencyResetBusy == 0) {
+			ResetBusy();
+		}
 	}
 
-	// TODO : Decompressed ADPCM etc...
+	u8 opDrv = DRV_Update(clockCount);
+	if (opDrv) { // Not
+		// Something changed... State / Sector reading / etc...
+		if (opDrv & 1) {
+			// TODO : ADPCM vs DATA detection...
+			sectorType = ResolveSectorType(gDriveSim.currSector);
+			gGetNewSector = 1;
+			RequestSector(gDriveSim.currSector);
+
+			// TODO : Should work... Execpt that Command ASKING WHERE WE ARE SHOULD RETURN currSector-1.
+			//        As we time-out and request only here. I guess the -1 thing should be perfectly fine.
+			gDriveSim.currSector++; // ID goes to next.
+		}
+
+		if (opDrv & 4) {
+			sectorType = TOC_DATA_TYPE;
+			RequestSector(0);
+		}
+
+		//        0x2 State change
+	}
+
+	sendDataOrPCM();
 
 	if (HasNewCommand()) {
 		u8 command;
-		SetBusy();
 		ResetHasNewCommand();
 		gParamCnt = 0;
 		command	 = ReadCommand();
@@ -1422,11 +2049,15 @@ void EvaluateFirmware() {
 			RequestParam(0);							// Can be before Read for HW, but software check for flag.
 		}
 
+		CDRomLogCommand(command);
+		
+		gLatencyResetBusy = 1;
+
 		if (ValidateParamSize(command)) {
 			switch(command) {
 			case 0x00: commandInvalid(ERROR_CODE_INVALID_COMMAND); break;
 			case 0x01: commandGetStatus();						break;
-			case 0x02: commandSetLocation();					break;
+			case 0x02: commandSetLocation(0);					break;
 			case 0x03: commandPlay();							break;
 			case 0x04: respStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_FastForward); /* commandFastForward(); */	break;
 			case 0x05: respStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_Rewind     ); /* commandRewind();		 */ break;
@@ -1467,14 +2098,37 @@ void EvaluateFirmware() {
 		} else {
 			commandInvalid(ERROR_REASON_INCORRECT_NUMBER_OF_PARAMETERS);
 		}
-	} else {
-		ResetBusy();
+
+		CDRomLogResponse();
 	}
 }
 
 void InitFirmware() {
 	initDecoderADPCM();
 	DRV_Reset();
+	// ADPCM parser.
+	idx128			= 0;
+	receiveHeader	= 1;
+	ADPCMblockCount	= 0;
+
+	LLVol			= 0x80;
+	LRVol			= 0;
+	RLVol			= 0;
+	RRVol			= 0x80;
+
+	audio_mute		= 0;
+
+	gLatencyResetBusy = 0;
+
+	gDriveMode		= 0;
+	gSectorSkip		= 0x18; 
+	gSectorLength	= 2328;
+
+	/* Not needed.
+	ADPCM_is18_9Khz = 0;
+	ADPCM_isStero   = 0;
+	ADPCM_is8Bit    = 0;
+	*/
 }
 
 void EvaluateFirmwareEndless() {
@@ -1482,14 +2136,91 @@ void EvaluateFirmwareEndless() {
 
 	// Infinite loop...
 	while (TRUE) {
-		EvaluateFirmware();
+		EvaluateFirmware(ReadHW_TimerDIV8());
 	}
 }
+
+#define DEBUG_DRIVE
+
+#ifdef DEBUG_DRIVE
+
+u8 gResponseLogCnt;
+u8 gResponseLog[32];
 
 #include <stdio.h>
 void CDRomDebug() {
 	printf("-----------------------------------------------------\n");
 	printf("LID      : %s\n", IsOpen()   ? "OPEN" : "CLOSE");
 	printf("HasMedia : %s\n", HasMedia() ? "YES"  : "NO"   );
-	printf("NewCommand : ");
+	// IRQ
+	// INT Line State
+	// Track, Sector, Drive State, Drive Target
 }
+
+void CDRomLogCommand(u8 command) {
+	const char* commandName = "[UNDEFINED COMMAND]";
+	switch(command) {
+	case 0x00: commandName = "commandInvalid";					break;
+	case 0x01: commandName = "commandGetStatus";				break;
+	case 0x02: commandName = "commandSetLocation";				break;
+	case 0x03: commandName = "commandPlay";						break;
+	case 0x04: commandName = "commrespStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_FastForward)"; break;
+	case 0x05: commandName = "commrespStatus_IRQAckPoll_CDDAPlayMode(EPlayMode_Rewind     )"; break;
+	case 0x06: commandName = "commandReadWithRetry(FALSE)";		break;
+	case 0x07: commandName = "commandMotorOn";					break;
+	case 0x08: commandName = "commandStop";						break;
+	case 0x09: commandName = "commandPause";					break;
+	case 0x0a: commandName = "commandInitialize";				break;
+	case 0x0b: commandName = "commandMute";						break;
+	case 0x0c: commandName = "commandUnmute";					break;
+	case 0x0d: commandName = "commandSetFilter";				break;
+	case 0x0e: commandName = "commandSetMode";					break;
+	case 0x0f: commandName = "commandGetParam";					break;
+	case 0x10: commandName = "commandGetLocationL";				break;
+	case 0x11: commandName = "commandGetLocationPlaying";		break;
+	case 0x12: commandName = "commandSetSession";				break;
+	case 0x13: commandName = "commandGetFirstAndLastTrackNumbers";	break;
+	case 0x14: commandName = "commandGetTrackStart";			break;
+	case 0x15: commandName = "commandSeek";						break;
+	case 0x16: commandName = "commandSeek";						break;
+	case 0x17: commandName = "commandInvalid(SetClock)";		break;  //
+	case 0x18: commandName = "commandInvalid(GetClock)";		break;  //GetClock
+	case 0x19: commandName = "commandTest";						break;
+	case 0x1a: commandName = "commandGetID";					break;
+	case 0x1b: commandName = "commandReadWithRetry(TRUE)";		break;
+	case 0x1e: commandName = "commandReadTOC";					break;
+	case 0x1f: commandName = "commandVideoCD";					break;
+	default: 
+		break;
+	}
+	printf("Command [%02x] %s (",command,commandName);
+	for (int n=0; n < gParamCnt; n++) {
+		if (n != 0) { printf(","); }
+		printf("%02x",gParam[n]);
+	}
+	printf(")\n");
+
+	gResponseLogCnt = 0;
+}
+
+
+void CDRecordRespLog(u8 responseToWrite) {
+	gResponseLog[gResponseLogCnt++] = responseToWrite;
+}
+
+void CDRomLogResponse() {
+	printf( "--> (");
+	for (int n=0; n < gResponseLogCnt; n++) {
+		if (n != 0) { printf(","); }
+		printf("%02x",gResponseLog[n]);
+	}
+	printf( ")\n");
+}
+#else
+
+void CDRomLogCommand(u8 command)         {}
+void CDRecordRespLog(u8 responseToWrite) {}
+void CDRomLogResponse()                  {}
+void CDRomDebug() {}
+
+#endif
