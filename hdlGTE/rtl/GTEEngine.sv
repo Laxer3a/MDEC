@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 `include "GTEDefine.hv"
 
 module GTEEngine (
@@ -62,14 +73,6 @@ GTERegs GTERegs_inst (
 //   Compute Path
 // ----------------------------------------------------------------------------------------------
 
-CTRL            ctrlInput;
-assign ctrlInput.lm  = loadInstr ? i_Instruction[10]    : ctrl.lm;
-assign ctrlInput.sf  = loadInstr ? i_Instruction[19]    : ctrl.sf;
-assign ctrlInput.cv  = loadInstr ? i_Instruction[14:13] : ctrl.cv;
-assign ctrlInput.vec = loadInstr ? i_Instruction[16:15] : ctrl.vec;
-assign ctrlInput.mx  = loadInstr ? i_Instruction[18:17] : ctrl.mx;
-assign ctrlInput.executing = ctrl.executing; // Not used.
-
 GTEComputePath GTEComputePath_inst(
 	.i_clk			(i_clk),
 	.i_nRst			(i_nRst),
@@ -77,7 +80,7 @@ GTEComputePath GTEComputePath_inst(
 	.isMVMVA        (isMVMVA | isMVMVAWire),
 	.WIDE			(i_DIP_FIXWIDE),
 	
-	.i_instrParam	(ctrlInput),				// Instruction Parameter bits
+	.i_instrParam	(ctrl),				// Instruction Parameter bits
 	.i_computeCtrl	(computeCtrl),		// Control from Microcode Module.
 	.i_DIP_FIXWIDE	(i_DIP_FIXWIDE),
 
@@ -106,30 +109,27 @@ GTEMicroCode GTEMicroCode_inst(
 //   Microcode Management : PC, Start Adress and Microcode ROM.
 // ----------------------------------------------------------------------------------------------
 
-reg  [ 8:0] PC,vPC;
+wire loadInstr;
+wire isExecuting = (rPC != 9'd0);
+
+reg  [ 8:0] rPC;
 wire [ 8:0] startMicroCodeAdr;
+wire [ 8:0] vPC = loadInstr ? startMicroCodeAdr : rPC;
+wire [ 8:0] vPC1= vPC + {8'd0, isExecuting | loadInstr };
+
+wire PCcond     = (!i_nRst) || (gteLastMicroInstruction && (!loadInstr));
+wire [ 8:0] nPC = PCcond          ? 9'd0 : vPC1;
 
 GTEMicrocodeStart GTEMicrocodeStart_inst(
-	.IsNop			(!ctrl.executing),
 	.isBuggyMVMVA	(isBuggyMVMVA),
 	.Instruction	(i_Instruction[5:0]),
 	.StartAddress	(startMicroCodeAdr)
 );
 
-wire loadInstr = i_run && (!ctrl.executing);
+assign loadInstr = i_run && (!isExecuting);
 
-// Allow to have PC value zero latency (pre PC reg write)
-always @(*)
-begin
-	if (loadInstr) begin
-		vPC = startMicroCodeAdr;
-	end else begin
-		if (!ctrl.executing) begin
-			vPC = 9'd0; // NOP is first entry in ROM. (Special zero latency case ?)
-		end else begin
-			vPC = PC + 9'd1;
-		end
-	end
+always @(posedge i_clk) begin
+	rPC <= nPC;
 end
 
 always @(posedge i_clk)
@@ -142,23 +142,16 @@ begin
 		ctrl.cv  <= i_Instruction[14:13];		// 0:TR,       1:BK,    2:FC/Bugged, 3:None
 		ctrl.vec <= i_Instruction[16:15];		// 0:V0,       1:V1,    2:V2,        3:IR/Long
 		ctrl.mx	 <= i_Instruction[18:17];		// 0:Rotation, 1:Light, 2:Color,     3:Reserved
+		isMVMVA			<= isMVMVAWire; 				// MVMVA.
 	end
 
 	// Executing lock flag.
 	if (gteLastMicroInstruction || (i_nRst == 1'b0)) begin
-		ctrl.executing			<= 1'b0;
-		PC						<= 9'd0;
 		isMVMVA					<= 1'b0;
-	end else begin
-		PC	<= vPC;
-		if (loadInstr) begin
-		    isMVMVA				<= isMVMVAWire; 				// MVMVA.
-			ctrl.executing		<= 1'b1; 						// No !gteLastMicroInstruction; needed (because gteLastMicroInstruction reset executing).
-		end
 	end
 end
 
 // Output
-assign o_executing = ctrl.executing;
+assign o_executing = isExecuting;
 
 endmodule

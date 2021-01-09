@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 // ----------------------------------------------------------------------------------------------
 //   Compute Path
 // ----------------------------------------------------------------------------------------------
@@ -429,16 +440,23 @@ assign o_RegCtrl.IR0   = IR0Value;
 assign o_RegCtrl.IR13  = IRnPostClip;
 
 always @(posedge i_clk) begin
-	if (i_computeCtrl.assignIRtoTMP) begin
-		TMP1 <= i_registers.IR1;
-		TMP2 <= i_registers.IR2;
-		TMP3 <= i_registers.IR3;
+	if (i_nRst == 0) begin
+		TMP1		<= 16'd0;
+		TMP2		<= 16'd0;
+		TMP3		<= 16'd0;
+		tempSumREG	<= 45'd0;
+	end else begin
+		if (i_computeCtrl.assignIRtoTMP) begin
+			TMP1 <= i_registers.IR1;
+			TMP2 <= i_registers.IR2;
+			TMP3 <= i_registers.IR3;
+		end
+		if (i_computeCtrl.wrTMP1)   begin TMP1 <= IRnPostClip; end
+		if (i_computeCtrl.wrTMP2)   begin TMP2 <= IRnPostClip; end
+		if (i_computeCtrl.wrTMP3)   begin TMP3 <= IRnPostClip; end
+	//	if (i_computeCtrl.wrDivRes) begin divResREG = divRes; end NOT USED ANYMORE, BUT WANT TO KEEP ROM SIGNAL FOR NOW [TODO CLEAN AFTER DEBUG]
+		if (i_computeCtrl.storeFull) begin tempSumREG <= (~finalSum + 45'd1); end // Negative value. TODO OPTIMIZE : Move to NEG post REG ?
 	end
-	if (i_computeCtrl.wrTMP1)   begin TMP1 <= IRnPostClip; end
-	if (i_computeCtrl.wrTMP2)   begin TMP2 <= IRnPostClip; end
-	if (i_computeCtrl.wrTMP3)   begin TMP3 <= IRnPostClip; end
-//	if (i_computeCtrl.wrDivRes) begin divResREG = divRes; end NOT USED ANYMORE, BUT WANT TO KEEP ROM SIGNAL FOR NOW [TODO CLEAN AFTER DEBUG]
-	if (i_computeCtrl.storeFull) begin tempSumREG <= (~finalSum + 45'd1); end // Negative value. TODO OPTIMIZE : Move to NEG post REG ?
 end
 
 endmodule

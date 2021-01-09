@@ -1,10 +1,22 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 module GTEMicrocodeStart(
-	input			IsNop,
 	input			isBuggyMVMVA,
 	input	[5:0]	Instruction,
 	output	[8:0]	StartAddress
+//	,output  [5:0]   officialCycleCount
 );	
 	reg [8:0] retAdr;
+//	reg [5:0] retCount;
 	
 	// isBuggyMVMVA = FALSE : 2 -> Remap 3, else as is.
 	// is
@@ -22,12 +34,18 @@ module GTEMicrocodeStart(
 	wire [5:0] remapped = { Instruction[5], (Instruction[4] & (!isBuggyMVMVA)), Instruction[3:1] , Instruction[0] | remapp3 };
 	always @(remapped) begin
 		case (remapped)
-		
 		// Generated with C++ tool.
 		`include "MicroCodeStart.inl"
-		
 		endcase
+		
+		/*
+		case (remapped)
+		// Generated with C++ tool.
+		`include "MicroCodeTiming.inl"
+		endcase
+		*/
 	end
 	
-	assign StartAddress = retAdr;
+	assign StartAddress			= retAdr;
+	// assign officialCycleCount	= retCount;
 endmodule
