@@ -260,11 +260,36 @@ wire [34:0]  outSel1P = i_computeCtrl.negSel[0] ? (~outSel1 + 35'd1) : outSel1;
 wire [34:0]  outSel2P = i_computeCtrl.negSel[1] ? (~outSel2 + 35'd1) : outSel2;
 wire [34:0]  outSel3P = i_computeCtrl.negSel[2] ? (~outSel3 + 35'd1) : outSel3;
 
-wire [44:0]  part1Sum = {outAddSel[43],outAddSel} + {{10{outSel1P[34]}},outSel1P};
+//---------------------- If pipeline HERE, reaches 43.04 Mhz
+reg  [34:0]  outSel3P_p;
+reg  [34:0]  outSel2P_p;
+reg  [34:0]  outSel1P_p;
+reg  signed [43:0]  outAddSel_p;
+always @(posedge i_clk) begin
+	outSel1P_p <= outSel1P;
+	outSel3P_p <= outSel3P;
+	outSel2P_p <= outSel2P;
+    outAddSel_p <= outAddSel;
+end
+
+
+wire [44:0]  part1Sum = {outAddSel_p[43],outAddSel_p} + {{10{outSel1P_p[34]}},outSel1P_p};
 
 wire [3:0] isOverflowS44 ;
 wire [3:0] isUnderflowS44;
 wire       isOverflowS32,isUnderflowS32;
+
+/*
+//---------------------- If pipeline HERE, reaches 43.04 Mhz
+reg  [44:0]  part1Sum;
+reg  [34:0]  outSel3P_p;
+reg  [34:0]  outSel2P_p;
+always @(posedge i_clk) begin
+	part1Sum   <= part1Sum_pre;
+	outSel3P_p <= outSel3P;
+	outSel2P_p <= outSel2P;
+end
+*/
 
 FlagsS44 FlagS44Local1(
 	.v			(part1Sum),
@@ -273,7 +298,7 @@ FlagsS44 FlagS44Local1(
 );
 
 wire [44:0]  part1SumPostExt = { i_computeCtrl.check44Local ? part1Sum[43] : part1Sum[44] , part1Sum[43:0] };
-wire [44:0]  part2Sum = part1SumPostExt + {{10{outSel2P[34]}},outSel2P};
+wire [44:0]  part2Sum = part1SumPostExt + {{10{outSel2P_p[34]}},outSel2P_p};
 
 FlagsS44 FlagS44Local2(
 	.v			(part2Sum),
@@ -282,15 +307,17 @@ FlagsS44 FlagS44Local2(
 );
 
 /*
-reg  [44:0]  pipe_part2Sum;
+//---------------------- If pipeline HERE, reaches 40.37 Mhz
+reg  [44:0]  part2Sum;
+reg  [34:0]  outSel3P_p;
 always @(posedge i_clk) begin
-	pipe_part2Sum <= part2Sum;
+	part2Sum   <= part2Sum_pre;
+	outSel3P_p <= outSel3P;
 end
 */
-
 reg  [44:0]  tempSumREG;
 wire [44:0]  part2SumPostExt = { i_computeCtrl.check44Local ? /*pipe_*/part2Sum[43] : /*pipe_*/part2Sum[44], /*pipe_*/part2Sum[43:0] };
-wire [44:0]  finalSumBeforeExt = part2SumPostExt + {{10{outSel3P[34]}},outSel3P} + (i_computeCtrl.useStoreFull ? tempSumREG : 45'd0);
+wire [44:0]  finalSumBeforeExt = part2SumPostExt + {{10{outSel3P_p[34]}},outSel3P_p} + (i_computeCtrl.useStoreFull ? tempSumREG : 45'd0);
 
 FlagsS44 FlagS44Local3(
 	.v			(finalSumBeforeExt),
@@ -299,6 +326,15 @@ FlagsS44 FlagS44Local3(
 );
 
 wire [44:0]  finalSum = { i_computeCtrl.check44Local ? finalSumBeforeExt[43] : finalSumBeforeExt[44] , finalSumBeforeExt[43:0] };
+
+/*
+////------------------- 1 : FINAL SUM ----------------------------------  [34.03 Mhz]
+reg  [44:0]  finalSum;
+always @(posedge i_clk) begin
+	finalSum <= finalSumBefore;
+end
+*/
+
 
 FlagsS44 FlagS44Global(
 	.v			(finalSum),

@@ -206,38 +206,42 @@ wire [16:0] adrTexRead = requTexCacheUpdateL ? adrTexCacheUpdateL : adrTexCacheU
 // [CONVERT GPU COMMAND AND PACK INTO FIFO]
 // --------------------------------------------------
 // MEM SIDE
-parameter	READ_32B			= 3'b000,
+parameter	READ_32B			= 3'b000,	// COUNT
 			WRITE_32B			= 3'b001,
-			READ_8B				= 3'b010,
+			READ_8B				= 3'b010,	// COUNT
 			WRITE_4B			= 3'b011,
 			READ_32B_VVCP		= 3'b100,
 			WRITE_32B_VVCP		= 3'b101,
-			READ_4B				= 3'b110;
+			READ_4B				= 3'b110;	// COUNT
 			// 111 UNDEFINED / UNUSED
 
 assign isTexL    = (state     == READ_TEX_L);
 assign isTexR    = (state     == READ_TEX_R);
 assign isCLUT    = (state     == READ_CLUT );
 assign isPairRead= (state     == READ_PIX2 );
-wire   resetRead = (nextState == WAIT_CMD  ) && (isTexL | isTexR | isCLUT | isPairRead | (state == READ_BG));
+// wire   resetRead = (nextState == WAIT_CMD  ) && (isTexL | isTexR | isCLUT | isPairRead | (state == READ_BG));
 
+// ALL READ COMMAND EXCEPT BANK
+wire decrSlot	 = writeFIFO & ((command[2:0]==READ_32B) || (command[2:0]==READ_8B) || (command[2:0]==READ_4B);
+// ALL READ RESULT  EXCEPT BANK
+wire incrSlot	 = validRead;
 
-reg [1:0] allocated_q;
+reg [15:0] allocated_q;
 
 always @ (posedge gpuClk )
 begin
 	if (!i_nRst)
 		allocated_q  <= 2'b0;
-	else if (readPairValid)
+	else if (incrSlot)
 	begin
 		// -1 & -1
-		if (resetRead) 
+		if (decrSlot)
 			;
 		else
-			allocated_q  <= allocated_q + 2'd1;
+			allocated_q  <= allocated_q + 16'd1;
 	end
-	else if (resetRead)
-		allocated_q  <= allocated_q - 2'd1;
+	else if (decrSlot)
+		allocated_q  <= allocated_q - 16'd1;
 end
 assign o_hasReadSpace = (allocated_q < 1);
 
