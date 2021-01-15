@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 microCodeROM[0].ctrlPath = '{ sel1:'{mat:2'd0,selLeft:4'd0/*R11*/,selRight:4'd4,vcompo:2'd0/*ZERO*/} , sel2:'{mat:2'd0,selLeft:4'd0/*R12*/,selRight:4'd4,vcompo:2'd0/*ZERO*/} , sel3:'{mat:2'd0,selLeft:4'd0/*R13*/,selRight:4'd4,vcompo:2'd0/*ZERO*/} ,  addSel:'{useSF:1'b0,id:2'd0,sel:4'd3} ,  wrTMP1:1'b0 , wrTMP2:1'b0 , wrTMP3:1'b0 , storeFull:1'b0 , useStoreFull:1'b0 , useSFWrite32:1'b0 , assignIRtoTMP:1'b0 , wrDivRes:1'b0 , negSel:3'b000 , selOpInstr:2'd0 , selCol0:1'b0 , check44Global:1'b0 , check44Local:1'b0 , check32Global:1'b0 , checkOTZ:1'b0 , checkDIV:1'b0 , checkXY:1'b0 , checkIR0:1'b0 , checkIRn:1'b0 , checkColor:1'b0 , isIRnCheckUseLM:1'b0 , lmFalseForIR3Saturation:1'b0 , maskID:2'd0 , X0_or_Y1:1'b0 };
 microCodeROM[0].wb = '{wrIR:4'b0000, wrMAC:4'b0000, wrOTZ:1'b0, pushX:1'b0, pushY:1'b0, pushZ:1'b0, pushR:1'b0, pushG:1'b0, pushB:1'b0  };
 microCodeROM[0].lastInstrFAST = 1'b1;

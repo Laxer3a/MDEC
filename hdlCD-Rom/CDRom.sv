@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 /*
     CD Rom Implementation concept :
     - Set some registers.
@@ -33,6 +44,9 @@ interface Soft_IF;
     logic [15:0]        write_dataValue;
     
     modport SW (
+		input	commandArrived,
+		output	commandCompleted,
+		
         input   paramFIFO_out,
         output  paramRead,
         
@@ -53,11 +67,15 @@ interface Soft_IF;
 
     // Opposite direction for HW.
     modport HW (
+		output	commandArrived,
+		input	commandCompleted,
+		
         output  paramFIFO_out,
         input   paramRead,
         
         input   responseFIFO_in,
         input   responseWrite,
+		
 
         input   writeL,
         input   writeR,
@@ -176,7 +194,7 @@ wire        sig_PARAMFifoFull;
 
 // ---------------------------------------------------------------------------------------------------------
 // TODO : Bit3,4,5 are bound to 5bit counters; ie. the bits become true at specified amount of reads/writes, and thereafter once on every further 32 reads/writes. (No$)
-wire sig_CmdParamTransmissionBusy;                          // 1F801800 Bit 7 1:Busy
+reg  sig_CmdParamTransmissionBusy;                          // 1F801800 Bit 7 1:Busy
 wire sig_DATAFifoNotEmpty;                                  // 1F801800 Bit 6 0:Empty, 1:Has some data at least. 
 wire sig_RESPONSEFifoNotEmpty;                              // 1F801800 Bit 5 0:Empty, 1:Has some data at least. 
 wire sig_PARAMFifoNotFull   = !sig_PARAMFifoFull;           // 1F801800 Bit 4 0:Full,  1:Not full.
@@ -345,7 +363,10 @@ always @(posedge i_clk) begin
                 // 1F801801.3 (W)   : Audio Volume for Right-CD-Out to Right-SPU-Input
                 2'd1: begin
                     case (IndexREG)
-                    2'd0: /* Command is issued, not here        (Other Circuit) */;
+                    2'd0: begin
+						sig_CmdParamTransmissionBusy	<= 1;	/* Command is issued*/
+						REG_CurrCommand					<= 1;	
+					end
                     2'd1: /* Sound Map Audio Out pushed to FIFO (Other Circuit) */;
                     2'd2: begin
                         REG_SNDMAP_Stereo       <= i_dataIn[0];

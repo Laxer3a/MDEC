@@ -1,3 +1,15 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
+
 typedef struct packed {
 	logic	RAMHIZ;		// Bit 13
 	logic	RAM;		// Bit 12
@@ -15,17 +27,53 @@ typedef struct packed {
 	logic	BIOS_CS;	// Bit 0
 } SChipCS;
 
+
 module ChipSelect(
 	input	[30:0]	 	i_address,
 	input	[ 2:0]		REG_RAM_SIZE,		// 0:1MB..7:8MB RAM Size Configuration, independant from REAL CHIP SIZE ! (Perform mirroring, HiZ)
 	input   [ 1:0]      PhysicalRAMSize,	// 0:2MB, 1:4MB, 2:6MB, 3:8MB => For MiSTer or other platform to select the amount of DDR memory allocated to the CPU RAM.
 	
+	input	 [4:0]		i_wdwExp1,
+	input	 [4:0]		i_wdwExp2,
+	input	 [4:0]		i_wdwExp3,
+	input	 [4:0]		i_wdwBIOS,
+	input	 [4:0]		i_wdwCDRM,
+	input	 [4:0]		i_wdwSPU ,
+	
 	output  [22:0]		o_ramAddr,			// Allow up to 8 MB. Addr is mirrored, clipped matching specs on input setup.
 	
 	// Chip Select, include checking KSeg already.
 	output  SChipCS 	o_csPins,
+	output				o_openBus,
 	output				o_busError
 );
+
+/*
+Fixed
+  00000000h 80000000h A0000000h  2048K  Main RAM (first 64K reserved for BIOS)
+  1F800000h 9F800000h    --      1K     Scratchpad (D-Cache used as Fast RAM)
+  1F801000h 9F801000h BF801000h  8K     I/O Ports
+  
+Windowed
+  1F000000h 9F000000h BF000000h  8192K  Expansion Region 1 (ROM/RAM)
+  1F802000h 9F802000h BF802000h  8K     Expansion Region 2 (I/O Ports)
+  1FA00000h 9FA00000h BFA00000h  2048K  Expansion Region 3 (SRAM BIOS region for DTL cards)
+  1FC00000h 9FC00000h BFC00000h  512K   BIOS ROM (Kernel) (4096K max)
+  1F801800h 9F801800h BF801800h         CD-ROM
+  1F801C00h 9F801C00h BF801C00h         SPU
+
+  --BIT POSITION--------------------------
+  332 2 2222 2222 1111 1111 1100 0000 0000
+  109 8 7654 3210 9876 5432 1098 7654 3210
+  ----------------------------------------
+  MMM x_xxxx xxxx_xxxx xxxx_xxxx xxxx_xxxx
+  MMM 1_1111 0vvv_vvvv vvvv_vvvv vvvv_vvvv Expansion Region 1 (v = 8192 KB)
+  MMM 1_1111 1000_0000 0010_*vvv vvvv_vvvv Expansion Region 2 (v =    8 KB)
+  MMM 1_1111 110v_vvvv vvvv_vvvv vvvv_vvvv Expansion Region 3 (v = 2048 KB)
+  MMM 1_1111 1110_0vvv vvvv_vvvv vvvv_vvvv               BIOS (v =  512 KB)
+  MMM 1_1111 1000_0000 0001_1000 0000_00vv              CDROM (v =    4  B)
+  MMM 1_1111 1000_0000 0001_11vv vvvv_vvvv               BIOS (v =    1 KB)
+*/
 
 // If CPU is KUSEG   => Send [30:29] as is
 // If CPU is KSEG2   => Send [30:29] != 00 (any value ok)

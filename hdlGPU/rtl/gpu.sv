@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 /*
     POSSIBLE OPTIMIZATION :
     - Line outside draw area check optimization can be added.
@@ -264,7 +275,7 @@ typedef enum logic[3:0] {
 parameter TRANSP_HALF=2'd0, TRANSP_ADD=2'd1, TRANSP_SUB=2'd2, TRANSP_ADDQUARTER=2'd3;
 parameter PIX_4BIT   =2'd0, PIX_8BIT  =2'd1, PIX_16BIT =2'd2, PIX_RESERVED     =2'd3;
 
-parameter XRES_256=2'd0, XRES_320=2'd1, XRES_512=2'd2, XRES_640=2'd3;
+parameter XRES_256  =2'd0, XRES_320   =2'd1, XRES_512  =2'd2, XRES_640  =2'd3;
 parameter DMADIR_OFF=2'd0, DMADIR_FIFO=2'd1, DMADIR_C2G=2'd2, DMADIR_G2C=2'd3;
 
 parameter SIZE_VAR	= 2'd0, SIZE_1x1 = 2'd1, SIZE_8x8 = 2'd2, SIZE_16x16 = 2'd3;
@@ -379,7 +390,7 @@ GPUVideo GPUVideo_inst(
 
 assign o_HorizRes		= horizRes;
 assign o_VerticalRes	= (GPU_REG_VerticalResolution & GPU_REG_IsInterlaced) ? 9'd480 : 9'd240;
-assign o_IsInterlace	= GPU_REG_IsInterlaced;
+assign o_IsInterlace	= (GPU_REG_VerticalResolution & GPU_REG_IsInterlaced);
 assign o_CurrentField   = GPU_REG_IsInterlaced & (!GPU_REG_CurrentInterlaceField);	// Note : DISPLAY CURRENT FIELD IS OPPOSITE TO RENDER CURRENT FIELD (
 assign o_DisplayBaseX	= GPU_REG_DispAreaX;
 assign o_DisplayBaseY	= GPU_REG_DispAreaY;

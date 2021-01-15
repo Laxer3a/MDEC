@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 #include "externalWorld.h"
 
 // ########################################
@@ -15,10 +26,6 @@ u8 gIndex = 0;					// Index Selector for registers.
 // ----------------------------------------------------------
 // [Mixing Volumes]
 // IGNORE THOSE IN SOFTWARE. DONE PROPERLY IN HW ALREADY
-u8 mixLtoR;
-u8 mixLtoL;
-u8 mixRtoL;
-u8 mixRtoR;
 
 u8 paramFIFO[16];
 u8 paramRDIndex = 0;
@@ -51,6 +58,14 @@ extern u8 gINTSetBit;			// Set INT.
 extern u8 gDataWrite;			// Data to write to FIFO Data
 extern u8 gRequDataWrite;		// Signal Write to FIFO
 
+extern u8 gApplyVol;
+extern u8 gMuteADPCM;
+
+extern u8 mixLtoR;
+extern u8 mixLtoL;
+extern u8 mixRtoL;
+extern u8 mixRtoR;
+
 extern u8 gSMEN;				// Not used yet
 extern u8 gBFWR;				// Not used yet
 extern u8 gBFRD;				// Not used yet
@@ -66,6 +81,17 @@ void initExternalWorld() {
 // TODO : Size of Audio FIFO ???
 // One sector decoded ?
 
+void LogUpdateStatus(u8 out) {
+	printf("READ Status Reg : \n");
+	printf("  BIT 1..0:Index[%i]\n",out & 3);
+	printf("  BIT    2:ADPCM HAS DATA [UNSUPPORTED] (%i)\n",(out>>2)&1);
+	printf("  BIT    3:PARAM EMPTY    (%i)\n",(out>>3)&1);
+	printf("  BIT    4:PARAM NOT FULL (%i)\n",(out>>4)&1);
+	printf("  BIT    5:HAS RESPONSE   (%i)\n",(out>>5)&1);
+	printf("  BIT    6:HAS DATA       (%i)\n",(out>>6)&1);
+	printf("  BIT    7:BUSY           [UNSUPPORTED] (%i)\n",(out>>7)&1);
+}
+
 u8 updateStatus() {
 	// TODO : BIT 2 => AudioFIFO + flag(empty/full) + when playing...
 	// TODO : BIT 7
@@ -76,15 +102,19 @@ u8 updateStatus() {
 	// => 32 byte ? 16 byte ? Ridiculous !
 
 	u8 isParamFULL = isParamFull();
-
-	return 0
+	u8 isRespEmptyB = isRespEmpty();
+	u8 isDataEmptyB = isDataEmpty();
+	
+	u8 out = gIndex
 	//	 | BIT 2 TODO		 
 		 | (gIsFifoParamEmpty << 3)
-		 | ((isParamFULL ? /*Reverse !*/0:1)<<4)
-		 | ((isRespEmpty() ? /*Reverse !*/0:1)<<5)
-		 | ((isDataEmpty() ? /*Reverse !*/0:1)<<6)
+		 | ((isParamFULL  ? /*Reverse !*/0:1)<<4)
+		 | ((isRespEmptyB ? /*Reverse !*/0:1)<<5)
+		 | ((isDataEmptyB ? /*Reverse !*/0:1)<<6)
 	//	 | BIT 7 TODO 
 	;
+
+	return out;
 }
 
 void CDROM_Write(int adr, u8 v) {
@@ -136,7 +166,7 @@ u8   CDROM_Read (int adr) {
 // ########################################
 // ===== 1F801800    R/W
 void WriteStatusRegister(u8 index)	{ gIndex = index & 3;             }
-u8   ReadStatusRegister ()			{ return updateStatus() | gIndex; }
+u8   ReadStatusRegister ()			{ return updateStatus(); }
 
 // ########################################
 
@@ -239,7 +269,7 @@ u8   ReadData			() {
 	u8 v = dataFIFO[dataRDIndex];
 	if (!isDataEmpty()) {
 		dataRDIndex++;
-		if (dataRDIndex >= 2352) { dataRDIndex = 0; }
+		if (dataRDIndex >= 8192) { dataRDIndex = 0; }
 	}
 
 	return v;
@@ -252,7 +282,7 @@ void EXT_WriteDataFIFO() {
 		dataFIFO[dataWRIndex]	= gDataWrite;
 		gRequDataWrite          = 0;
 		dataWRIndex				= (dataWRIndex + 1);
-		if (dataWRIndex >= 2352) { dataWRIndex = 0; }
+		if (dataWRIndex >= 8192) { dataWRIndex = 0; }
 	}
 }
 
@@ -278,8 +308,10 @@ void SetL_CDVolToR		(u8 vol) {
 }
 
 // ===== 1F801803.3  W
-void WriteApplyChange	(u8 vol) {
+void WriteApplyChange	(u8 bits) {
 	// Done in HW, ignore here.
+	gApplyVol  = bits & (1<<5);
+	gMuteADPCM = bits & (1<<0);
 }
 
 // ===== 1F801803.0  R

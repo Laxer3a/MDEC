@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 #include "if.h"
 
 // ########################################
@@ -42,6 +53,7 @@ extern "C" {
 	void initExternalWorld();
 	u8   CDROM_Read (int adr);
 	void CDROM_Write(int adr, u8 v);
+	void LogUpdateStatus(u8 out);
 
 #ifdef __cplusplus
 }

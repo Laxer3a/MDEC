@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 /***************************************************************************************************************************************
 	Verilog code done by Laxer3A v1.0
 	
@@ -45,8 +56,15 @@ module SPU(
 	// When SPU is in DMA WRITE mode:
 	// -SPUDREQ is HIGH all the time except when FIFO is FULL (always requesting new data)
 	// -SPUDACK is HIGH and 'i_dataInRAM' has the value.
-	,output			SPUDREQ
-	,input			SPUDACK
+    ,output         spu_m2p_dreq_o    // <-- DMA_REQ
+    ,input          spu_m2p_valid_i   // --> DMA_ACK   (data will be valid only if we do a RAM->GPU xfer obviously)
+    ,input [15:0]   spu_m2p_data_i    // --> cpuDataIn,
+    ,output         spu_m2p_accept_o  //     (Accept is automatic from the GPU when ACK arrives)
+
+    ,output         spu_p2m_dreq_o    // <-- DMA_REQ
+    ,output         spu_p2m_valid_o   // <-- DMA_REQ 
+    ,output [15:0]  spu_p2m_data_o    // <-- cpuDataOut value on REQ (data will be valid only if we do a GPU->RAM xfer obviously)
+    ,input          spu_p2m_accept_i  // --> DMA_ACK (give me the next one)
 
 	// RAM Side
 	,output	[17:0]	o_adrRAM
@@ -152,7 +170,7 @@ InternalFifo
 	.clk			(i_clk),
 	.rst			(!n_rst),
 	
-	.wr_data_i		(dataIn),
+	.wr_data_i		(writeFIFODMA ? spu_m2p_data_i : dataIn),
 	.wr_en_i		(writeFIFO),
 
 	.rd_data_o		(fifoDataOut),
@@ -276,7 +294,9 @@ wire dataTransferRDReq		= reg_SPUTransferMode[1];
 // [Write to FIFO only on transition from internalwrite from 0->1 but allow BURST with DMA transfer] 
 //  --> PROTECTED FOR EDGE TRANSITION : WRITE during multiple cycle else would perform multiple WRITE of the same value !!!!
 // Implicit in writeFIFO, not used : wire isCPUXFer = (reg_SPUTransferMode == XFER_MANUAL);
-wire writeFIFO = (internalWrite & isD80_DFF & (!addr[6]) & (addr[5:1] == 5'h14)) | (isDMAXferWR & SPUDACK);
+wire writeFIFODMA = (isDMAXferWR & spu_m2p_valid_i);
+wire writeFIFO    = (internalWrite & isD80_DFF & (!addr[6]) & (addr[5:1] == 5'h14)) | writeFIFODMA;
+
 /*
 reg PInternalWrite;
 always @(posedge i_clk)
@@ -1078,7 +1098,22 @@ end
 
 // REQ in READ  MODE IS SENDING DATA
 // REQ in WRITE MODE IS KEEPING REQUESTING UNTIL FIFO IS FULL.
-assign SPUDREQ = (isDMAXferRD & readSPU) | (isDMAXferWR && !isFIFOFull);
+
+// --------------------------------------------------------------------------------------------------------------------------
+assign spu_m2p_dreq_o   = (isDMAXferWR && emptyFifo);
+assign spu_m2p_accept_o = !isFIFOFull;
+// --------------------------------------------------------------------------------------------------------------------------
+// PROBLEM : DATA IS PROVIDED AT FIXED INTERVAL BY THE STATE MACHINE. SPU DECIDE THE TIMING. DMA CAN NOT MISS IT...
+//           ==> WRONG. SPECIAL FIFO OUT FOR DMA ?
+//
+/// ???? spu_p2m_accept_i where to use it ?
+// Device REQUEST TO SEND DATA TO THE MEMORY.
+assign spu_p2m_dreq_o	= (isDMAXferRD & readSPU);
+// Data sent with the request is valid.
+assign spu_p2m_valid_o	= readSPU;
+// DATA DIRECTLY FROM RAM, WITHOUT BUFFERING.
+assign spu_p2m_data_o	= i_dataInRAM;
+// --------------------------------------------------------------------------------------------------------------------------
 
 always @(*)
 begin
