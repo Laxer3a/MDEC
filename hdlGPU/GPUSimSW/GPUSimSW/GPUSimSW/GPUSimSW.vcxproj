@@ -105,7 +105,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);VM_TRACE</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>./;C:\Verilator\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
@@ -143,7 +143,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions);VM_TRACE</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>./;C:\Verilator\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
@@ -155,10 +155,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPUVideo.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPUVideo__Syms.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Syms.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Trace.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Trace__Slow.cpp" />
     <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp" />
-    <ClCompile Include="ConsoleApplication5.cpp" />
+    <ClCompile Include="C:\Verilator\verilator\include\verilated_vcd_c.cpp" />
     <ClCompile Include="GPUCommandGen.cpp" />
     <ClCompile Include="GPUSimSW.cpp" />
     <ClCompile Include="HelperFunc.cpp" />

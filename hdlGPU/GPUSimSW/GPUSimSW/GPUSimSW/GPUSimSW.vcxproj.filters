@@ -21,19 +21,10 @@
     <ClCompile Include="GPUSimSW.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="HelperFunc.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="GPUCommandGen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="VerilatedIntoVCD.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="ConsoleApplication5.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MiniFB\MiniFB_common.c">
@@ -58,6 +49,27 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Verilator\verilator\include\verilated_vcd_c.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Trace.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Trace__Slow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPUVideo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VGPUVideo__Syms.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="HelperFunc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="VerilatedIntoVCD.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

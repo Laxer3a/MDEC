@@ -9,6 +9,11 @@
 class VGPU_DDR;
 #include "../../../rtl/obj_dir/VGPU_DDR.h"
 
+class VGPUVideo;
+#include "../../../rtl/obj_dir/VGPUVideo.h"
+
+#include <verilated_vcd_c.h>
+
 // My own scanner to generate VCD file.
 #define VCSCANNER_IMPL
 #include "VCScanner.h"
@@ -25,6 +30,7 @@ extern void loadImageToVRAMAsCommand(GPUCommandGen& commandGenerator, const char
 extern void loadImageToVRAM(VGPU_DDR* mod, const char* filename, u8* target, int x, int y, bool flagValue);
 extern void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask);
 extern void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan);
+extern void registerVerilatedMemberIntoScannerVideo(VGPUVideo* mod, VCScanner* pScan);
 extern void addEnumIntoScanner(VCScanner* pScan);
 extern void drawCheckedBoard(unsigned char* buffer);
 extern void backupFromStencil(VGPU_DDR* mod, u8* refStencil);
@@ -93,8 +99,1234 @@ int mymemcmp(void* a_, void* b_, int count) {
 u16 swBuffer[1024*512];
 u8* buffer32Bit;
 
+void RenderPixel(u16* buffer, int x, int y, int offset);
+
+u32 countDMAPush = 0;
+u32 countDMARead = 0;
+u32 commandPushDMAData[200000];
+u32 resultBuff[1024*512];
+
+int transferCommandCount = 0;
+int checkValueRead = 0;
+bool useCPU = true;
+static bool doItNextTime = false;
+static int dataAmount = -999;
+
+void writePort(VGPU_DDR* mod, GPUCommandGen& commandGenerator, bool download) {
+		// -----------------------------------------
+		//   [REGISTER SETUP OF GPU FROM BUS]
+		// -----------------------------------------
+		mod->i_write		= 0;
+		mod->i_read			= 0;
+		mod->i_gpuSel		= 0;
+		mod->i_gpuAdrA2		= 0;
+		mod->i_cpuDataIn	= 0;
+
+		static int blockDMA = 0;
+
+		mod->gpu_p2m_accept_o = 0;
+		mod->gpu_m2p_valid_o  = 0;
+
+		/*
+		if (download) {
+			if (!useCPU) {
+				static int counter = 0;
+				if (mod->o_DMA_REQ) {
+					mod->i_DMA_ACK = 1; // ((counter & 0x7) == 0) ? 1 : 0;
+					counter++;
+				} else {
+					mod->i_DMA_ACK = 0;
+				}
+				blockDMA = 1;
+
+				if (mod->gpu_p2m_valid_i) {
+					printf("Read : %08x\n", mod->gpu_p2m_data_i);
+					if (resultBuff[checkValueRead++] != mod->gpu_p2m_data_i) {
+						printf("ERROR !!!! \n ");
+					}
+					mod->gpu_p2m_accept_o = 1;
+				}
+			}
+		}
+
+		if (blockDMA > 0) {blockDMA--; } else {
+			if (doItNextTime) {
+				if (dataAmount == 0) {
+					// printf("ERROR TRANSMITTING BIG MISTAKE, GPU STILL REQUESTING.\n");
+				}
+
+				if (dataAmount == -999) {
+					if (countDMAPush > countDMARead) {
+						dataAmount = commandPushDMAData[countDMARead++];
+					}
+				}
+
+				if (dataAmount > 0) {
+					mod->i_DMA_ACK   = 1;
+					mod->i_cpuDataIn = commandPushDMAData[countDMARead++];
+					dataAmount--;
+					if (dataAmount == 0) {
+						if (countDMAPush != countDMARead) {
+							printf("ERROR TRANSMITTING.\n");
+						}
+					}
+				} else {
+					mod->i_DMA_ACK   = 0;
+					mod->i_cpuDataIn = 0xDEADBEEF;
+				}
+			} else {
+				mod->i_DMA_ACK = 0;
+				mod->i_cpuDataIn = 0xDEADBEEF;
+			}
+		}
+		*/
+
+		// Cheat... should read system register like any normal CPU...
+		if (mod->o_dbg_canWrite) {
+
+			bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 /*DEFAULT_STATE wait*/);
+			static int cycleCounter = 0;
+
+			bool uploadData = false;
+			if (commandGenerator.stillHasCommand()) {
+				if (isGPUWaiting) {
+					uploadData = true;
+				} else {
+					uploadData = true;					
+				}
+			}
+
+			if (uploadData) {
+				mod->i_gpuSel		= 1;
+				if (commandGenerator.isGP1()) {
+					mod->i_gpuAdrA2		= 1;
+				} else {
+					mod->i_gpuAdrA2		= 0;
+				}
+				mod->i_write		= 1;
+				mod->i_cpuDataIn	= commandGenerator.getRawCommand();
+				blockDMA            = 4;
+//				printf("Send Command : %08X\n",mod->i_cpuDataIn);
+			}
+
+			if (download && useCPU && (blockDMA == 0)) {
+				static int every = 0;
+				mod->i_read   = 1;// ((every & 0xF) == 0xF) ? 1:0;
+				mod->i_gpuSel = mod->i_read;
+				mod->i_gpuAdrA2 = 0;
+				every++;
+			}
+			
+			cycleCounter++;
+		}
+
+}
+
+int mainTestVRAMVRAM() {
+	// ------------------------------------------------------------------
+	// SETUP : Export VCD Log for GTKWave ?
+	// ------------------------------------------------------------------
+	bool useScan = false;
+
+	// ------------------------------------------------------------------
+	// Fake VRAM PSX
+	// ------------------------------------------------------------------
+	u16* buffer     = new u16[512*1024];
+	u16* Refbuffer  = new u16[512*1024];
+	u16* cleanBuff  = new u16[512*1024];
+
+	// ------------------------------------------------------------------
+	// [Instance of verilated GPU & custom VCD Generator]
+	// ------------------------------------------------------------------
+	VGPU_DDR* mod		= new VGPU_DDR();
+	VCScanner*	pScan = new VCScanner();
+				pScan->init(4000);
+
+	// ------------------ Register debug info into VCD ------------------
+	int currentCommandID      =  0;
+	u8 error = 0;
+
+	// Follow commands.
+	pScan->addMemberFullPath("COMMAND_ID", WIRE, BIN, 32, &currentCommandID, -1, 0);
+	pScan->addMemberFullPath("ERROR",      WIRE, BIN,  1, &error           , -1, 0);
+	// ------------------------------------------------------------------
+
+	registerVerilatedMemberIntoScanner(mod, pScan);
+	addEnumIntoScanner(pScan);
+	
+	// ------------------------------------------------------------------
+	// Reset the chip for a few cycles at start...
+	// ------------------------------------------------------------------
+	mod->i_nrst = 0;
+	for (int n=0; n < 10; n++) {
+		mod->clk = 0; mod->eval(); mod->clk = 1; mod->eval();
+	}
+	mod->i_nrst = 1;
+
+	// Not busy by default...
+	mod->i_busyMem				        = 0;
+	mod->i_dataValidMem					= 0;
+	mod->i_dataMem						= 0;
+
+	mod->i_DIP_AllowDither = 1;
+	mod->i_DIP_ForceDither = 0;
+
+	// This is the object used in the main loop to store/send 32 bit word to the GPU.
+	GPUCommandGen	commandGenerator;
+
+	if (useScan) {
+		pScan->addPlugin(new ValueChangeDump_Plugin("gpuLogVRAMVRAM.vcd"));
+	}
+
+	int testCount = 0; // 1825107; // start at 1545429
+	unsigned long long totalClock = 0;
+
+	int testReadIdx = 0;
+	int maxTestCount = 4194304;
+
+	unsigned long long clockCnt  = 0;
+
+	// Cleaned buffer
+	int pix = 0;
+	for (int sh=0; sh<512; sh++) {
+		for (int sw=0; sw<1024; sw++) {
+			u16 pixID = ((sw) & 0xFF) | (((sh)<<8) & 0xFF00);
+			cleanBuff[sw + (sh*1024)] = pixID;
+		}
+	}
+
+gotoTest:
+	commandGenerator.resetBuffer();
+	transferCommandCount = 0;
+	countDMAPush = 0;
+	countDMARead = 0;
+	checkValueRead = 0;
+
+	useCPU = true; // rand() & 1 ? true : false;
+	doItNextTime = false;
+	dataAmount = -999;
+
+	memcpy(buffer   ,cleanBuff,1024*1024);
+	memcpy(Refbuffer,cleanBuff,1024*1024);
+
+	// -------------------------------------------------
+	// Upload a 4 bit 32x32 pixel texture at 512,64
+	// -------------------------------------------------
+	/*
+		1..3 Height, Test odd/even, Test width 1..8
+		1x1
+		1x2
+		1x3
+	 */
+
+#if (1)
+	// Overlap X Left, X Right, Y Left, Y Right, No Overlap X, No Overlap Y
+	// PosX 0..15
+	// PosY 0..15
+	// Width  0..63
+	// Height 0..63
+	// x16
+
+	int sx = ((testCount>> 0) & 0xF) + 16; // rand() & 0xFF;
+	// x4
+	int sy = ((testCount>> 4) & 0x03) + 16; // rand() & 0xFF;
+	// x16
+	int dx = ((testCount>> 6) & 0xF) + 128; // rand() & 0xFF;
+	// x4
+	int dy = ((testCount>>10) & 0x03) + 128; // rand() & 0xFF;
+	// x64
+	int w  = ((testCount>>12) & 0x3F) + 1;
+	// x16
+	int h  = ((testCount>>18) & 0x0F) + 1;
+	/*
+	int sx = rand() & 0xFF;
+	// x4
+	int sy = rand() & 0xFF;
+	// x16
+	int dx = rand() & 0xFF;
+	// x4
+	int dy = rand() & 0xFF;
+	// x64
+	int w  = 16; // ((testCount>>12) & 0x3F) + 1;
+	// x16
+	int h  = 16; // ((testCount>>18) & 0x0F) + 1;
+	*/
+#else
+	// Test 128,16,31,128,2,4
+	// 41,35,190,132,16,16
+	// 128,16,17,128,2,4
+	int sx = 128; // 0
+	int sy = 16;
+	int dx = 17;  // 31
+	int dy = 128;
+	int w  = 2;
+	int h  = 4;
+
+	/*
+	int x = rand() & 0xFF;
+	int y = rand() & 0xFF;
+	int w = 1 + (rand() & 0x7F);
+	int h = 1 + (rand() & 0x7F);
+	*/
+#endif
+
+	commandGenerator.writeRaw(0x80000000);
+	commandGenerator.writeRaw(sx | (sy<<16));
+	commandGenerator.writeRaw(dx | (dy<<16));
+	commandGenerator.writeRaw(w /*8 halfword*/ | (h<<16));
+
+	// Simulate the instruction in Refbuffer
+	for (int sh=0; sh<h; sh++) {
+		for (int sw=0; sw<w; sw++) {
+			int srcX = sx + sw; int srcY = sy + sh;
+			int dstX = dx + sw; int dstY = dy + sh;
+			Refbuffer[dstX + (dstY*1024)] = Refbuffer[srcX + (srcY*1024)];
+		}
+	}
+
+	long long cycleCountMax = clockCnt + (h*w*16) + 300; // Half clock count
+
+	// ------------------------------------------------------------------
+	// MAIN LOOP
+	// ------------------------------------------------------------------
+	int waitCount = 0;
+	int stuckState = 0;
+	int prevCommandParseState = -1;
+	int prevCommandWorkState  = -1;
+
+	bool log
+#ifdef RELEASE
+		= false;
+#else
+		= true;
+#endif
+
+	while (
+//		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
+//		&& (stuckState < 2500)
+		(clockCnt < cycleCountMax)
+	)
+	{
+		// By default consider stuck...
+		stuckState++;
+
+		bool savePic = false;
+		bool updateBuff = false;
+		if (log) {
+			// If some work is done, reset stuckState.
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
+#if 0
+				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
+				printf("NEW STATE : %s (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString /*,clockCnt >> 1*/,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
+	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
+#endif
+				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
+				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
+//					printf("\t[%i] COMMAND : %x (%i/%i)\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command, mod->GPU_DDR__DOT__gpu_inst__DOT__HitACounter, mod->GPU_DDR__DOT__gpu_inst__DOT__TotalACounter);
+					currentCommandID++;				// Increment current command ID.
+					updateBuff = true;
+				}
+			}
+			
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState != prevCommandWorkState)  {
+//				savePic = true;
+//				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
+//				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
+				/*stuckState = 0;*/ prevCommandWorkState = mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState;  
+			}
+		}
+
+		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 && 
+			// Wait for Memory fifo to be empty...
+			(mod->GPU_DDR__DOT__gpu_inst__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__empty == 1)) {
+			waitCount++; 
+		} else {
+			waitCount = 0; 
+		}
+
+		mod->i_write		= 0;
+		mod->i_gpuSel		= 0;
+
+		// Cheat... should read system register like any normal CPU...
+		if (mod->o_dbg_canWrite) {
+
+			bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 /*DEFAULT_STATE wait*/);
+			static int cycleCounter = 0;
+
+			bool uploadData = false;
+			if (commandGenerator.stillHasCommand()) {
+				if (isGPUWaiting) {
+					uploadData = true;
+				} else {
+					uploadData = true;					
+				}
+			}
+
+			if (uploadData) {
+				mod->i_gpuSel		= 1;
+				if (commandGenerator.isGP1()) {
+					mod->i_gpuAdrA2		= 1;
+				} else {
+					mod->i_gpuAdrA2		= 0;
+				}
+				mod->i_write		= 1;
+				mod->i_cpuDataIn	= commandGenerator.getRawCommand();
+//				printf("Send Command : %08X\n",mod->i_cpuDataIn);
+			} else {
+			}
+
+			cycleCounter++;
+		}
+
+		mod->clk    = 0;
+		mod->eval();
+
+
+		// Generate VCD if needed
+		if (useScan) {
+			pScan->eval(totalClock + clockCnt);
+		}
+		clockCnt++;
+
+		static int busyCounter = 0;
+		static bool isRead = false;
+		static int readAdr = 0;
+		static int readSize= 0;
+		enum ESTATE {
+			DEFAULT = 0,
+
+		};
+
+		mod->clk    = 1;
+		mod->eval();
+
+		// Write Request
+		// 
+		static bool beginTransaction = true;
+		static int  burstSize        = 0;
+		static int  burstSizeRead    = 0;
+		static int  burstAdr         = 0;
+
+		if (mod->o_writeEnableMem == 1 /* && (mod->i_busyMem == 0)*/) {
+			if (beginTransaction) {
+				burstSize = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				beginTransaction = (burstSize <= 1);
+			} else {
+				burstAdr  += 1;
+				burstSize--;
+				if (burstSize == 1) {
+					beginTransaction = true;
+					burstSize = 0;
+				}
+			}
+
+			int baseAdr = burstAdr << 3;
+			if (baseAdr != (mod->o_targetAddr<<3)) {
+				printf("WRITE ERROR !\n");
+				error = 1;
+				// pScan->shutdown();
+			}
+
+			int selPix = mod->o_byteEnableMem;
+
+//			printf("WRITE AT : %x, Mask %x <= %x\n",baseAdr,selPix, mod->o_dataMem);
+
+			u8* pbuffer = (u8*)buffer;
+			if (selPix &  1) { pbuffer[baseAdr  ] =  mod->o_dataMem      & 0xFF; }
+			if (selPix &  2) { pbuffer[baseAdr+1] = (mod->o_dataMem>> 8) & 0xFF; }
+			if (selPix &  4) { pbuffer[baseAdr+2] = (mod->o_dataMem>>16) & 0xFF; }
+			if (selPix &  8) { pbuffer[baseAdr+3] = (mod->o_dataMem>>24) & 0xFF; }
+
+			if (selPix & 16) { pbuffer[baseAdr+4] = (mod->o_dataMem>>32) & 0xFF; }
+			if (selPix & 32) { pbuffer[baseAdr+5] = (mod->o_dataMem>>40) & 0xFF; }
+			if (selPix & 64) { pbuffer[baseAdr+6] = (mod->o_dataMem>>48) & 0xFF; }
+			if (selPix &128) { pbuffer[baseAdr+7] = (mod->o_dataMem>>56) & 0xFF; }
+		} else {
+			error = 0;
+		}
+
+		static bool transactionRead = false;
+		if (transactionRead) {
+
+			//
+			// WARNING REUSE ADR SET AT CYCLE BEFORE
+			//
+			int	baseAdr = burstAdr<<3;
+
+			mod->i_dataValidMem = 1;
+
+			int selPix = mod->o_byteEnableMem;
+
+			u64 result = 0;
+
+			u8* pbuffer = (u8*)buffer;
+			if (selPix &  1) { result |= ((u64)pbuffer[baseAdr+0])<<0;  }
+			if (selPix &  2) { result |= ((u64)pbuffer[baseAdr+1])<<8;  }
+			if (selPix &  4) { result |= ((u64)pbuffer[baseAdr+2])<<16; }
+			if (selPix &  8) { result |= ((u64)pbuffer[baseAdr+3])<<24; }
+
+			if (selPix & 16) { result |= ((u64)pbuffer[baseAdr+4])<<32; }
+			if (selPix & 32) { result |= ((u64)pbuffer[baseAdr+5])<<40; }
+			if (selPix & 64) { result |= ((u64)pbuffer[baseAdr+6])<<48; }
+			if (selPix &128) { result |= ((u64)pbuffer[baseAdr+7])<<56; }
+
+			mod->i_dataMem      = result;
+
+			// printf("READ AT : %x, Mask %x => %x \n",baseAdr,selPix, result);
+
+	//		mod->eval();
+			//
+			// INCREMENT FOR NEXT READ.
+			//
+			burstAdr  += 1;
+			burstSizeRead--;
+			if (burstSizeRead == 0) {
+				transactionRead = false;
+			}
+		} else {
+			mod->i_dataValidMem = 0;
+//			mod->eval();
+		}
+
+		if (mod->o_readEnableMem == 1/* && (mod->i_busyMem == 0)*/) {
+			if (!transactionRead) {
+				burstSizeRead = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				transactionRead = true;
+			}
+		}
+
+		if (useScan) {
+			pScan->eval(totalClock + clockCnt);
+		}
+		clockCnt++;
+
+	}
+
+	totalClock += clockCnt;
+
+	bool logFail = false;
+	for (int y=0; y<512; y++) {
+		for (int x=0; x < 1024; x++) {
+			int n=x + y*1024;
+			if (buffer[n] != Refbuffer[n]) {
+//				printf("BAD %x != %x (at %i,%i)\n",buffer[n],Refbuffer[n],x,y);
+				logFail = true;
+			}
+		}
+	}
+
+	printf("Test %i,%i,%i,%i,%i,%i (%i)\n",sx,sy,dx,dy,w,h, testCount);
+	if (logFail) {
+		printf("\t %i FAILED !\n", testCount);
+	}
+//	printf("TEST %i\n",testCount);
+
+	mod->clk		= 0;
+	mod->eval();
+
+	mod->clk		= 1;
+	mod->eval();
+
+	testCount++;
+	if (testCount < maxTestCount) {
+		goto gotoTest;
+	}
+
+	delete [] buffer;
+	delete [] Refbuffer;
+
+	pScan->shutdown();
+
+	return 0;
+}
+
+int mainTestDMAUpload(bool isDownload) {
+	// ------------------------------------------------------------------
+	// SETUP : Export VCD Log for GTKWave ?
+	// ------------------------------------------------------------------
+	bool useScan = true;
+
+	const int   useScanRange			= false;
+
+	// ------------------------------------------------------------------
+	// Export Buffer as PNG ?
+	// ------------------------------------------------------------------
+	const bool  useScreenShot				= false;
+	const bool useMaskDump					= false;
+	const int	screenShotmoduloSpeed		= 0x0FFF; // 65K cycles.
+
+	// Put background for debug.
+	const bool	useCheckedBoard				= false;
+
+	// ------------------------------------------------------------------
+	// Fake VRAM PSX
+	// ------------------------------------------------------------------
+	u16* buffer     = new u16[512*1024];
+	u16* Refbuffer  = new u16[512*1024];
+
+	// ------------------------------------------------------------------
+	// [Instance of verilated GPU & custom VCD Generator]
+	// ------------------------------------------------------------------
+	VGPU_DDR* mod		= new VGPU_DDR();
+	VCScanner*	pScan = new VCScanner();
+				pScan->init(4000);
+
+	// ------------------ Register debug info into VCD ------------------
+	int currentCommandID      =  0;
+	u8 error = 0;
+
+	// Follow commands.
+	pScan->addMemberFullPath("COMMAND_ID", WIRE, BIN, 32, &currentCommandID, -1, 0);
+	pScan->addMemberFullPath("ERROR",      WIRE, BIN,  1, &error           , -1, 0);
+	pScan->addMemberFullPath("ERROR",      WIRE, BIN,  1, &error           , -1, 0);
+	// ------------------------------------------------------------------
+
+	registerVerilatedMemberIntoScanner(mod, pScan);
+	addEnumIntoScanner(pScan);
+	
+	// ------------------------------------------------------------------
+	// Reset the chip for a few cycles at start...
+	// ------------------------------------------------------------------
+	mod->i_nrst = 0;
+	for (int n=0; n < 10; n++) {
+		mod->clk = 0; mod->eval(); mod->clk = 1; mod->eval();
+	}
+	mod->i_nrst = 1;
+
+	// Not busy by default...
+	mod->i_busyMem				        = 0;
+	mod->i_dataValidMem					= 0;
+	mod->i_dataMem						= 0;
+
+	mod->i_DIP_AllowDither = 1;
+	mod->i_DIP_ForceDither = 0;
+
+	// This is the object used in the main loop to store/send 32 bit word to the GPU.
+	GPUCommandGen	commandGenerator;
+
+	if (useScan) {
+		pScan->addPlugin(new ValueChangeDump_Plugin("gpuLogDMA_UP2.vcd"));
+	}
+
+	int testCount = 0;
+	unsigned long long totalClock = 0;
+
+	int testData[] = {
+		1,0,5,5,
+		12,155,53,72,
+		101,56,43,71,
+		137,169,3,122,
+		122,118,121,67, // Fails.
+
+		99,177,39,96,
+		218,41,110,63,
+	};
+
+	int testReadIdx = 0;
+	int maxTestCount = 1;
+
+//	int maxTestCount = 1;
+	unsigned long long clockCnt  = 0;
+
+gotoTest:
+	commandGenerator.resetBuffer();
+	transferCommandCount = 0;
+	countDMAPush = 0;
+	countDMARead = 0;
+	checkValueRead = 0;
+
+	useCPU = true; // rand() & 1 ? true : false;
+	doItNextTime = false;
+	dataAmount = -999;
+
+	memset(buffer,0,1024*1024);
+	memset(Refbuffer,0,1024*1024);
+
+	// -------------------------------------------------
+	// Upload a 4 bit 32x32 pixel texture at 512,64
+	// -------------------------------------------------
+	/*
+		1..3 Height, Test odd/even, Test width 1..8
+		1x1
+		1x2
+		1x3
+	 */
+
+#if (1)
+
+	int x = testCount & 1; // rand() & 0xFF;
+	int y = testCount & 2; // rand() & 0xFF;
+	int w = 8; // (testCount>>2) & 0xF;		// 0..15
+	int h = 8; // (testCount>>6) & 0xF;	// 0..15
+#else
+	int x = rand() & 0xFF;
+	int y = rand() & 0xFF;
+	int w = 1 + (rand() & 0x7F);
+	int h = 1 + (rand() & 0x7F);
+#endif
+
+	x = 0;
+	y = 0;
+	w = 16;
+	h = 16;
+
+	printf("Test %i,%i,%i,%i\n",x,y,w,h);
+	int dataVolume = 0;
+	int resultIndex = 0;
+
+	{
+		{
+			{
+//	for (int x=0; x<2; x++) {
+//		for (int h=1; h < 4; h++) {
+//			for (int w=1; w < 8; w++) {
+				int rx = x;
+				int ry = y;
+
+				if ( true /* (transferCommandCount >=0) && (transferCommandCount < 25)*/) {
+					/*
+					commandGenerator.writeRaw(0xA0000000);
+					commandGenerator.writeRaw(0x00000000);
+					commandGenerator.writeRaw(0x00020006);
+					commandGenerator.writeRaw(0x03E0001F);
+					commandGenerator.writeRaw(0x7FFF7C00);
+					commandGenerator.writeRaw(0x03FF7C1F);
+					commandGenerator.writeRaw(0x7C1F03FF);
+					commandGenerator.writeRaw(0x7C007FFF);
+					commandGenerator.writeRaw(0x001F03E0);
+
+					*/
+					commandGenerator.writeRaw(isDownload ? 0xc0000000 : 0xa0000000);
+					commandGenerator.writeRaw(rx | (ry<<16));
+					commandGenerator.writeRaw(w /*8 halfword*/ | (h<<16));
+					if (!useCPU) {
+						commandGenerator.writeGP1(0x04000000 | (isDownload ? 3: 2));
+					}
+					commandGenerator.writeGP1(0x04000003); // FORCE DMA GPU->CPU
+
+					dataVolume = ((w*h)+1)>>1;
+
+//					printf("X:%i, Y:%i, W:%i, H:%i (Volume : %i)\n",rx,ry,w,h, dataVolume);
+
+					if (!useCPU && !isDownload) {
+						commandPushDMAData[countDMAPush++] = dataVolume; // +3;
+#if 0
+						commandPushDMAData[countDMAPush++] = 0xa0000000;
+						commandPushDMAData[countDMAPush++] = rx | (ry<<16);
+						commandPushDMAData[countDMAPush++] = w /*8 halfword*/ | (h<<16);
+#endif
+					}
+
+					if (!isDownload) {
+						int pix = 0;
+						int pixGlob = 0;
+						u32 value = 0;
+						for (int sh=0; sh<h; sh++) {
+							for (int sw=0; sw<w; sw++) {
+								u16 pixID = (sw+x+1) | ((sh+y+1)<<8);
+								if (pix == 0) {
+									value = pixGlob+1;
+									Refbuffer[(rx+sw) + ((ry+sh)*1024)] = value;
+								} else {
+									value |= (pixGlob<<16);
+									if (useCPU) {
+										commandGenerator.writeRaw(value);
+									} else {
+	//									printf("DMA V : %08x\n",value);
+										commandPushDMAData[countDMAPush++] = value;
+									}
+									Refbuffer[(rx+sw) + ((ry+sh)*1024)] = value>>16;
+								}
+
+
+								pix++; if (pix == 2) { pix = 0; }
+								pixGlob++;
+							}
+						}
+
+						// Last pixel remaining...
+						if (pix) {
+							if (useCPU) {
+								commandGenerator.writeRaw(value);
+							} else {
+								commandPushDMAData[countDMAPush++] = value;
+							}
+						}
+					} else {
+						// Fill memory with appropriate range.
+						for (int sh=0; sh<h; sh++) {
+							for (int sw=0; sw<w; sw++) {
+								int xCoord = (sw+x) & 0x3FF;
+								int yCoord = (sh+y) & 0x1FF;
+								u16 pixID  = (xCoord+1) | ((yCoord+1)<<8);
+								buffer[xCoord + (yCoord*1024)] = pixID;
+							}
+						}
+
+						// Create a Stream matching the command...
+						resultIndex = 0;
+						u32 val32 = 0;
+						int cnt = 0;
+						for (int dy=ry;dy<ry+h;dy++) {
+							for (int dx=rx;dx < rx+w; dx++) {
+								if (cnt & 1) {
+									val32 = (buffer[dx + dy*1024]<<16) | (val32 & 0x0000FFFF);
+									resultBuff[resultIndex++] = val32;
+								} else {
+									val32 = buffer[dx + dy*1024] | (val32 & 0xFFFF0000);
+								}
+								cnt++;
+							}
+						}
+
+						if (cnt & 1) {
+							resultBuff[resultIndex++] = val32;
+						}
+					}
+				}
+
+				transferCommandCount++;
+			}
+		}
+	}
+
+	int cycleCountMax = 5000; // clockCnt + (dataVolume * 30) + 100; // Half clock count
+
+	// ------------------------------------------------------------------
+	// MAIN LOOP
+	// ------------------------------------------------------------------
+	int waitCount = 0;
+	int stuckState = 0;
+	int prevCommandParseState = -1;
+	int prevCommandWorkState  = -1;
+
+	bool log
+#ifdef RELEASE
+		= false;
+#else
+		= true;
+#endif
+
+	while (
+//		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
+//		&& (stuckState < 2500)
+		(clockCnt < cycleCountMax)
+	)
+	{
+		// By default consider stuck...
+		stuckState++;
+
+		bool savePic = false;
+		bool updateBuff = false;
+		if (log) {
+			// If some work is done, reset stuckState.
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
+#if 0
+				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
+				printf("NEW STATE : %s (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString /*,clockCnt >> 1*/,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
+	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
+#endif
+				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
+				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
+//					printf("\t[%i] COMMAND : %x (%i/%i)\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command, mod->GPU_DDR__DOT__gpu_inst__DOT__HitACounter, mod->GPU_DDR__DOT__gpu_inst__DOT__TotalACounter);
+					currentCommandID++;				// Increment current command ID.
+					updateBuff = true;
+				}
+			}
+			
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState != prevCommandWorkState)  {
+//				savePic = true;
+//				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
+//				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
+				/*stuckState = 0;*/ prevCommandWorkState = mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState;  
+			}
+		}
+
+		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 && 
+			// Wait for Memory fifo to be empty...
+			(mod->GPU_DDR__DOT__gpu_inst__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__empty == 1)) {
+			waitCount++; 
+		} else {
+			waitCount = 0; 
+		}
+
+		writePort(mod, commandGenerator, isDownload);
+
+		if ((clockCnt>>1) > 80) {
+			mod->gpu_p2m_accept_o = 1;
+		}
+
+		mod->clk    = 0;
+		mod->eval();
+
+
+		// Generate VCD if needed
+		if (useScan) {
+			pScan->eval(totalClock + clockCnt);
+		}
+		clockCnt++;
+
+		static int busyCounter = 0;
+		static bool isRead = false;
+		static int readAdr = 0;
+		static int readSize= 0;
+		enum ESTATE {
+			DEFAULT = 0,
+
+		};
+
+		mod->clk    = 1;
+		mod->eval();
+
+		/*
+		if (mod->o_DMA_REQ && (!isDownload) && (!useCPU)) {
+			doItNextTime = true;
+		} else {
+		
+			doItNextTime = false;
+		}
+		*/
+
+		// Write Request
+		// 
+		static bool beginTransaction = true;
+		static int  burstSize        = 0;
+		static int  burstSizeRead    = 0;
+		static int  burstAdr         = 0;
+
+		if (mod->o_writeEnableMem == 1 /* && (mod->i_busyMem == 0)*/) {
+			if (beginTransaction) {
+				burstSize = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				beginTransaction = (burstSize <= 1);
+			} else {
+				burstAdr  += 1;
+				burstSize--;
+				if (burstSize == 1) {
+					beginTransaction = true;
+					burstSize = 0;
+				}
+			}
+
+			int baseAdr = burstAdr << 3;
+			if (baseAdr != (mod->o_targetAddr<<3)) {
+				printf("WRITE ERROR !\n");
+				error = 1;
+				// pScan->shutdown();
+			}
+
+
+			int selPix = mod->o_byteEnableMem;
+
+			u8* pbuffer = (u8*)buffer;
+			if (selPix &  1) { pbuffer[baseAdr  ] =  mod->o_dataMem      & 0xFF; }
+			if (selPix &  2) { pbuffer[baseAdr+1] = (mod->o_dataMem>> 8) & 0xFF; }
+			if (selPix &  4) { pbuffer[baseAdr+2] = (mod->o_dataMem>>16) & 0xFF; }
+			if (selPix &  8) { pbuffer[baseAdr+3] = (mod->o_dataMem>>24) & 0xFF; }
+
+			if (selPix & 16) { pbuffer[baseAdr+4] = (mod->o_dataMem>>32) & 0xFF; }
+			if (selPix & 32) { pbuffer[baseAdr+5] = (mod->o_dataMem>>40) & 0xFF; }
+			if (selPix & 64) { pbuffer[baseAdr+6] = (mod->o_dataMem>>48) & 0xFF; }
+			if (selPix &128) { pbuffer[baseAdr+7] = (mod->o_dataMem>>56) & 0xFF; }
+		} else {
+			error = 0;
+		}
+
+		static bool transactionRead = false;
+		if (transactionRead) {
+
+			//
+			// WARNING REUSE ADR SET AT CYCLE BEFORE
+			//
+			int	baseAdr = burstAdr<<3;
+
+			mod->i_dataValidMem = 1;
+
+			int selPix = mod->o_byteEnableMem;
+
+			u64 result = 0;
+
+			u8* pbuffer = (u8*)buffer;
+			if (selPix &  1) { result |= ((u64)pbuffer[baseAdr+0])<<0;  }
+			if (selPix &  2) { result |= ((u64)pbuffer[baseAdr+1])<<8;  }
+			if (selPix &  4) { result |= ((u64)pbuffer[baseAdr+2])<<16; }
+			if (selPix &  8) { result |= ((u64)pbuffer[baseAdr+3])<<24; }
+
+			if (selPix & 16) { result |= ((u64)pbuffer[baseAdr+4])<<32; }
+			if (selPix & 32) { result |= ((u64)pbuffer[baseAdr+5])<<40; }
+			if (selPix & 64) { result |= ((u64)pbuffer[baseAdr+6])<<48; }
+			if (selPix &128) { result |= ((u64)pbuffer[baseAdr+7])<<56; }
+
+			mod->i_dataMem      = result;
+
+	//		mod->eval();
+			//
+			// INCREMENT FOR NEXT READ.
+			//
+			burstAdr  += 1;
+			burstSizeRead--;
+			if (burstSizeRead == 0) {
+				transactionRead = false;
+			}
+		} else {
+			mod->i_dataValidMem = 0;
+//			mod->eval();
+		}
+
+		if (mod->o_readEnableMem == 1/* && (mod->i_busyMem == 0)*/) {
+			if (!transactionRead) {
+				burstSizeRead = mod->o_burstLength;
+				burstAdr   = mod->o_targetAddr;
+				transactionRead = true;
+			}
+		}
+
+		if (useScan) {
+			pScan->eval(totalClock + clockCnt);
+		}
+		clockCnt++;
+
+	}
+
+	totalClock += clockCnt;
+
+	if (!isDownload) {
+		for (int y=0; y<512; y++) {
+			for (int x=0; x < 1024; x++) {
+				int n=x + y*1024;
+				if (buffer[n] != Refbuffer[n]) {
+					printf("BAD %x != %x (at %i,%i)\n",buffer[n],Refbuffer[n],x,y);
+				}
+			}
+		}
+	}
+	printf("TEST %i\n",testCount);
+
+	mod->clk		= 0;
+	mod->eval();
+
+	mod->clk		= 1;
+	mod->i_gpuSel	= 1;
+	mod->i_gpuAdrA2	= 1;
+	mod->i_write	= 1;
+	mod->i_cpuDataIn= 0x04000000;
+	mod->eval();
+
+	mod->clk		= 0;
+	mod->i_gpuSel	= 0;
+	mod->i_gpuAdrA2	= 0;
+	mod->i_write	= 0;
+	mod->i_cpuDataIn= 0;
+	mod->eval();
+
+	mod->clk		= 1;
+	mod->eval();
+
+	testCount++;
+	if (testCount < maxTestCount) {
+		goto gotoTest;
+	}
+
+	delete [] buffer;
+	delete [] Refbuffer;
+
+	pScan->shutdown();
+	return 0;
+}
+
+int mainTestVideo() {
+	bool useScan = true;
+	// ------------------------------------------------------------------
+	// [Instance of verilated GPU & custom VCD Generator]
+	// ------------------------------------------------------------------
+	VGPUVideo* mod		= new VGPUVideo();
+	VCScanner*	pScan = new VCScanner();
+				pScan->init(500);
+
+	// ------------------ Register debug info into VCD ------------------
+	int currentCommandID      =  0;
+	u8 error = 0;
+
+	// Follow commands.
+	// pScan->addMemberFullPath("COMMAND_ID", WIRE, BIN, 32, &currentCommandID, -1, 0);
+	// ------------------------------------------------------------------
+	registerVerilatedMemberIntoScannerVideo(mod, pScan);
+	
+	if (useScan) {
+		pScan->addPlugin(new ValueChangeDump_Plugin("gpuVideo.vcd"));
+	}
+
+	// ------------------------------------------------------------------
+	// Reset the chip for a few cycles at start...
+	// ------------------------------------------------------------------
+	mod->i_IsInterlace				= 0;
+	mod->i_PAL						= 0;
+	mod->GPU_REG_HorizResolution368	= 0;
+	mod->GPU_REG_HorizResolution	= 0; // 2 bit
+	mod->GPU_REG_RangeX0			= 0; // 12 bit
+	mod->GPU_REG_RangeX1			= 0; // 12 bit
+	mod->GPU_REG_RangeY0			= 0; // 12 bit
+	mod->GPU_REG_RangeY1			= 0; // 12 bit
+
+	int evalCnt = 0;
+	int clockCount = 0;
+
+	mod->i_nRst = 0;
+	for (int n=0; n < 10; n++) {
+
+		mod->i_gpuPixClk = 0; mod->eval(); 
+
+		if (useScan) { pScan->eval(evalCnt++); }
+
+		mod->i_gpuPixClk = 1; mod->eval();
+
+		if (useScan) { pScan->eval(evalCnt++); }
+
+		clockCount++;
+	}
+	mod->i_nRst = 1;
+
+	mod->i_IsInterlace				= 0;
+	mod->i_PAL						= 0;
+	mod->GPU_REG_HorizResolution368	= 0;
+	mod->GPU_REG_HorizResolution	= 0x0;   //  2 bit
+	mod->GPU_REG_RangeX0			= 0x260; // 12 bit X1 =  608
+	mod->GPU_REG_RangeX1			= 0xC60; // 12 bit X2 = 3168
+	mod->GPU_REG_RangeY0			= 0x010; // 12 bit
+	mod->GPU_REG_RangeY1			= 0x100; // 12 bit
+
+	int prevDotVisible = 0;
+	int counter = 0;
+	int counterDotTimer = 0;
+
+	while (clockCount < 1000000) {
+
+		mod->i_gpuPixClk = 0; mod->eval(); 
+
+		if (useScan) { pScan->eval(evalCnt++); }
+
+		mod->i_gpuPixClk = 1; mod->eval();
+
+		if (useScan) { pScan->eval(evalCnt++); }
+
+		if (mod->o_hbl == 1) {
+			if (counter != 0) {
+				printf("Count : %i, Timer Dot : %i\n",counter, counterDotTimer);
+				counter = 0;
+				counterDotTimer = 0;
+			}
+		}
+		if (mod->o_dotEnableFlag) {
+			counter++;
+		}
+		if (mod->o_dotClockFlag) {
+			counterDotTimer++;
+		}
+
+		clockCount++;
+	}
+
+	pScan->shutdown();
+	delete mod;
+	return 0;
+}
+
+struct RecordGPU {
+	u32  timeStamp;
+	bool isRead;
+	u8   adr;
+	u32  valueInOut;
+};
+
+RecordGPU* gRecords;
+int        gRecordCount = 0;
+
+void loadRecords(const char* fname) {
+	FILE* f = fopen(fname,"rb");
+	if (f) {
+		gRecords = new RecordGPU[1000000];
+
+		fseek(f,0, SEEK_END);
+		int sizeFile = ftell(f);
+		char* buff = new char[sizeFile];
+		fseek(f,0, SEEK_SET);
+
+		fread(buff,sizeFile,1,f);
+
+		
+		for (int n=0; n < sizeFile; n++) {
+			if (buff[n] < ' ') {
+				buff[n] = 0;
+			}
+		}
+
+		const char* lnParse = buff;
+		const char* posS;
+		int cycle = 0;
+		int lastIsCPU = true;
+		while (lnParse < &buff[sizeFile]) {
+			int lnSize = strlen(lnParse);
+			if (posS = strstr(lnParse,"[delta=")) {
+				posS += 7;
+				int delta;
+				sscanf(posS, "%i", &delta);
+				cycle += delta;
+			}
+
+			if (posS = strstr(lnParse,"[GPU]")) {
+				bool isRead = (strstr(lnParse,"(R)")!=NULL);
+				posS += 11; // [GPU]..... 
+
+				int adr;
+				int value;
+				if (isRead) {
+					sscanf(posS, "%x", &adr);
+				} else {
+					sscanf(posS, "%x = %x", &adr, &value);
+				}
+				
+				gRecords[gRecordCount].adr = adr;
+				gRecords[gRecordCount].isRead = isRead;
+				gRecords[gRecordCount].timeStamp = cycle;
+				gRecords[gRecordCount].valueInOut = isRead ? 0x0 : value;
+				gRecordCount++;
+				lastIsCPU = true;
+			}
+
+			if (posS = strstr(lnParse,"[GPU_M2P]")) {
+				gRecords[gRecordCount].adr = 0;
+				gRecords[gRecordCount].isRead = 0;
+				if (lastIsCPU) {
+					++cycle;
+				} else {
+					cycle += 8;
+				}
+				gRecords[gRecordCount].timeStamp = cycle;
+				lastIsCPU = false;
+				posS += 10;
+				unsigned int val;
+				sscanf(posS, "%x", &val);
+				printf("%x\n",val);
+				gRecords[gRecordCount].valueInOut = val;
+				gRecordCount++;
+			}
+			lnParse += lnSize + 1;
+		}
+
+		delete[] buff;
+		fclose(f);
+	}
+}
+
 int main(int argcount, char** args)
 {
+//	return mainTestVRAMVRAM();
+//	return mainTestDMAUpload(true);
+
+//	loadRecords("demo.txt");
+
 	int sFrom = 0;
 	int sTo   = 0;
 	int sL    = 0;
@@ -107,7 +1339,8 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	bool useScan = false;
+	bool useScan = true;
+	static bool useTimedScript = false;
 
 	const int   useScanRange			= false;
 	const int	scanStartCycle			= 30;
@@ -134,7 +1367,19 @@ int main(int argcount, char** args)
 	unsigned char* refStencil = new unsigned char[16384 * 32]; 
 
 	memset(buffer,0,1024*1024);
-	memset(&buffer[2048],0x77,2048*511);
+//	memset(&buffer[2048],0x00,2048*511);
+
+	for (int y=0;y<512;y++) {
+		for (int x=0;x<2048;x++) {
+			u8 v;
+			if (x & 2) {
+				v = y & 1 ? 0xFF : 0;
+			} else {
+				v = y & 1 ? 0 : 0xFF;
+			}
+			buffer[x + y*2048] = v;
+		}
+	}
 
 	if (useCheckedBoard) {
 		drawCheckedBoard(buffer);
@@ -147,12 +1392,22 @@ int main(int argcount, char** args)
 	VCScanner*	pScan = new VCScanner();
 				pScan->init(4000);
 
+	VerilatedVcdC   tfp;
+	if (useScan) {
+		Verilated::traceEverOn(true);
+		VL_PRINTF("Enabling GTKWave Trace Output...\n");
+
+		mod->trace (&tfp, 99);
+		tfp.open ("wave_dump.vcd");
+	}
+
 	// ------------------ Register debug info into VCD ------------------
 	int currentCommandID      =  0;
 	u8 error = 0;
 
 	// Follow commands.
 	pScan->addMemberFullPath("COMMAND_ID", WIRE, BIN, 32, &currentCommandID, -1, 0);
+	pScan->addMemberFullPath("ERROR",      WIRE, BIN,  1, &error           , -1, 0);
 	pScan->addMemberFullPath("ERROR",      WIRE, BIN,  1, &error           , -1, 0);
 	// ------------------------------------------------------------------
 
@@ -207,12 +1462,12 @@ int main(int argcount, char** args)
 		TEST_EMU_DATA,
 		USE_AVOCADO_DATA,
 		PALETTE_FAIL_LATEST,
+		INTERLACE_TEST,
 		POLY_FAIL,
 		COPY_TORAM
 	};
 
-	DEMO demo = TEXTURE_TRUECOLOR_BLENDING; // NO_TEXTURE; // USE_AVOCADO_DATA;
-	// ;
+	DEMO demo = NO_TEXTURE;
 
 	if (demo == TEXTURE_TRUECOLOR_BLENDING) {
 		// Load Gradient128x64.png at [0,0] in VRAM as true color 1555 (bit 15 = 0).
@@ -222,6 +1477,40 @@ int main(int argcount, char** args)
 
 	if (demo == NO_TEXTURE) {
 		// loadImageToVRAM(mod,"TileTest.png",buffer,0,0,true);
+	}
+
+	if (demo == INTERLACE_TEST) {
+		commandGenerator.writeRaw(0xE1000000); // Prohibited draw area.
+		commandGenerator.writeGP1(0x08000000 | (1<<2) | (1<<5));	// 480i setup.
+
+		commandGenerator.writeRaw(0x02FF00FF);
+		commandGenerator.writeRaw(0x00000040); // At 0,0
+		commandGenerator.writeRaw(0x00100020); // H:16,W:16
+
+		commandGenerator.writeRaw(0x40FF0000);
+		commandGenerator.writeRaw(0x00500050);
+		commandGenerator.writeRaw(0x00A00250);
+
+		commandGenerator.writeRaw(0x32FFFFFF);    // Color1+Command.  Shaded three-point polygon, semi-transparent.
+		commandGenerator.writeRaw(0x00000000);    // Vertex 1. (YyyyXxxxh)
+		commandGenerator.writeRaw(0x00FFFFFF);    // Color2.   (00BbGgRrh)  
+		commandGenerator.writeRaw(0x00000035);    // Vertex 2. (YyyyXxxxh)
+		commandGenerator.writeRaw(0x00FFFFFF);    // Color3.   (00BbGgRrh)  
+		commandGenerator.writeRaw(0x00910020);    // Vertex 3. (YyyyXxxxh)
+
+		commandGenerator.writeRaw(0x02FF00FF);
+		commandGenerator.writeRaw(0x00010080); // At 0,0
+		commandGenerator.writeRaw(0x00100020); // H:16,W:16
+
+		commandGenerator.writeRaw(0x0200FF00);
+		commandGenerator.writeRaw(0x01D00000); // At 0,0
+		commandGenerator.writeRaw(0x00800040); // H:16,W:16
+
+		commandGenerator.writeRaw(0x02FF00FF);
+		commandGenerator.writeRaw(0x00000180); // At 0,0
+		commandGenerator.writeRaw(0x00800080); // H:16,W:16
+
+
 	}
 
 	if (demo == COPY_CMD) {
@@ -349,13 +1638,24 @@ int main(int argcount, char** args)
 	switch (demo) {
 	case NO_TEXTURE:
 	{
+		commandGenerator.writeRaw(0x300000FF);
+		commandGenerator.writeRaw(0x00400040);
+		commandGenerator.writeRaw(0x0000FF00);
+		commandGenerator.writeRaw(0x00400100);
+		commandGenerator.writeRaw(0x00FF0000);
+		commandGenerator.writeRaw(0x00C00080);
+
 		// fill rect
 //		commandGenerator.writeRaw(0x0200FFFF);
 //		commandGenerator.writeRaw(0x00000010); // At 0,0
 //		commandGenerator.writeRaw(0x00100010); // H:16,W:16
 
-
-#if 1
+		/*
+		commandGenerator.writeRaw(0xC0000000);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x00100010);
+		*/
+#if 0
 		// TRIANGLE
 		commandGenerator.writeRaw(0x30FF0000);
 		commandGenerator.writeRaw(0x00000000);
@@ -374,8 +1674,119 @@ int main(int argcount, char** args)
 		commandGenerator.writeRaw(0x000000FF);
 		commandGenerator.writeRaw(0x00F000F0);
 #endif
+		// Simple vertices, no texture, nothing...
+		/*
+		commandGenerator.writeRaw(0x28ffffff);
+		commandGenerator.writeRaw(0xffb9011c);
+		commandGenerator.writeRaw(0xffb901bc);
+		commandGenerator.writeRaw(0xffcd012e);
+		commandGenerator.writeRaw(0xffcd012e);
+		*/
 
 		/*
+		commandGenerator.writeRaw(0x32FFFFFF);    // Color1+Command.  Shaded three-point polygon, semi-transparent.
+		commandGenerator.writeRaw(0x00000000);    // Vertex 1. (YyyyXxxxh)
+		commandGenerator.writeRaw(0x00FFFFFF);    // Color2.   (00BbGgRrh)  
+		commandGenerator.writeRaw(0x00000015);    // Vertex 2. (YyyyXxxxh)
+		commandGenerator.writeRaw(0x00FFFFFF);    // Color3.   (00BbGgRrh)  
+		commandGenerator.writeRaw(0x00090010);    // Vertex 3. (YyyyXxxxh)
+		*/
+
+		/*
+		commandGenerator.writeRaw(0x300000FF);    // Color1+Command.  Shaded three-point polygon, semi-transparent.
+		commandGenerator.writeRaw(0x00000000);    // Vertex 1. (YyyyXxxxh)
+		commandGenerator.writeRaw(0x0000FF00);    // Color2.   (00BbGgRrh)  
+		commandGenerator.writeRaw(0x0000000F);    // Vertex 2. (YyyyXxxxh)
+		commandGenerator.writeRaw(0x00FF0000);    // Color3.   (00BbGgRrh)  
+		commandGenerator.writeRaw(0x000F000F);    // Vertex 3. (YyyyXxxxh)
+		*/
+
+#if 0
+		commandGenerator.writeRaw(0x02FF0000);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x00F00050);
+						  			
+		commandGenerator.writeRaw(0x0200FF00);
+		commandGenerator.writeRaw(0x00000050);
+		commandGenerator.writeRaw(0x00F00050);
+						  			
+		commandGenerator.writeRaw(0x020000FF);
+		commandGenerator.writeRaw(0x000000A0);
+		commandGenerator.writeRaw(0x00F00050);
+						  			
+		commandGenerator.writeRaw(0x02FFFFFF);
+		commandGenerator.writeRaw(0x000000F0);
+		commandGenerator.writeRaw(0x00F00050);
+						  			
+		commandGenerator.writeRaw(0x320000FF);
+		commandGenerator.writeRaw(0x00400040);
+		commandGenerator.writeRaw(0x0000FF00);
+		commandGenerator.writeRaw(0x00400100);
+		commandGenerator.writeRaw(0x00FF0000);
+		commandGenerator.writeRaw(0x00C00080);
+
+		commandGenerator.writeRaw(0x320000FF);
+		commandGenerator.writeRaw(0x00150015);
+		commandGenerator.writeRaw(0x0000FF00);
+		commandGenerator.writeRaw(0x00550115);
+		commandGenerator.writeRaw(0x00FF0000);
+		commandGenerator.writeRaw(0x00D50095);
+#endif
+		/*
+		commandGenerator.writeRaw(0x320000FF);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x0000FF00);
+		commandGenerator.writeRaw(0x0000000F);
+		commandGenerator.writeRaw(0x00FF0000);
+		commandGenerator.writeRaw(0x000F000F);
+		*/
+#if 0
+		// ------------------------------------------------
+		// CPU->VRAM
+		commandGenerator.writeRaw(0xA0000000);
+		// At 0,0
+		commandGenerator.writeRaw(0x00000000);
+		// 6x2 pixels
+		commandGenerator.writeRaw(0x00020006);
+		// Pixels
+		commandGenerator.writeRaw(0x03E0001F);
+		commandGenerator.writeRaw(0x7FFF7C00);
+		commandGenerator.writeRaw(0x03FF7C1F);
+		commandGenerator.writeRaw(0x7C1F03FF);
+		commandGenerator.writeRaw(0x7C007FFF);
+		commandGenerator.writeRaw(0x001F03E0);
+
+		commandGenerator.writeRaw(0x25FFFFFF); // 0x25 / 0x27
+		commandGenerator.writeRaw(0x00600060);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x00600120);
+		commandGenerator.writeRaw(0x00000300 | (((2<<7))<<16));
+		commandGenerator.writeRaw(0x00E000A0);
+		commandGenerator.writeRaw(0x00000006);
+#endif
+
+		/*
+		commandGenerator.writeRaw(0x25FFFFFF);
+		commandGenerator.writeRaw(0x00600060);
+		commandGenerator.writeRaw(0x00000000);
+		commandGenerator.writeRaw(0x00600120);
+		commandGenerator.writeRaw(0x000020FF | (((2<<7))<<16));
+		commandGenerator.writeRaw(0x00E000A0);
+		commandGenerator.writeRaw(0x00006025);
+		*/
+
+
+
+		/*
+		commandGenerator.writeRaw(0x30FF0000);    // Color1+Command.  Shaded three-point polygon, opaque.
+		commandGenerator.writeRaw(0x00000000);    // Vertex 1. (YyyyXxxxh)  Y=0. X=0
+		commandGenerator.writeRaw(0x0000FF00);    // Color2.   (00BbGgRrh)
+		commandGenerator.writeRaw(0x0000009F);    // Vertex 2. (YyyyXxxxh)  Y=0. X=64
+		commandGenerator.writeRaw(0x000000FF);    // Color3.   (00BbGgRrh)
+		commandGenerator.writeRaw(0x007F0020);    // Vertex 3. (YyyyXxxxh)  Y=64. X=64
+		*/
+
+		 /*
 		commandGenerator.writeRaw(0x380000b2);
 		commandGenerator.writeRaw((192<<0) | (240<<16));
 		commandGenerator.writeRaw(0x00008cb2);
@@ -420,20 +1831,44 @@ int main(int argcount, char** args)
 		commandGenerator.writeRaw(0xFFFFFFFF); // CD
 		commandGenerator.writeRaw(0xFFF1FFF1); // EF
 
+		commandGenerator.writeRaw(0xA0000000); // Copy rect from CPU to VRAM
+		commandGenerator.writeRaw(0x00000004); // to 0,0
+		commandGenerator.writeRaw(0x00040001); // Size 4,4
+
+		commandGenerator.writeRaw(0x83E083E0); // 01
+		commandGenerator.writeRaw(0x83E083E0); // 23
+		
+		commandGenerator.writeRaw(0x25FFFFFF);
+		commandGenerator.writeRaw(0x00100010);
+		commandGenerator.writeRaw(0xFFF30000);
+		
+		commandGenerator.writeRaw(0x00100110);
+		commandGenerator.writeRaw((( 0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11) )<<16 ) | 0x0004);                        // [15:8,7:0] Texture [4,0]
+		commandGenerator.writeRaw(0x01100110);
+		commandGenerator.writeRaw(0x00000404);                        // Texture [4,4]
+		/*
+
+
+
 		//---------------
 		//   Tri, textured
 		//---------------
 		commandGenerator.writeRaw(0x25AABBCC);                        // Polygon, 3 pts, opaque, raw texture
 		// Vertex 1
-		commandGenerator.writeRaw(0x00550050);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
+//		commandGenerator.writeRaw(0x00550050);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 0)
+		commandGenerator.writeRaw(0x00100010);
+
 		commandGenerator.writeRaw(0xFFF30000);                        // [31:16]Color LUT : NONE, value ignored
 																// [15:8,7:0] Texture [0,0]
 		// Vertex 2
-		commandGenerator.writeRaw(0x00050090);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
+//		commandGenerator.writeRaw(0x00050090);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
+		commandGenerator.writeRaw(0x00100110);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
 		commandGenerator.writeRaw((( 0 | (0<<4) | (0<<5) | (2<<7) | (0<<9) | (0<<11) )<<16 ) | 0x0004);                        // [15:8,7:0] Texture [4,0]
 		// Vertex 3
-		commandGenerator.writeRaw(0x00800155);                        // [15:0] XCoordinate, [31:16] Y Coordinate
+//		commandGenerator.writeRaw(0x00800155);                        // [15:0] XCoordinate, [31:16] Y Coordinate
+		commandGenerator.writeRaw(0x01100110);                        // [15:0] XCoordinate, [31:16] Y Coordinate (VERTEX 1)
 		commandGenerator.writeRaw(0x00000404);                        // Texture [4,4]
+		*/
 #else
 		commandGenerator.writeRaw(0x30AABBCC);
 		commandGenerator.writeRaw(0x01100100);
@@ -641,19 +2076,33 @@ int main(int argcount, char** args)
 		break;
 	case USE_AVOCADO_DATA:
 	{
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");		// GLITCH TOP OF BOX.
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerMenu","rb");		// FAIL EARLY
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerGame","rb");		// FAIL EARLY
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station","rb");			// GOOD COMPLETE
+		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Fight","rb");			// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerMenu","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerGame","rb");		// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeScore","rb");			// GOOD COMPLETE
-		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\StarOceanMenu","rb");		// GOOD COMPLETE
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");		// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\StarOceanMenu","rb");		// GOOD COMPLETE But glitch. Happen also in SW Raster => Bad data most likely.
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");		// GOOD COMPLETE.
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Rectangles","rb");			// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\MegamanInGame","rb");		// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman_Menu","rb");		// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Megaman1","rb");			// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\JumpingFlashMenu","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\PolygonBoot","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\MenuPolygon2","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\MenuFF7","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\LoaderRidge","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\Lines","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2_export","rb");		// BROKE . Wait VRAM->CPU transfer.
+//		FILE* binSrc = fopen("E:\\AvocadoDump\\RRFlag.gpudrawlist","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\AvocadoDump\\RRChase3.gpudrawlist","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\AvocadoDump\\FF7_3.gpudrawlist","rb");	// GOOD COMPLETE
 		
-			
+//		FILE* binSrc = fopen("F:\\bios.gpudump","rb");	// GOOD COMPLETE
+//		FILE* binSrc = fopen("F:\\tekken3.gpudrawlist","rb");	// GOOD COMPLETE
+
+		
 		// ----- Read VRAM
 		u16* buff16 = (u16*)buffer;
 		fread(buffer,sizeof(u16),1024*512,binSrc);
@@ -691,8 +2140,8 @@ int main(int argcount, char** args)
 		u32 logCommandCount;
 		fread(&logCommandCount, sizeof(u32), 1, binSrc);
 		for (int n=0; n < logCommandCount; n++) {
-			u32 cmdLength;
-			fread(&cmdLength, sizeof(u32),1, binSrc);
+			u32 cmdLengthRAW;
+			fread(&cmdLengthRAW, sizeof(u32),1, binSrc);
 
 			bool removeCommand = false;
 #if 0
@@ -704,72 +2153,113 @@ int main(int argcount, char** args)
 #endif
 
 
-			printf("Cmd Length : %i\n",cmdLength);
-			bool ignoreCommand = false;
-			bool isLine = false;
-			int  lineCnt = 0;
-			bool isMulti = false;
-			bool isColored = false;
+			u32 cmdLength = cmdLengthRAW & 0xFFFFFF;
 
-			for (int m=0; m < cmdLength; m++) {
-				u32 operand;
-				fread(&operand, sizeof(u32),1, binSrc);
-				if (!removeCommand) {
+			if ((cmdLengthRAW & 0xFF000000) == 0) {
+//				printf("Cmd Length : %i ",cmdLength);
+//				bool ignoreCommand = (n < 79940) || ( n > 80005);
+				bool ignoreCommand = false;
+				bool isLine = false;
+				int  lineCnt = 0;
+				bool isMulti = false;
+				bool isColored = false;
 
-					if (m==0) {
-						printf("// LOG COMMAND Number %i [%x] (%i op)\n",n+1,operand>>24,cmdLength);
-						if ((operand >> 24) == 0x02) {
-							ignoreCommand;
-						}
-						isLine    = (((operand>>24) & 0xE0) == 0x40);
-						isMulti   = (operand>>24) & 0x08;
-						isColored = (operand>>24) & 0x10;
-						lineCnt = 0;
+				for (int m=0; m < cmdLength; m++) {
+					u32 operand;
+					fread(&operand, sizeof(u32),1, binSrc);
+					if (!removeCommand) {
 
-						if (isLine) {
-//							ignoreCommand = true;
-						}
-					}
+						if (m==0) {
+							if (!ignoreCommand) {
+								// printf("// LOG COMMAND Number %i [%x] (%i op)\n",n+1,operand>>24,cmdLength);
+							}
+							isLine    = (((operand>>24) & 0xE0) == 0x40);
+							isMulti   = (operand>>24) & 0x08;
+							isColored = (operand>>24) & 0x10;
+							lineCnt = 0;
 
-					if (!ignoreCommand) {
-						commandGenerator.writeRaw(operand);
-						if (isLine) {
-							printf("commandGenerator.writeRaw(0x%08x);\n",operand);
-							switch (lineCnt)
-							{
-							case 0:
-								if (isMulti && (m!=0) && ((operand & 0x50005000) == 0x50005000)) {
-									printf("END LINE MULTI.\n");
-									lineCnt = 0;
-								} else {
-									printf("\nColor : %x\n",operand & 0xFFFFFF);
-									lineCnt = 1;
+							bool isVCCopy = (operand>>24) == 0xC0;
+							// bool isCVCopy = (operand>>24) == 0xA0;
+							if (((operand>>24) == 0x80) || (isVCCopy) /*|| (isCVCopy)*/) {
+								ignoreCommand = true;
+								/*
+								if (isCVCopy) {
+									fread(&operand, sizeof(u32),1, binSrc);
+									fread(&operand, sizeof(u32),1, binSrc); // H,W
+									int w=operand & 0xFFFF;
+									int h=(operand>>16) & 0xFFFF;
+									int count = (w*h);
+									count += count & 1;
+
+									// Ridiculous error...
+									fread(&operand, sizeof(u32),1, binSrc);
+									fread(&operand, sizeof(u32),1, binSrc);
+									m = 4;
 								}
-								break;
-							case 1:
-								if (isMulti && ((operand & 0x50005000) == 0x50005000)) {
-									printf("END LINE MULTI.\n");
-								} else {
-									printf("Vertex : %i,%i\n",((int)(operand & 0xFFFF)<<16)>>16,(((int)(operand))>>16));
-									if (isColored) {
+								*/
+								if (isVCCopy) {
+									fread(&operand, sizeof(u32),1, binSrc);
+									fread(&operand, sizeof(u32),1, binSrc); // H,W
+									m = 3;
+								}
+							}
+
+							if (isLine) {
+	//							ignoreCommand = true;
+							}
+						}
+
+						if (!ignoreCommand) {
+							commandGenerator.writeRaw(operand, m==0, 0);
+							if (isLine) {
+								printf("LINE commandGenerator.writeRaw(0x%08x);\n",operand);
+								switch (lineCnt)
+								{
+								case 0:
+									if (isMulti && (m!=0) && ((operand & 0x50005000) == 0x50005000)) {
+										printf("END LINE MULTI.\n");
 										lineCnt = 0;
 									} else {
-										lineCnt = 1; // As Is
+										printf("\nColor : %x\n",operand & 0xFFFFFF);
+										lineCnt = 1;
 									}
+									break;
+								case 1:
+									if (isMulti && ((operand & 0x50005000) == 0x50005000)) {
+										printf("END LINE MULTI.\n");
+									} else {
+										printf("Vertex : %i,%i\n",((int)(operand & 0xFFFF)<<16)>>16,(((int)(operand))>>16));
+										if (isColored) {
+											lineCnt = 0;
+										} else {
+											lineCnt = 1; // As Is
+										}
+									}
+									break;
+								case 2: break;
+								case 3: break;
+								default:
+									break;
 								}
-								break;
-							case 2: break;
-							case 3: break;
-							default:
-								break;
+							} else {
+//								printf("commandGenerator.writeRaw(0x%08x);\n",operand);
 							}
-						} else {
-							printf("commandGenerator.writeRaw(0x%08x);\n",operand);
 						}
 					}
 				}
+			} else {
+				for (int m=0; m < cmdLength; m++) {
+					u32 operand;
+					fread(&operand, sizeof(u32),1, binSrc);
+//					if ((cmdLengthRAW >> 24) == 1) {
+						printf("GP1:%08x\n",operand);
+						commandGenerator.writeGP1(operand);
+//					}
+				}
 			}
-
+			if (feof(binSrc)) {
+				break;
+			}
 		}
 
 		/*
@@ -1178,7 +2668,7 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// MAIN LOOP
 	// ------------------------------------------------------------------
-	int clockCnt  = 0;
+	unsigned long long clockCnt  = 0;
 
 	int SrcY = 17;
 	int DstY = 57;
@@ -1272,7 +2762,7 @@ int main(int argcount, char** args)
 	while (
 //		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 //		&& (stuckState < 2500)
-		(clockCnt < (200000))
+		(clockCnt < (9000))
 	)
 	{
 		// By default consider stuck...
@@ -1289,33 +2779,38 @@ int main(int argcount, char** args)
 	// output [7:0]	o_byteEnableMem,
 
 		bool savePic = false;
-
+		bool updateBuff = false;
 		if (log) {
 			// If some work is done, reset stuckState.
 			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
+#if 0
 				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
-				printf("NEW STATE : %s @%i (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString,clockCnt >> 1,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
+				printf("NEW STATE : %s (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString /*,clockCnt >> 1*/,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
 	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
+#endif
 				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
 				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
-					printf("\t[%i] COMMAND : %x\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command);
+//					printf("\t[%i] COMMAND : %x (%i/%i)\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command, mod->GPU_DDR__DOT__gpu_inst__DOT__HitACounter, mod->GPU_DDR__DOT__gpu_inst__DOT__TotalACounter);
 					currentCommandID++;				// Increment current command ID.
+					updateBuff = true;
 				}
 			}
+			
 			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState != prevCommandWorkState)  {
 //				savePic = true;
-				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
-				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
-	//			printf("\t[%i] NEW WORK STATE : %i\n",currentCommandID-1,mod->gpu__DOT__currWorkState);
+//				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
+//				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
 				/*stuckState = 0;*/ prevCommandWorkState = mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState;  
 			}
 		
 			//
 			// Update window every 2048 cycle.
 			//
-			if ((clockCnt & 0xFFFF) == 0) {
-
+			if (updateBuff) {
+//			if (((clockCnt & 0x3F)==0)) {
 				Convert16To32(buffer, bufferRGBA);
+//				Convert16To32((u8*)swBuffer, bufferRGBA);
+				
 				state = mfb_update(window,bufferRGBA);
 
 				if (state < 0)
@@ -1338,6 +2833,8 @@ int main(int argcount, char** args)
 		if (useScan) {
 			if (!useScanRange || (useScanRange && ((clockCnt>>1) >= scanStartCycle) && ((clockCnt>>1) <= scanEndCycle))) {
 				pScan->eval(clockCnt);
+				tfp.dump(clockCnt);
+
 			}
 		}
 		clockCnt++;
@@ -1504,16 +3001,10 @@ int main(int argcount, char** args)
 			if (beginTransaction) {
 				burstSize = mod->o_burstLength;
 				burstAdr   = mod->o_targetAddr;
-				if ((clockCnt>>1) > 130000) {
-//					printf("  START BURST [%i] @ burstAdr %08x @Cycle %i \n", burstSize, burstAdr<<3, clockCnt>>1);
-				}
 				beginTransaction = (burstSize <= 1);
 			} else {
 				burstAdr  += 1;
 				burstSize--;
-				if ((clockCnt>>1) > 100000) {
-//					printf("  NEXT  BURST [%i] @ burstAdr %08x @Cycle %i \n", burstSize, burstAdr<<3, clockCnt>>1);
-				}
 				if (burstSize == 1) {
 					beginTransaction = true;
 					burstSize = 0;
@@ -1569,7 +3060,7 @@ int main(int argcount, char** args)
 
 			mod->i_dataMem      = result;
 
-			mod->eval();
+	//		mod->eval();
 			//
 			// INCREMENT FOR NEXT READ.
 			//
@@ -1580,7 +3071,7 @@ int main(int argcount, char** args)
 			}
 		} else {
 			mod->i_dataValidMem = 0;
-			mod->eval();
+//			mod->eval();
 		}
 
 		if (mod->o_readEnableMem == 1/* && (mod->i_busyMem == 0)*/) {
@@ -1600,23 +3091,69 @@ int main(int argcount, char** args)
 		mod->i_cpuDataIn	= 0;
 
 		// Cheat... should read system register like any normal CPU...
-		if (mod->o_dbg_canWrite) {
-			// Push command inside the GPU as long as the GPU FIFO are not full
-			// and as long as we have command to push...
-			if (commandGenerator.stillHasCommand()) {
-				mod->i_gpuSel		= 1;
-				mod->i_gpuAdrA2		= 0;
-				mod->i_write		= 1;
-				mod->i_cpuDataIn	= commandGenerator.getRawCommand();
-				// printf("Send Command : %i\n",mod->cpuDataIn);
+		static int currRec = 0;
+
+		if (useTimedScript) {
+			if (mod->o_dbg_canWrite /* (clockCnt >> 1) == gRecords[currRec].timeStamp */) {
+				mod->i_gpuSel = 1;
+				mod->i_write  = gRecords[currRec].isRead ? 0 : 1;
+				mod->i_cpuDataIn = gRecords[currRec].valueInOut;
+				mod->i_gpuAdrA2 = (gRecords[currRec].adr & 4) ? 1 : 0;
+				if (mod->i_write) {
+					printf("@%i %x = %08x (%i)\n",(clockCnt >> 1),mod->i_gpuAdrA2,mod->i_cpuDataIn, mod->o_dbg_canWrite);
+				} else {
+					printf("@%i Check %x (%i)\n",(clockCnt >> 1),mod->i_gpuAdrA2,mod->o_dbg_canWrite);
+				}
+				currRec++;
+			}
+		} else {
+			if (mod->o_dbg_canWrite) {
+
+				bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 /*DEFAULT_STATE wait*/);
+				static int cycleCounter = 0;
+
+				bool uploadData = false;
+				if (commandGenerator.stillHasCommand()) {
+					if (isGPUWaiting) {
+						uploadData = true;
+					} else {
+						if (!commandGenerator.isCommandStart() && ((cycleCounter % 3)==0)) {
+							uploadData = true;					
+						}
+					}
+				}
+
+				if (uploadData) {
+					mod->i_gpuSel		= 1;
+					if (commandGenerator.isGP1()) {
+						mod->i_gpuAdrA2		= 1;
+					} else {
+						mod->i_gpuAdrA2		= 0;
+					}
+					mod->i_write		= 1;
+					mod->i_cpuDataIn	= commandGenerator.getRawCommand();
+					// printf("Send Command : %i\n",mod->cpuDataIn);
+				}
+			
+				cycleCounter++;
 			}
 		}
 
 		if (useScan) {
 //			if (!useScanRange || (useScanRange && ((clockCnt>>1) >= scanStartCycle) && ((clockCnt>>1) <= scanEndCycle))) {
 				pScan->eval(clockCnt);
+				tfp.dump(clockCnt);
 //			}
 		}
+
+		/*
+		RenderPixel(
+			(u16*)buffer,
+			mod->GPU_DDR__DOT__gpu_inst__DOT__pixelX+512,
+			mod->GPU_DDR__DOT__gpu_inst__DOT__pixelY,
+			currentCommandID
+		);
+		*/
 
 		// ----
 		// PNG SCREEN SHOT PER CYCLE IF NEEDED.
@@ -1666,11 +3203,20 @@ int main(int argcount, char** args)
 	//
 	// ALWAYS WRITE A FRAME AT THE END : BOTH STENCIL AND VRAM.
 	//
-	dumpFrame(mod, "output.png", "output_msk.png",buffer,clockCnt>>1, true);
+	printf("\n");
+	for (int y=0; y < 2048*16; y+=2048) {
+		for (int n=0; n < 16*2; n++) {
+			printf("%02x ", buffer[n + y]);
+		}
+		printf("\n");
+	}
+
+ 	dumpFrame(mod, "output.png", "output_msk.png",buffer,clockCnt>>1, true);
 
 	delete [] buffer;
 	delete [] refBuffer;
 	pScan->shutdown();
+	tfp.close();
 }
 
 typedef unsigned char u8;
@@ -1680,6 +3226,8 @@ typedef unsigned short u16;
 static u32* GP0 = (u32*)0x1F801810;
 #ifdef _WIN32
 u16* vrambuffer;
+
+void drawLine(int x0,int y0,int x1,int y1, struct mfb_window *window);
 
 void Convert16To32(u8* buffer, u8* data) {
 	for (int y=0; y < 512; y++) {
@@ -1903,8 +3451,8 @@ struct VertexRdr {
 	u8 r;
 	u8 g;
 	u8 b;
-	u16 u;	// Trick : can loop through texture. Bigger range for interpolation...
-	u16 v;
+	int u;	// Trick : can loop through texture. Bigger range for interpolation...
+	int v;
 	s16 x;
 	s16 y;
 };
@@ -2126,7 +3674,7 @@ nextCommand:
 
 	bool continueLoop = true;
 
-	printf("[%i] EXECUTE :%x\n",commandID, command>>24);
+//	printf("[%i] EXECUTE :%x\n",commandID, command>>24);
 
 	commandID++;
 
@@ -2306,21 +3854,39 @@ nextCommand:
 			if (vtxCount == 3) {
 				// Emit Triangle 1,2,3
 				// [TODO INVOKE]
-				drawTriangle(1,2,3, window);
+//				drawTriangle(1,2,3, window);
+				drawTriangle(3,1,2, window);
 			}
 
 			break;
 		case PRIM_LINE:
 			// [TODO INVOKE]
-			assert(false); // NEVER TESTED / IMPLEMENTED.
-
-			continueLoop = isMultiCmd;
-			if (isMultiCmd) {
-				if (isPerVtxCol) {
-					continueLoop = ((operand >> 24) != 0x55);
-				} else {
-					continueLoop = (topV != 0x55);
+//			assert(false); // NEVER TESTED / IMPLEMENTED.
+			if (vtxCount == 0) {
+				continueLoop = true;
+			} else {
+				bool render = true;
+				continueLoop = isMultiCmd;
+				if (isMultiCmd) {
+					if (isPerVtxCol) {
+						continueLoop = ((operand >> 24) != 0x55);
+					} else {
+						continueLoop = (topV != 0x55);
+					}
+					render = continueLoop;
+					// Trick
+					vtxCount--;
 				}
+
+				if (render) {
+					drawLine(vtx[0].x,vtx[0].y,vtx[1].x,vtx[1].y, window);
+				}
+				vtx[0].x = vtx[1].x;
+				vtx[0].y = vtx[1].y;
+			}
+
+			if (!continueLoop) {
+				vtxCount = 0;
 			}
 			break;
 		case PRIM_RECT:
@@ -2503,8 +4069,17 @@ int orient2d(const VertexRdr& a, const VertexRdr& b, const VertexRdr& c)
 */
 
 
+void RenderPixel(u16* buff, int x, int y, int offset) {
+	int index = (x&1023) + (y&511)*1024;
+	// Just write...
+	buff[index] = offset & 0xFFFF;
+};
+
 void RenderPixel(int x, int y, int* varAttrb, int log) {
 	int index = x + y*1024;
+
+	const int PREC = 11; // 9 or 10... Float also generate same line error.
+
 	u16 src   = swBuffer[index];
 	if ((psxGpuCtx.checkMask && (src & 0x8000)) || !psxGpuCtx.checkMask) {
 		// RGB already computed...
@@ -2517,6 +4092,35 @@ void RenderPixel(int x, int y, int* varAttrb, int log) {
 
 			int U = varAttrb[3];
 			int V = varAttrb[4];
+
+			constexpr int8_t ditherTableU[4][4] = {
+				{ 0, 8, 2, 10 },
+				{12, 4,14,  6 },
+				{ 3,11, 1,  9 },
+				{15, 7,13,  5 },
+			};
+					
+			constexpr int8_t ditherTableV[4][4] = {
+				{5,13,7,15 },
+				{9,1,11,3},
+				{6,14,4,12},
+				{10,2,8, 0},
+			};
+
+
+			// Put as 
+			int idxX = x & 3;
+			int idxY = y & 3;
+
+			int vu = ditherTableU[idxX][idxY];
+			int vv = ditherTableV[idxX][idxY];
+
+			U += (((vu-7)<<(PREC-4))*4)>>4;
+			V += (((vv-7)<<(PREC-4))*4)>>4;
+
+			U >>= PREC;
+			V >>= PREC;
+
 			// Texture is repeated outside of 256x256 window
 			U &= 0xFF;
 			V &= 0xFF;
@@ -2540,7 +4144,7 @@ void RenderPixel(int x, int y, int* varAttrb, int log) {
 				int vramAdr = (U & 0x3FF) + (V*1024);
 				pixel = swBuffer[vramAdr];
 
-				if (log) { printf("  X,Y %i,%i / U,V : %i,%i -> @adr = %i\n",x,y,U,V,vramAdr); }
+//				if (log) { printf("  X,Y %i,%i / U,V : %i,%i -> @adr = %i\n",x,y,U,V,vramAdr); }
 
 				uint8_t palIndex = (pixel >> (subPix * 4)) & 0xf;
 
@@ -2851,6 +4455,113 @@ void RenderTriangle(int v0Idx, int v1Idx, int v2Idx, struct mfb_window *window)
 }
 
 
+void drawLine(int x0,int y0,int x1,int y1, struct mfb_window *window) {
+//    const auto transparency = gpu->gp0_e1.semiTransparency;
+//    const bool checkMaskBeforeDraw = gpu->gp0_e6.checkMaskBeforeDraw;
+//    const bool setMaskWhileDrawing = gpu->gp0_e6.setMaskWhileDrawing;
+//    const bool dithering = gpu->gp0_e1.dither24to15;
+
+    // RGB c0 = line.color[0];
+    ///RGB c1 = line.color[1];
+
+    // TODO: Clip line in drawRectangle
+
+    // Skip rendering when distance between vertices is bigger than 1023x511
+    if (abs(x0 - x1) >= 1024) return;
+    if (abs(y0 - y1) >= 512) return;
+
+    bool steep = false;
+    if (std::abs(x0 - x1) < std::abs(y0 - y1)) {
+        std::swap(x0, y0);
+        std::swap(x1, y1);
+        steep = true;
+    }
+    if (x0 > x1) {
+        std::swap(x0, x1);
+        std::swap(y0, y1);
+//        std::swap(c0, c1);
+    }
+
+    int dx = x1 - x0;
+    int dy = y1 - y0;
+    int derror = std::abs(dy) * 2;
+    int error = !steep;
+    int _y = y0;
+
+    float length = sqrtf(powf(x1 - x0, 2) + powf(y1 - y0, 2));
+
+    // TODO: Precalculate color stepping
+    /*
+	auto getColor = [&](int x, int y) -> RGB {
+        if (!line.gouraudShading) {
+            return c0;
+        }
+        float relPos = sqrtf(powf(x0 - x, 2) + powf(y0 - y, 2));
+
+        float progress = relPos / length;
+
+        return c0 * (1.f - progress) + c1 * progress;
+    };
+	*/
+
+#if 0
+    auto putPixel = [&](int x, int y, RGB fullColor) {
+        PSXColor bg = VRAM[y][x];
+        if (unlikely(checkMaskBeforeDraw)) {
+            if (bg.k) return;
+        }
+
+        PSXColor c(fullColor.r, fullColor.g, fullColor.b);
+		/*
+        if (dithering) {
+            c = PSXColor(                                //
+                ditherLUT[y & 3u][x & 3u][fullColor.r],  //
+                ditherLUT[y & 3u][x & 3u][fullColor.g],  //
+                ditherLUT[y & 3u][x & 3u][fullColor.b]   //
+            );
+        }*/
+
+        if (line.isSemiTransparent) {
+//          c = PSXColor::blend(bg, c, transparency);
+        }
+
+        c.k |= setMaskWhileDrawing;
+
+        VRAM[y][x] = c.raw;
+    };
+#endif
+
+	int var[5];
+	var[0] = 0;
+	var[1] = 0;
+	var[2] = 0;
+	var[3] = 0;
+	var[4] = 0;
+
+	VertexRdr p;
+    for (int _x = x0; _x <= x1; _x++) {
+		p.x = _x;
+		p.y = _y;
+        if (steep) {
+			RenderPixel(p.y,p.x,var,false);
+
+            // TODO: Remove insideDrawingArea calls
+//            if (gpu->insideDrawingArea(_y, _x)) putPixel(_y, _x, getColor(_x, _y));
+        } else {
+			RenderPixel(p.x,p.y,var,false);
+//            if (gpu->insideDrawingArea(_x, _y)) putPixel(_x, _y, getColor(_x, _y));
+        }
+        error += derror;
+        if (error > dx) {
+            _y += (y1 > y0 ? 1 : -1);
+            error -= dx * 2;
+        }
+    }
+
+	Convert16To32((u8*)swBuffer, buffer32Bit);
+	mfb_update(window,buffer32Bit);
+}
+
 void drawTriangle(int v0Idx, int v1Idx, int v2Idx, struct mfb_window *window)
 {
 	VertexRdr& v0 = vtx[v0Idx];
@@ -3017,6 +4728,8 @@ void drawTriangle(int v0Idx, int v1Idx, int v2Idx, struct mfb_window *window)
 
 	int pixCounter = 0;
 
+	static int primitiveCounter = 0;
+
 	for (p.y = minY; p.y <= maxY; p.y++) {
 		for (p.x = minX; p.x <= maxX; p.x++) {
 			int distX = p.x + nv0x;
@@ -3030,8 +4743,8 @@ void drawTriangle(int v0Idx, int v1Idx, int v2Idx, struct mfb_window *window)
 			int   compiRL   = v0.r +  (offR>>PREC);
 			int   compiGL   = v0.g +  (offG>>PREC);
 			int   compiBL   = v0.b +  (offB>>PREC);
-			int   compiUL   = v0.u +  (offU>>PREC);
-			int   compiVL   = v0.v +  (offV>>PREC);
+			int   compiUL   = (v0.u<<PREC) +  offU;
+			int   compiVL   = (v0.v<<PREC) +  offV;
 
 			// Determine barycentric coordinates
 			// W0L : f is opposite -> transform - into +.
@@ -3054,6 +4767,10 @@ void drawTriangle(int v0Idx, int v1Idx, int v2Idx, struct mfb_window *window)
 			}
 		}
 	}
+
+	primitiveCounter++;
+
+	printf("[%i]PIX COUNTER %i [%i,%i|%i,%i|%i,%i]\n",primitiveCounter, pixCounter, v0.x, v0.y,v1.x, v1.y,v2.x, v2.y);
 
 	Convert16To32((u8*)swBuffer, buffer32Bit);
 	mfb_update(window,buffer32Bit);

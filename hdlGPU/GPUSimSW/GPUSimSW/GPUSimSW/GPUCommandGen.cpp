@@ -2,6 +2,9 @@
 
 GPUCommandGen::GPUCommandGen():readCounter(0),writeCounter(0)
 {
+	commandsHead	= new bool[10000000];
+	commandGP1      = new u8  [10000000];
+	commands        = new u32 [10000000];
 	diff			= 0;
 	colorsV[0].r	= 0; colorsV[0].g = 0; colorsV[0].b = 0;
 	noColor			= true;
@@ -17,9 +20,11 @@ GPUCommandGen::GPUCommandGen():readCounter(0),writeCounter(0)
 	pageFlag		= 0;
 }
 
-bool GPUCommandGen::writeRaw			(u32 word) {
+bool GPUCommandGen::writeRaw			(u32 word, bool isCommand, u8 isGP1) {
 	if (diff >= 0) {
-		commands[writeCounter++] = word;
+		commandsHead[writeCounter  ] = isCommand;
+		commandGP1  [writeCounter  ] = isGP1;
+		commands    [writeCounter++] = word;
 		diff++;
 		if (writeCounter == SIZE_ARRAY) { writeCounter = 0; }
 		return true;
@@ -29,8 +34,20 @@ bool GPUCommandGen::writeRaw			(u32 word) {
 	}
 }
 
+bool GPUCommandGen::writeRaw			(u32 word) {
+	return writeRaw(word,false,0);
+}
+
+bool GPUCommandGen::writeGP1			(u32 word) {
+	return writeRaw(word,true,1);
+}
+
 bool GPUCommandGen::stillHasCommand	() {
 	return (diff > 0);
+}
+
+bool GPUCommandGen::isCommandStart() {
+	return commandsHead[readCounter];
 }
 
 u32	 GPUCommandGen::getRawCommand() {
@@ -41,6 +58,14 @@ u32	 GPUCommandGen::getRawCommand() {
 		return res;
 	} else {
 		return 0xFFFFFFFF;
+	}
+}
+
+u8	GPUCommandGen::isGP1() {
+	if (diff > 0) {
+		return commandGP1[readCounter];
+	} else {
+		return 0;
 	}
 }
 

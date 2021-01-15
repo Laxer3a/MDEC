@@ -121,10 +121,17 @@ public:
 	
 	void setVertices		(Vertex* arrayVertice);
 
+	bool writeGP1			(u32 word);
+
+	bool writeRaw			(u32 word, bool head, u8 gp1);
 	bool writeRaw			(u32 word);
 	void resetBuffer		() { readCounter = 0; writeCounter = 0; diff = 0; }
 
 	bool stillHasCommand	();
+	bool isCommandStart		();
+
+	u8	 isGP1				();
+
 	u32	 getRawCommand		();
 	u32* getRawCommands		(u32& size) {
 		size = writeCounter - readCounter;
@@ -132,9 +139,11 @@ public:
 	}
 private:
 	void genParams			(int cnt, bool NOTEX);
-	static const int SIZE_ARRAY = 20000;
+	static const int SIZE_ARRAY = 10000000;
 	
-	u32				commands[SIZE_ARRAY];	// 2 MB Enough, in case we transfer textures...
+	u32*			commands;	// 2 MB Enough, in case we transfer textures...
+	bool*			commandsHead;
+	u8*				commandGP1;
 	u32				readCounter;
 	u32				writeCounter;
 	int				diff;
