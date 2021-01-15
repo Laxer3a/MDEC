@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright Â© 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
 
@@ -124,8 +124,7 @@ module GTESelPath(
 		2'd1   : vComp = {{2{V1c[15]}}, V1c };  // S
 		2'd2   : vComp = {{2{V2c[15]}}, V2c };  // S
 		// U Unsigned 17 bit !!!! when not MVMVA, else IRn
-		default: vComp = isMVMVA	?	((ctrl.vcompo == 2'd0) ? {{2{IRn[15]}}, IRn } : {{2{tmpReg[15]}}, tmpReg }) 
-									:	{ 1'b0, HS3Z }; // TODO_WIDE : x3 / x4 case
+		default: vComp = ((ctrl.vcompo == 2'd0) ? {{2{IRn[15]}}, IRn } : {{2{tmpReg[15]}}, tmpReg });
 		endcase
 	end
 
@@ -140,9 +139,9 @@ module GTESelPath(
 		4'd4 :   leftSide = { IRn[15], IRn};		//   SIGNED
 		4'd5 :   leftSide = { 1'b0, SZ };			// UNSIGNED
 		4'd6 :   leftSide = { DQA[15], DQA};		//   SIGNED
+		4'd7 :   leftSide = 17'd4096;             // DEFAULT 7
 		4'd8 :   leftSide = { SX[15] , SX };		//   SIGNED
-		// Same as 7'd7
-		default: leftSide = 17'd4096; // DEFAULT 7
+		default: leftSide = 17'dx;
 		endcase
 	end
 
@@ -162,7 +161,8 @@ module GTESelPath(
 		4'd7 :   rightSide = { 6'd0, color, 4'd0 };
 		4'd8 :   rightSide = {{2{SYA[15]}}, SYA };
 		4'd9 :   rightSide = {{2{SYB[15]}}, SYB };
-		default: rightSide = 18'd0;
+		4'd10:	 rightSide = { 1'b0, HS3Z };
+		default: rightSide = 18'dx;
 		endcase
 	end
 	

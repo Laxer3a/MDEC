@@ -18,8 +18,7 @@ module GTEMicroCode(
 	input					i_clk,
 	input                   isNewInstr,
 	input [5:0]				Instruction,
-	input [8:0]				i_PC,
-	input					i_USEFAST,
+	input [7:0]				i_PC,
 	
 	output gteWriteBack		o_writeBack,
 	output gteComputeCtrl	o_ctrl,
@@ -32,7 +31,7 @@ module GTEMicroCode(
 	assign o_writeBack	= wb;
 	
 	MCodeEntry currentEntry;
-	MCodeEntry microCodeROM[321:0];
+	MCodeEntry microCodeROM[255:0];
 	
 	/*
 	always @(*) begin
@@ -64,9 +63,8 @@ module GTEMicroCode(
 		// Output BRAM value
 		cmptCtrl         = currentEntry.ctrlPath;
 		wb               = currentEntry.wb;
-		isLastEntrySLOW  = currentEntry.lastInstrSLOW;
 		isLastEntryFAST  = currentEntry.lastInstrFAST;
 	end
 	
-	assign o_lastInstr = (!i_USEFAST && isLastEntrySLOW) | (i_USEFAST & isLastEntryFAST);
+	assign o_lastInstr = isLastEntryFAST;
 endmodule

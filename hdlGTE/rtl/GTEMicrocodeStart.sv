@@ -12,11 +12,11 @@ See LICENSE file.
 module GTEMicrocodeStart(
 	input			isBuggyMVMVA,
 	input	[5:0]	Instruction,
-	output	[8:0]	StartAddress
-//	,output  [5:0]   officialCycleCount
+	output	[7:0]	StartAddress
+	,output  [5:0]   officialCycleCount
 );	
-	reg [8:0] retAdr;
-//	reg [5:0] retCount;
+	reg [7:0] retAdr;
+	reg [5:0] retCount;
 	
 	// isBuggyMVMVA = FALSE : 2 -> Remap 3, else as is.
 	// is
@@ -38,14 +38,12 @@ module GTEMicrocodeStart(
 		`include "MicroCodeStart.inl"
 		endcase
 		
-		/*
 		case (remapped)
 		// Generated with C++ tool.
 		`include "MicroCodeTiming.inl"
 		endcase
-		*/
 	end
 	
 	assign StartAddress			= retAdr;
-	// assign officialCycleCount	= retCount;
+	assign officialCycleCount	= retCount;
 endmodule

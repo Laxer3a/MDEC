@@ -88,11 +88,17 @@ module GTEFastDiv(
 	output          overflow	// Overflow bit
 );
 
-	//-----------------------------------------------
-	//  Count 'h' Leading zero computation
-	//-----------------------------------------------
-	// Probably a bit smaller than a 16 bit priority encoder.
-	// Faster too.
+`define USE_DSP_FORBARRELSHIFTER
+`define USE_OPTIMIZELEADCOUNTER
+
+`ifdef USE_OPTIMIZELEADCOUNTER
+	wire [3:0] shiftAmount;
+	leadZeroCounter16 leadZeroCounter16_inst (
+		.i_word				(z3),
+		.o_allZeros			(),
+		.o_leadZeroCount	(shiftAmount)
+	);
+`else
 	reg [1:0] countT3,countT2,countT1,countT0;
 	
 	always @ (z3)
@@ -105,7 +111,6 @@ module GTEFastDiv(
 	endcase
 	wire anyOneT3 = |z3[15:12];
 	
-
 	always @ (z3)
 	casez(z3[11:8]) // Number of leading zero for [11: 8]
 		4'b0001: countT2 = 2'b11;
@@ -155,6 +160,39 @@ module GTEFastDiv(
 			end
 		end
 	end
+`endif
+
+`ifdef USE_DSP_FORBARRELSHIFTER
+	reg [15:0] multShift;
+	always @(*)
+	case(shiftAmount) // Number of leading zero for [15:12]
+		4'h0: multShift = 16'h0001;
+		4'h1: multShift = 16'h0002;
+		4'h2: multShift = 16'h0004;
+		4'h3: multShift = 16'h0008;
+		4'h4: multShift = 16'h0010;
+		4'h5: multShift = 16'h0020;
+		4'h6: multShift = 16'h0040;
+		4'h7: multShift = 16'h0080;
+		4'h8: multShift = 16'h0100;
+		4'h9: multShift = 16'h0200;
+		4'hA: multShift = 16'h0400;
+		4'hB: multShift = 16'h0800;
+		4'hC: multShift = 16'h1000;
+		4'hD: multShift = 16'h2000;
+		4'hE: multShift = 16'h4000;
+		default: multShift = 16'h8000;
+	endcase
+
+	wire [31:0] tmp = multShift * z3;
+	wire [15:0] d   = tmp[15:0];
+	wire [30:0] n   = multShift * h;	// [0..7FFF8000]
+`else
+	//-----------------------------------------------
+	//  Count 'h' Leading zero computation
+	//-----------------------------------------------
+	// Probably a bit smaller than a 16 bit priority encoder.
+	// Faster too.
 	
 	// ---------------------------------------------
 	//   Z - 16 Bit Barrel Shifter (Could use a multiplier too)
@@ -173,6 +211,7 @@ module GTEFastDiv(
 	wire [29:0] h2	= shiftAmount[1] ? { h1, 2'd0 } : { 2'd0, h1 };	// 2 Bit Left Shift
 	wire [30:0] h3	= shiftAmount[0] ? { h2, 1'd0 } : { 1'd0, h2 };	// 1 Bit Left Shift
 	wire [30:0] n   = h3;	// [0..7FFF8000]
+`endif
 
 	// ---------------------------------------
 	// Overflow is :

@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 // testChipSelect.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
@@ -21,19 +32,152 @@
 		- Tool support for temporary expression flags.
 */
 
+#define GENERATE_MICROCODE	(1)
+
+bool useBRAM		   = true;
+bool exportFASTONLY	   = true;
+bool exportPIPELINENOP = false;
+
+
+bool hasDependencyIssue;
+struct SRegister {
+	SRegister() {
+		Clear();
+	}
+
+	const char* name;
+	int prevWrite;
+	int currWrite;
+	int prevRead;
+	int currRead;
+
+	void Write() {
+		printf(" Write %s\n",name);
+		currWrite = 1;
+	}
+
+	void Read() {
+		printf(" Read %s\n",name);
+		currRead = 1;
+	}
+
+	void Clear() {
+		prevWrite	= 0;
+		currWrite	= 0;
+		prevRead	= 0;
+		currRead	= 0;
+	}
+
+	void Slide() {
+		prevWrite = currWrite;
+		prevRead  = currRead;
+		currWrite = 0;
+		currRead  = 0;
+	}
+
+	void Check() {
+		if (prevWrite && currRead) {
+			printf("ERROR A %s\n",name);
+			hasDependencyIssue = true;
+		}
+		if (currWrite && currRead) {
+			printf("WARNING (WRITE AND READ SAME CYCLE) %s\n",name);
+		}
+		Slide();
+	}
+};
+
+SRegister arrayRegisters[2000];
+int registersCount = 0;
+
+SRegister* allocateRegister(const char* name) {
+	for (int n=0; n < registersCount; n++) {
+		if (strcmp(name, arrayRegisters[n].name)==0) {
+			return &arrayRegisters[n];
+		}
+	}
+
+	SRegister* pReg = &arrayRegisters[registersCount++];
+	pReg->name = _strdup(name);
+	printf("Register Created %s\n",name);
+	return pReg;
+}
+
+void RegistersClearAnalysis() {
+	printf("---Clear Analysis---\n");
+	for (int n=0; n < registersCount; n++) {
+		arrayRegisters[n].Clear();
+	}
+}
+
+void insertNOP_Global();
+
+void RegisterPerformAnalysis() {
+	hasDependencyIssue = false;
+
+	printf("  ---Perform Analysis---\n");
+	for (int n=0; n < registersCount; n++) {
+		arrayRegisters[n].Check();
+	}
+	if (hasDependencyIssue) {
+		hasDependencyIssue = false;
+		if (exportPIPELINENOP) {
+	printf("  ==> Inserted NOP.\n");
+			insertNOP_Global();
+		}
+	}
+	printf("\n\n");
+}
+
 struct SELUNIT {
 public:
 	static const int NA = 0;
 	SELUNIT():availableRegCountL(0) {}
+
+	bool markWrite(const char* name, int index) {
+		char buffer[20];
+		if (index != 0) {
+			sprintf(buffer, "%s%i",name,index);
+			name = buffer;
+		}
+
+		int indexL = FindLeft(name,true);
+		if (indexL != -1) {
+			availableRegL[indexL].pReg->Write();
+			return true;
+		} else {
+			int indexR = FindRight(name,true);
+			if (indexR != -1) {
+				availableRegR[indexR].pReg->Write();
+				return true;
+			} else {
+				return false;
+			}
+		}
+	}
 
 	void Register		(int instructionID) {
 		this->instructionID = instructionID;
 		setInstruction(NULL,"ZERO"); // Result by default.
 	}
 
+	/*
+	void StartInstruction() {
+		for (int n=0; n < availableRegCountL; n++) {
+			availableRegL[n].pReg->Clear();
+		}
+
+		for (int n=0; n < availableRegCountR; n++) {
+			availableRegR[n].pReg->Clear();
+		}
+	}
+	*/
+
 	void setInstruction	(const char* nameLeft, const char* nameRight) {
-		setup[instructionID].left  = FindLeft (nameLeft,false);
-		setup[instructionID].right = FindRight(nameRight,false);
+		int idxL = setup[instructionID].left  = FindLeft (nameLeft,false);
+		int idxR = setup[instructionID].right = FindRight(nameRight,false);
+		availableRegL[idxL].pReg->Read();
+		availableRegR[idxR].pReg->Read();
 		// printf("L:%i, R:%i @%i (%s,%s)\n",setup[instructionID].left,setup[instructionID].right,instructionID, availableRegL[setup[instructionID].left].name,availableRegR[setup[instructionID].right].name);
 	}
 
@@ -41,6 +185,7 @@ public:
 	void assignLeft		(const char* name, int indexSel, const char* portName) {
 		int idx = FindLeft(name,true);
 		if (idx == -1) {
+			availableRegL[availableRegCountL].pReg	  = allocateRegister(name);
 			availableRegL[availableRegCountL].name    = name;
 			availableRegL[availableRegCountL].selLeft = indexSel;
 			availableRegL[availableRegCountL].matSel  = NA;
@@ -57,6 +202,7 @@ public:
 	void assignLeftMat	(const char* name, int itemSel, int matID, const char* portName) {
 		int idx = FindLeft(name,true);
 		if (idx == -1) {
+			availableRegL[availableRegCountL].pReg	  = allocateRegister(name);
 			availableRegL[availableRegCountL].name    = name;
 			availableRegL[availableRegCountL].portName= portName; 
 			availableRegL[availableRegCountL].selLeft = itemSel;
@@ -73,6 +219,7 @@ public:
 	void assignRightVec	(const char* name, int vecSel,int indexSel, const char* portName) {
 		int idx = FindRight(name,true);
 		if (idx == -1) {
+			availableRegR[availableRegCountR].pReg	  = allocateRegister(name);
 			availableRegR[availableRegCountR].name    = name;
 			availableRegR[availableRegCountR].selRight= indexSel;
 			availableRegR[availableRegCountR].vecSel  = vecSel;
@@ -92,6 +239,7 @@ public:
 	void assignRight    (const char* name, int indexSel, const char* portName, bool isSpecialInternal = false) {
 		int idx = FindRight(name,true);
 		if (idx == -1) {
+			availableRegR[availableRegCountR].pReg	  = allocateRegister(name);
 			availableRegR[availableRegCountR].name    = name;
 			availableRegR[availableRegCountR].selRight= indexSel;
 			availableRegR[availableRegCountR].vecSel  = NA;
@@ -110,6 +258,17 @@ public:
 	}
 
 	bool isLastExport(int rightIndex) { return rightIndex == lastExportR; } // To remove last comma in verilog export.
+
+	void insertNOP() {
+		int instructionIDP = instructionID + 1;
+		// Copy instruction further
+		setup[instructionIDP] = setup[instructionID];
+		// Insert nop before
+		Register(instructionID);
+		// Restore proper
+		instructionID = instructionIDP;
+	}
+
 private:
 
 	int FindLeft(const char* name, bool noError) {
@@ -141,8 +300,13 @@ private:
 	}
 
 public:
-	struct fullLeftEntry {
+
+	struct EntryBase {
+		SRegister*	pReg;
 		const char* name;
+	};
+
+	struct fullLeftEntry : EntryBase {
 		int  selLeft;
 		bool useMat1() { return selLeft == 0x0; }
 		bool useMat2() { return selLeft == 0x1; }
@@ -152,8 +316,7 @@ public:
 		const char* portName;
 	};
 
-	struct fullRightEntry {
-		const char* name;
+	struct fullRightEntry : EntryBase {
 		int  selRight;
 		bool isVec() { return selRight == 0x0; }
 		bool isCol() { return selRight == 0x7; }
@@ -227,6 +390,16 @@ struct MASKUNIT {
 		return &instructions[currInstr];
 	}
 
+	void insertNOP() {
+		int instructionIDP = currInstr + 1;
+		// Copy instruction further
+		instructions[instructionIDP] = instructions[currInstr];
+		// Insert nop before
+		Reset(currInstr);
+		// Restore proper
+		currInstr = instructionIDP;
+	}
+
 	void EndInstruction() {
 		// Do nothing.
 	}
@@ -247,15 +420,21 @@ struct SELADD {
 	}
 
 	void setSpecial_ZOZSF4Mul() {
-		setup[instructionID] = Find("Z0xZSF4",true);
+		int idx = Find("Z0xZSF4",true);
+		setup[instructionID] = idx;
+		entries[idx].reg->Read();
 	}
 
 	void setZero() {
-		setup[instructionID] = Find("ZERO",true);
+		int idx = Find("ZERO",true);
+		setup[instructionID] = idx;
+		entries[idx].reg->Read();
 	}
 
 	void set(const char* name) {
-		setup[instructionID] = Find(name,true);
+		int idx = Find(name,true);
+		setup[instructionID] = idx;
+		entries[idx].reg->Read();
 	}
 
 	int Find(const char* name, bool checkErr) {
@@ -271,8 +450,25 @@ struct SELADD {
 		return -1;
 	}
 
+	bool markWrite(const char* name, int index) {
+		char buffer[20];
+		if (index != 0) {
+			sprintf(buffer, "%s%i",name,index);
+			name = buffer;
+		}
+
+		int indexReg = Find(name,false);
+		if (indexReg != -1) {
+			entries[indexReg].reg->Write();
+			return true;
+		} else {
+			return false;
+		}
+	}
+
 	void Register(const char* name, int ID, int subID, bool useSFShift) {
 		if (Find(name,false)==-1) {
+			entries[entryCount].reg	 = allocateRegister(name);
 			entries[entryCount].name = name;
 			entries[entryCount].id   = ID;
 			entries[entryCount].subID= subID;
@@ -283,7 +479,22 @@ struct SELADD {
 		}
 	}
 
+	void insertNOP() {
+		int instructionIDP = instructionID + 1;
+		// Copy instruction further
+		setup[instructionIDP] = setup[instructionID];
+
+		// Insert nop before
+		int idx = Find("ZERO",true);
+		setup[instructionID] = idx;
+		entries[idx].reg->Read();
+
+		// Restore proper
+		instructionID = instructionIDP;
+	}
+
 	struct Entry {
+		SRegister*  reg;
 		const char* name;
 		int         id;
 		int			subID;
@@ -297,6 +508,8 @@ struct SELADD {
 	int setup[1500];
 };
 
+void markWrite(const char* dst, int index1to3);
+
 struct WRITEBACK {
 	void reset(int nextInstructionID) {
 		instructionID = nextInstructionID;
@@ -306,6 +519,8 @@ struct WRITEBACK {
 	// Can cumulate multiple write back in same cycle.
 	void write(const char* dst, int index1to3) { // Mac0, Mac1..3, IR1..3, etc...
 		Entry& rE = setup[instructionID];
+
+		markWrite(dst,index1to3);
 
 		// FIRST, BEFORE 'IR' !!!!
 		if (strncmp(dst,"IR2TMP",6)==0) { rE.copyIRtoTemp = true; return; }
@@ -352,6 +567,16 @@ struct WRITEBACK {
 
 	void EndInstruction() {
 		// Do nothing, write done in write() calls directly.
+	}
+
+	void insertNOP() {
+		int instructionIDP = instructionID + 1;
+		// Copy instruction further
+		setup[instructionIDP] = setup[instructionID];
+		// Insert nop before
+		reset(instructionID);
+		// Restore proper
+		instructionID = instructionIDP;
 	}
 
 	struct Entry {
@@ -427,12 +652,37 @@ struct GLOBALPATHCTRL {
 		selOpInstr[instructionID] = n1to3;
 	}
 
-	void setLastInstructionFast() {
-		lastInstructionFAST[instructionID] = true;
+	void setPREVIOUSLastInstructionFast(bool isSingleInstrMicroCode) {
+		// NOP INSTRUCTION DOES NOT HAVE THAT FLAG
+		if (instructionID > 0) {
+			if (isSingleInstrMicroCode) {
+				lastInstructionFAST[instructionID] = true;
+			} else {
+				lastInstructionFAST[instructionID-1] = true;
+			}
+		}
 	}
 
 	void setLastInstructionSlow() {
 		lastInstructionSLOW[instructionID] = true;
+	}
+
+	void insertNOP() {
+		int instructionIDP = instructionID+1;
+
+		// Duplicate current to next one
+		useNegSel1[instructionIDP] = useNegSel1[instructionID];
+		useNegSel2[instructionIDP] = useNegSel2[instructionID];
+		useNegSel3[instructionIDP] = useNegSel3[instructionID];
+		selCol0   [instructionIDP] = selCol0   [instructionID];
+		lastInstructionFAST[instructionIDP] = lastInstructionFAST[instructionID];
+		lastInstructionSLOW[instructionIDP] = lastInstructionSLOW[instructionID];
+		selOpInstr[instructionIDP] = selOpInstr[instructionID];
+
+		// NOP Inserted
+		reset(instructionID);
+
+		instructionID = instructionIDP;
 	}
 
 	int instructionID;
@@ -452,9 +702,39 @@ MASKUNIT  mask;
 WRITEBACK writeBack;
 GLOBALPATHCTRL globalPath;
 
+int instructionID = 0;
+bool bEndInstruction = true;
+
+void insertNOP_Global() {
+	sel[0].insertNOP();
+	sel[1].insertNOP();
+	sel[2].insertNOP();
+	selAdd.insertNOP();
+	mask.insertNOP();
+	writeBack.insertNOP();
+	globalPath.insertNOP();
+	instructionID++;
+}
+
+
+
+void markWrite(const char* dst, int index1to3) {
+	if (sel[0].markWrite(dst,index1to3)) {
+	} else if (sel[1].markWrite(dst,index1to3)) {
+	} else if (sel[2].markWrite(dst,index1to3)) {
+	} else if (selAdd.markWrite(dst,index1to3)) {
+	} else if (strcmp(dst,"IR2TMP")==0) {
+		// TMP HANDLING.
+		printf("HANDLE IR2TMP %s\n", dst);
+	} else {
+		printf("COULD NOT CATCH WRITE %s\n", dst);
+	}
+}
+
 void registerInstructions();
 void generateMicroCode(const char* fileName);
 void generatorStartTableMicroCode(const char* fileName);
+void generatorStartTableMicroCodeOfficialTiming(const char* fileName);
 
 void HWDesignSetup() {
 	// ===========================================
@@ -485,7 +765,6 @@ void HWDesignSetup() {
 	sel[0].assignRightVec("VX0",0,0,"V0c");
 	sel[0].assignRightVec("VX1",1,0,"V1c");
 	sel[0].assignRightVec("VX2",2,0,"V2c");
-	sel[0].assignRightVec("HS3Z",3,0,"HS3Z");
 
 	sel[0].assignRightVec("DYNVEC0" ,0,0,NULL);
 	sel[0].assignRightVec("DYNVEC1" ,1,0,NULL);
@@ -524,7 +803,6 @@ void HWDesignSetup() {
 	sel[1].assignRightVec("VY0",0,0,"V0c");
 	sel[1].assignRightVec("VY1",1,0,"V1c");
 	sel[1].assignRightVec("VY2",2,0,"V2c");
-	sel[1].assignRightVec("HS3Z",3,0,"HS3Z");
 	// [1..4,6] Common to all.
 	sel[1].assignRightVec("DYNVEC0" ,0,0,NULL);
 	sel[1].assignRightVec("DYNVEC1" ,1,0,NULL);
@@ -585,6 +863,7 @@ void HWDesignSetup() {
 		// Right setup
 		sel[n].assignRight   ("ZSF3"   ,2,"Z3");
 		sel[n].assignRight   ("ZSF4"   ,3,"Z4");
+		sel[n].assignRight   ("HS3Z"   ,10,"HS3Z");
 		sel[n].assignRight   ("ZERO" ,4,NULL);
 		sel[n].assignRight   ("IR0"  ,6,"IR0");
 	}
@@ -597,26 +876,28 @@ void HWDesignSetup() {
 
 	// ===========================================
 
+	printf("---------- Sel Add --------\n");
+
 	selAdd.Register("TRX", 0, 0, false);
 	selAdd.Register("TRY", 0, 1, false);
 	selAdd.Register("TRZ", 0, 2, false);
-	selAdd.Register("???", 0, 3, false);
+	selAdd.Register("UNDEF1", 0, 3, false);
 
 	selAdd.Register("RBK", 1, 0, false);
 	selAdd.Register("GBK", 1, 1, false);
 	selAdd.Register("BBK", 1, 2, false);
-	selAdd.Register("???", 1, 3, false);
+	selAdd.Register("UNDEF2", 1, 3, false);
 
 	selAdd.Register("RFC", 2, 0, false);
 	selAdd.Register("GFC", 2, 1, false);
 	selAdd.Register("BFC", 2, 2, false);
-	selAdd.Register("???", 2, 3, false);
+	selAdd.Register("UNDEF3", 2, 3, false);
 
 	// Valid for MVMA MUX
 	selAdd.Register("ZERO", 3, 0, false);
-	selAdd.Register("???", 3, 1, false);
-	selAdd.Register("???", 3, 2, false);
-	selAdd.Register("???", 3, 3, false);
+	selAdd.Register("UNDEF4", 3, 1, false);
+	selAdd.Register("UNDEF5", 3, 2, false);
+	selAdd.Register("UNDEF6", 3, 3, false);
 
 	selAdd.Register("CRGB.r", 4, 0, false); // (R<<4)   <<12 (false)
 	selAdd.Register("CRGB.g", 4, 1, false); // (R<<4)   <<12 (false)
@@ -674,9 +955,6 @@ void HWDesignSetup() {
 
 }
 
-int instructionID = 0;
-bool bEndInstruction = true;
-
 struct INSTRTbl {
 	const char* name;
 	int StartPC;
@@ -704,6 +982,9 @@ void Start(const char* name, int opcode, int PSXClockCycle, int ownClockCycleEst
 	Opcode[opcode].instrCode = opcode;
 	Opcode[opcode].officialCount = PSXClockCycle;
 	Opcode[opcode].realCount = ownClockCycleEstimate;
+
+	// Reset all the dependancy counter to detect pipelining issues...
+	RegistersClearAnalysis();
 }
 
 void registerNext();
@@ -722,10 +1003,21 @@ void endInstruction(bool final = true) {
 		int end   = instructionID; // POINT TO NEXT INSTRUCTION SLOT. So mark END excluded.
 		int length = (end - start);
 		int lengthOfficial = Opcode[lastOpcode].officialCount;
-		printf("[%i] Opcode %i %s EXEC TIME : %i (Official : %i)\n",counterOfOp , lastOpcode, Opcode[lastOpcode].name, length, lengthOfficial);
+		
+		printf("**************\n[%i] Opcode %i %s EXEC TIME : %i (Official : %i)\n***************\n",counterOfOp , lastOpcode, Opcode[lastOpcode].name, length + (useBRAM ? 1:0), lengthOfficial);
+		bool isSingleMicroCode = (length == 1);
+
+		if (useBRAM)        { lengthOfficial--;        }
+		if (exportFASTONLY) { lengthOfficial = length; }
 		counterOfOp++;
 
-		globalPath.setLastInstructionFast();	// POINT TO LAST MICROCODE !!!!
+		// MARK END, BUT BECAUSE OF PC REG LATENCY
+		// NEED TO MARK THE PREVIOUS INSTRUCTION !!!!
+		globalPath.setPREVIOUSLastInstructionFast(isSingleMicroCode);	// POINT TO LAST MICROCODE !!!!
+		if (useBRAM & exportFASTONLY) {
+			// Force one nop Insertion.
+			registerNext();
+		}
 
 		if (length < lengthOfficial) {
 			for (int n=length; n < lengthOfficial; n++) {
@@ -739,6 +1031,7 @@ void endInstruction(bool final = true) {
 }
 
 void registerNext() {
+	RegisterPerformAnalysis();
 	endInstruction(false);
 	// Reset flag of end instruction.
 	bEndInstruction = true;
@@ -1883,23 +2176,62 @@ void registerInstructions() {
 	// 22 TODO NCLIP
 	nclip();
 	
-	generatorStartTableMicroCode("../rtl/MicroCodeStart.inl");
+	generatorStartTableMicroCode              ("../rtl/MicroCodeStart.inl");
+	generatorStartTableMicroCodeOfficialTiming("../rtl/MicroCodeTiming.inl");
 }
 
 #define pro		fprintf
 #define proln	fprintf(fout,"\n");
 
-void generateMicroCode(const char* fileName) {
+void addLicense(FILE* fout) {
+	fprintf(fout,"/* ----------------------------------------------------------------------------------------------------------------------\n");
+	fprintf(fout,"\n");
+	fprintf(fout,"PS-FPGA Licenses (DUAL License GPLv2 and commercial license)\n");
+	fprintf(fout,"\n");
+	fprintf(fout,"This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, \n");
+	fprintf(fout," and a commercial licensing option.\n");
+	fprintf(fout,"If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.\n");
+	fprintf(fout,"\n");
+	fprintf(fout,"See LICENSE file.\n");
+	fprintf(fout,"---------------------------------------------------------------------------------------------------------------------- */\n");
+}
+
+void generateMicroCode(const char* fileName, bool firstMode) {
 
 	FILE* fout = fopen(fileName,"wb");
 
 	// TODO : Handle the -1 don't care stuff...
 
-	for (int n=0; n < instructionID; n++) {
+	/*
+	for (int n=0; n < 64; n++) {
+		if (Opcode[n].name) {
+			fprintf(fout,"6'h%x : retAdr = 9'd%i; // %s\n",n,Opcode[n].StartPC,Opcode[n].name);
+		}
+	}
+	*/
+	addLicense(fout);
 
-		// TODO : Export in comment the Instruction name and cycle count.
+	int loop = firstMode ? 64 : instructionID;
 
-		pro(fout,"microCodeROM[%i].ctrlPath = '{ ",n);
+	for (int countLoop=0; countLoop < loop; countLoop++) {
+
+		int n = firstMode ? Opcode[countLoop].StartPC : countLoop;
+
+		//
+		// EXPORT ONLY THE FIRST ENTRY OF MICROCODE FOR AN INSTRUCTION
+		// OR FULL ENTRY.
+		//
+		if (firstMode) {
+			if (Opcode[countLoop].name) {
+				fprintf(fout,"// Instruction %s (Instr %i)\n",Opcode[countLoop].name,Opcode[countLoop].StartPC);
+				pro(fout,"microCodeFirstROM[%i].ctrlPath = '{ ",countLoop);
+			} else {
+				pro(fout,"microCodeFirstROM[%i].ctrlPath = '{ ",countLoop);
+				n = 0; // Use Nop code.
+			}
+		} else {
+			pro(fout,"microCodeROM[%i].ctrlPath = '{ ",n);
+		}
 
 		for (int unit=1; unit <=3; unit++) {
 			SELUNIT& selU = sel[unit-1];
@@ -1986,7 +2318,9 @@ void generateMicroCode(const char* fileName) {
 
 		pro(fout," };"); proln;
 		pro(fout,"microCodeROM[%i].lastInstrFAST = 1'b%i;\n",n,globalPath.lastInstructionFAST[n] ? 1:0);
-		pro(fout,"microCodeROM[%i].lastInstrSLOW = 1'b%i;\n",n,globalPath.lastInstructionSLOW[n] ? 1:0);
+		if (!exportFASTONLY) {
+			pro(fout,"microCodeROM[%i].lastInstrSLOW = 1'b%i;\n",n,globalPath.lastInstructionSLOW[n] ? 1:0);
+		}
 	}
 
 	fclose(fout);
@@ -1997,12 +2331,36 @@ void generatorStartTableMicroCode(const char* fileName) {
 // int OpcodeCount = 0;
 	FILE* fout = fopen(fileName,"wb");
 
+	addLicense(fout);
+
+	int sizeAdrBus = instructionID > 256 ? 9:8;
+
 	for (int n=0; n < 64; n++) {
 		if (Opcode[n].name) {
-			fprintf(fout,"6'h%x : retAdr = 9'd%i; // %s\n",n,Opcode[n].StartPC,Opcode[n].name);
+			fprintf(fout,"6'h%x : retAdr = %i'd%i; // %s\n",n,sizeAdrBus,Opcode[n].StartPC,Opcode[n].name);
 		}
 	}
-	fprintf(fout,"default: retAdr = 9'd0; // UNDEF -> MAP TO NOP\n");
+	fprintf(fout,"default: retAdr = %i'd0; // UNDEF -> MAP TO NOP\n",sizeAdrBus);
+
+	fclose(fout);
+}
+
+void generatorStartTableMicroCodeOfficialTiming(const char* fileName) {
+	FILE* fout = fopen(fileName,"wb");
+
+	addLicense(fout);
+
+	for (int n=0; n < 64; n++) {
+		if (Opcode[n].name && (n!=0)) {
+			int value         = Opcode[n].realCount-1;
+			int valueOfficial = Opcode[n].officialCount-1;
+			if (value < valueOfficial) {
+				value = valueOfficial;
+			}
+			fprintf(fout,"6'h%x : retCount = 6'd%i; // %s\n",n,value,Opcode[n].name);
+		} // Else nop included in DEFAULT TOO.
+	}
+	fprintf(fout,"default: retCount = 6'd0; // UNDEF -> MAP TO NOP\n");
 
 	fclose(fout);
 }
@@ -2079,6 +2437,11 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__isBuggyMVMVA,0,0);
     VL_SIG8(GTEEngine__DOT__gteLastMicroInstruction,0,0);
     VL_SIG8(GTEEngine__DOT__loadInstr,0,0);
+    VL_SIG8(GTEEngine__DOT__isExecuting,0,0);
+    VL_SIG8(GTEEngine__DOT__PCcond,0,0);
+    VL_SIG8(GTEEngine__DOT__officialCycleCount,5,0);
+    VL_SIG8(GTEEngine__DOT__OfficialTimingCounter,5,0);
+    VL_SIG8(GTEEngine__DOT__decrementingOfficialTimer,0,0);
     VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__i_clk,0,0);
     VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__i_nRst,0,0);
     VL_SIG8(GTEEngine__DOT__GTERegs_inst__DOT__i_loadInstr,0,0);
@@ -2141,6 +2504,7 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__i_clk,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__i_nRst,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isMVMVA,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__WIDE,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__i_DIP_FIXWIDE,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__colR,7,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__colG,7,0);
@@ -2182,6 +2546,7 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__isMVMVA,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__vec,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__mx,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__WIDE,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__color,7,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__mat,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__vcompo,1,0);
@@ -2190,6 +2555,7 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__isMVMVA,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__vec,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__mx,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__WIDE,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__color,7,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__mat,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__vcompo,1,0);
@@ -2198,6 +2564,7 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__isMVMVA,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__vec,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__mx,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__WIDE,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__color,7,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__mat,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__vcompo,1,0);
@@ -2215,6 +2582,7 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__sel,3,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__i_clk,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__overflow,0,0);
+	/*
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT3,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT2,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT1,1,0);
@@ -2222,6 +2590,7 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT3,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT2,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT1,0,0);
+	*/
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shiftAmount,3,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__ovf,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__p_ovf,0,0);
@@ -2290,20 +2659,23 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_clk,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isNewInstr,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__Instruction,5,0);
-    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_USEFAST,0,0);
+//  VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_USEFAST,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__o_lastInstr,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isLastEntrySLOW,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isLastEntryFAST,0,0);
-    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__IsNop,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__isBuggyMVMVA,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__Instruction,5,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__officialCycleCount,5,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__retCount,5,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__remapp3,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__remapped,5,0);
     VL_SIG16(GTEEngine__DOT__writeBack,14,0);
     VL_SIG16(GTEEngine__DOT__ctrl,8,0);
-    VL_SIG16(GTEEngine__DOT__PC,8,0);
-    VL_SIG16(GTEEngine__DOT__vPC,8,0);
+    VL_SIG16(GTEEngine__DOT__rPC,8,0);
     VL_SIG16(GTEEngine__DOT__startMicroCodeAdr,8,0);
+    VL_SIG16(GTEEngine__DOT__vPC,8,0);
+    VL_SIG16(GTEEngine__DOT__vPC1,8,0);
+    VL_SIG16(GTEEngine__DOT__nPC,8,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__i_wb,14,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SX0,15,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SX1,15,0);
@@ -2482,10 +2854,12 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__shadowIR,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__z3,15,0);
+	/*
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b0,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b1,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b2,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b3,15,0);
+	*/
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__d,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__ladr,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pd,15,0);
@@ -2581,10 +2955,12 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__macV,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__of,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__divRes,16,0);
+	/*
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h0,23,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h1,27,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h2,29,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h3,30,0);
+	*/
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__n,30,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pn,30,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__mdu1,25,0);
@@ -2602,50 +2978,19 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__valueIn,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__valueIn,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__valueIn,27,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outAddSel,43,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel1,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel2,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel3,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel1P,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel2P,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel3P,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part1Sum,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part1SumPostExt,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part2Sum,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__tempSumREG,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part2SumPostExt,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__finalSumBeforeExt,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__finalSum,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__outstuff,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__result,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__outstuff,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__result,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__outstuff,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__result,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__outstuff,43,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__resMul,32,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__out,43,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__mnd,49,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shfm,34,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shcp,33,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local1__DOT__v,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local2__DOT__v,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local3__DOT__v,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Global__DOT__v,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS32Global__DOT__v,44,0);
-    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__i_v44,44,0);
 }
 
 int main()
 {
 
-#if 0
+#if GENERATE_MICROCODE
 	//
 	// GENERATE MICROCODE
 	//
 	HWDesignSetup();
 	registerInstructions();
-	generateMicroCode("..\\rtl\\MicroCode.inl");
+	generateMicroCode("..\\rtl\\MicroCode.inl",false);
+	generateMicroCode("..\\rtl\\MicroCodeFirst.inl",true);
 #else
 	//
 	// RUN SIM
@@ -2697,12 +3042,14 @@ int main()
 		case 7:
 			// Send instruction
 			mod->i_run			= 1;
-			mod->i_Instruction	= 0x01; //  RTPS 15 Official;
+//			mod->i_Instruction	= 0x01; //  RTPS 15 Official;
+			mod->i_Instruction  = 0x28; //  SQR
 			break;
 		case 26:
 			// Send instruction
 			mod->i_run			= 1;
-			mod->i_Instruction	= 0x01; //  RTPS 15 Official;
+//			mod->i_Instruction	= 0x01; //  RTPS 15 Official;
+			mod->i_Instruction  = 0x28; //  SQR
 			break;
 		case 33:
 			/*

@@ -17,18 +17,17 @@ module GTEEngine (
 
 	input  E_REG  i_regID,				// Register ID to write or read. (READ ALWAYS HAPPEN, 0 LATENCY to o_dataOut, please use when o_executing=0)
 	input         i_WritReg,			// Write to 'Register ID' = i_dataIn.
+	input		  i_ReadReg,
 	
 	input		  i_DIP_USEFASTGTE,		// Control signal coming from the console (not the CPU, from outside at runtime or compile option)
 	input		  i_DIP_FIXWIDE,		// Same
 	
-//	input         i_ReadReg, 			// DEPRECATED
-
 	input  [31:0] i_dataIn,				// Register Write value.
 	output [31:0] o_dataOut,			// Register Read  value.
 
 	input  [24:0] i_Instruction,		// Instruction to execute
 	input         i_run,				// Instruction valid
-	output        o_executing			// BUSY, only read/write/execute when o_executing = 0
+	output        o_operationForbidden
 );
 
 // ComputePath => Register Write
@@ -64,7 +63,7 @@ GTERegs GTERegs_inst (
 	.gteREG			(gteREG),	// Output
 	
 	.i_regID		(i_regID),
-	.i_WritReg		(i_WritReg),
+	.i_WritReg		(i_WritReg & (!o_operationForbidden)),	// Filter
 	.i_dataIn		(i_dataIn),
 	.o_dataOut		(o_dataOut)
 );
@@ -77,7 +76,7 @@ GTEComputePath GTEComputePath_inst(
 	.i_clk			(i_clk),
 	.i_nRst			(i_nRst),
 
-	.isMVMVA        (isMVMVA | isMVMVAWire),
+	.isMVMVA        (isMVMVA),
 	.WIDE			(i_DIP_FIXWIDE),
 	
 	.i_instrParam	(ctrl),				// Instruction Parameter bits
@@ -98,8 +97,6 @@ GTEMicroCode GTEMicroCode_inst(
 	.isNewInstr		(loadInstr),
 	.Instruction	(i_Instruction[5:0]),
 	.i_PC			(vPC),
-	.i_USEFAST		(i_DIP_USEFASTGTE),
-	
 	.o_writeBack	(writeBack),
 	.o_ctrl			(computeCtrl),
 	.o_lastInstr	(gteLastMicroInstruction)
@@ -110,20 +107,24 @@ GTEMicroCode GTEMicroCode_inst(
 // ----------------------------------------------------------------------------------------------
 
 wire loadInstr;
-wire isExecuting = (rPC != 9'd0);
+wire isExecuting = (rPC != 8'd0);
 
-reg  [ 8:0] rPC;
-wire [ 8:0] startMicroCodeAdr;
-wire [ 8:0] vPC = loadInstr ? startMicroCodeAdr : rPC;
-wire [ 8:0] vPC1= vPC + {8'd0, isExecuting | loadInstr };
+reg  [ 7:0] rPC;
+wire [ 7:0] startMicroCodeAdr;
+wire [ 7:0] vPC = loadInstr ? startMicroCodeAdr : rPC;
+wire [ 7:0] vPC1= vPC + {7'd0, isExecuting | loadInstr };
 
 wire PCcond     = (!i_nRst) || (gteLastMicroInstruction && (!loadInstr));
-wire [ 8:0] nPC = PCcond          ? 9'd0 : vPC1;
+wire [ 7:0] nPC = PCcond          ? 8'd0 : vPC1;
+
+wire [ 5:0] officialCycleCount;
+reg  [ 5:0] OfficialTimingCounter;
 
 GTEMicrocodeStart GTEMicrocodeStart_inst(
 	.isBuggyMVMVA	(isBuggyMVMVA),
 	.Instruction	(i_Instruction[5:0]),
-	.StartAddress	(startMicroCodeAdr)
+	.StartAddress	(startMicroCodeAdr),
+	.officialCycleCount	(officialCycleCount)
 );
 
 assign loadInstr = i_run && (!isExecuting);
@@ -132,6 +133,7 @@ always @(posedge i_clk) begin
 	rPC <= nPC;
 end
 
+wire decrementingOfficialTimer = (OfficialTimingCounter != 6'd0);
 always @(posedge i_clk)
 begin
 	// Instruction Loading.
@@ -142,16 +144,29 @@ begin
 		ctrl.cv  <= i_Instruction[14:13];		// 0:TR,       1:BK,    2:FC/Bugged, 3:None
 		ctrl.vec <= i_Instruction[16:15];		// 0:V0,       1:V1,    2:V2,        3:IR/Long
 		ctrl.mx	 <= i_Instruction[18:17];		// 0:Rotation, 1:Light, 2:Color,     3:Reserved
-		isMVMVA			<= isMVMVAWire; 				// MVMVA.
+		isMVMVA	 <= isMVMVAWire; 				// MVMVA.
 	end
 
 	// Executing lock flag.
-	if (gteLastMicroInstruction || (i_nRst == 1'b0)) begin
-		isMVMVA					<= 1'b0;
+	if (i_nRst == 1'b0) begin
+		isMVMVA	 <= 1'b0;
+	end
+
+	if ((!i_nRst) || (i_DIP_USEFASTGTE)) begin
+		OfficialTimingCounter	<= 6'd0;
+	end else begin
+		if (loadInstr) begin
+			OfficialTimingCounter <= officialCycleCount;
+		end else begin
+			if (decrementingOfficialTimer) begin
+				// Remove -1 when not 0.
+				OfficialTimingCounter <= OfficialTimingCounter + 6'h3F;
+			end
+		end
 	end
 end
 
 // Output
-assign o_executing = isExecuting;
+assign o_operationForbidden = isExecuting | decrementingOfficialTimer;
 
 endmodule

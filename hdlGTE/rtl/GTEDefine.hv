@@ -330,7 +330,7 @@ typedef struct packed {
 	gteComputeCtrl	ctrlPath;
 	gteWriteBack	wb;
 	logic			lastInstrFAST;
-	logic			lastInstrSLOW;
+//	logic			lastInstrSLOW;
 } MCodeEntry;
 
 `endif
