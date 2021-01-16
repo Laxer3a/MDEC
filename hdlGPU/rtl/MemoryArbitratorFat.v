@@ -219,12 +219,12 @@ assign isTexL    = (state     == READ_TEX_L);
 assign isTexR    = (state     == READ_TEX_R);
 assign isCLUT    = (state     == READ_CLUT );
 assign isPairRead= (state     == READ_PIX2 );
-// wire   resetRead = (nextState == WAIT_CMD  ) && (isTexL | isTexR | isCLUT | isPairRead | (state == READ_BG));
+wire   resetRead = (nextState == WAIT_CMD  ) && (isTexL | isTexR | isCLUT | isPairRead | (state == READ_BG));
 
 // ALL READ COMMAND EXCEPT BANK
-wire decrSlot	 = writeFIFO & ((command[2:0]==READ_32B) || (command[2:0]==READ_8B) || (command[2:0]==READ_4B);
+wire decrSlot	 = writeFIFO & ((command[2:0]==READ_32B) || (command[2:0]==READ_8B) || (command[2:0]==READ_4B));
 // ALL READ RESULT  EXCEPT BANK
-wire incrSlot	 = validRead;
+wire incrSlot	 = resetRead;
 
 reg [15:0] allocated_q;
 
