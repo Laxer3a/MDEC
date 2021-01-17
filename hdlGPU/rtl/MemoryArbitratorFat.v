@@ -231,7 +231,7 @@ reg [15:0] allocated_q;
 always @ (posedge gpuClk )
 begin
 	if (!i_nRst)
-		allocated_q  <= 2'b0;
+		allocated_q  <= 16'b0;
 	else if (incrSlot)
 	begin
 		// -1 & -1

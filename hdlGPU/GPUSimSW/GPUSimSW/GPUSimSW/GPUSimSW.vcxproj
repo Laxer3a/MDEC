@@ -159,8 +159,6 @@
     <ClCompile Include="..\..\..\rtl\obj_dir\VGPUVideo__Syms.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Syms.cpp" />
-    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Trace.cpp" />
-    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Trace__Slow.cpp" />
     <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp" />
     <ClCompile Include="C:\Verilator\verilator\include\verilated_vcd_c.cpp" />
     <ClCompile Include="GPUCommandGen.cpp" />

@@ -30,7 +30,7 @@ extern void loadImageToVRAMAsCommand(GPUCommandGen& commandGenerator, const char
 extern void loadImageToVRAM(VGPU_DDR* mod, const char* filename, u8* target, int x, int y, bool flagValue);
 extern void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask);
 extern void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan);
-extern void registerVerilatedMemberIntoScannerVideo(VGPUVideo* mod, VCScanner* pScan);
+// extern void registerVerilatedMemberIntoScannerVideo(VGPUVideo* mod, VCScanner* pScan);
 extern void addEnumIntoScanner(VCScanner* pScan);
 extern void drawCheckedBoard(unsigned char* buffer);
 extern void backupFromStencil(VGPU_DDR* mod, u8* refStencil);
@@ -184,7 +184,7 @@ void writePort(VGPU_DDR* mod, GPUCommandGen& commandGenerator, bool download) {
 		// Cheat... should read system register like any normal CPU...
 		if (mod->o_dbg_canWrite) {
 
-			bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 /*DEFAULT_STATE wait*/);
+			bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState == 0 /*DEFAULT_STATE wait*/);
 			static int cycleCounter = 0;
 
 			bool uploadData = false;
@@ -414,13 +414,13 @@ gotoTest:
 		bool updateBuff = false;
 		if (log) {
 			// If some work is done, reset stuckState.
-			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState     != prevCommandParseState) { 
 #if 0
 				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
 				printf("NEW STATE : %s (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString /*,clockCnt >> 1*/,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
 	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
 #endif
-				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
+				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState; 
 				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
 //					printf("\t[%i] COMMAND : %x (%i/%i)\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command, mod->GPU_DDR__DOT__gpu_inst__DOT__HitACounter, mod->GPU_DDR__DOT__gpu_inst__DOT__TotalACounter);
 					currentCommandID++;				// Increment current command ID.
@@ -436,7 +436,7 @@ gotoTest:
 			}
 		}
 
-		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 && 
+		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState == 0 && 
 			// Wait for Memory fifo to be empty...
 			(mod->GPU_DDR__DOT__gpu_inst__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__empty == 1)) {
 			waitCount++; 
@@ -450,7 +450,7 @@ gotoTest:
 		// Cheat... should read system register like any normal CPU...
 		if (mod->o_dbg_canWrite) {
 
-			bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 /*DEFAULT_STATE wait*/);
+			bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState == 0 /*DEFAULT_STATE wait*/);
 			static int cycleCounter = 0;
 
 			bool uploadData = false;
@@ -922,13 +922,13 @@ gotoTest:
 		bool updateBuff = false;
 		if (log) {
 			// If some work is done, reset stuckState.
-			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState     != prevCommandParseState) { 
 #if 0
 				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
 				printf("NEW STATE : %s (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString /*,clockCnt >> 1*/,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
 	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
 #endif
-				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
+				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState; 
 				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
 //					printf("\t[%i] COMMAND : %x (%i/%i)\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command, mod->GPU_DDR__DOT__gpu_inst__DOT__HitACounter, mod->GPU_DDR__DOT__gpu_inst__DOT__TotalACounter);
 					currentCommandID++;				// Increment current command ID.
@@ -944,7 +944,7 @@ gotoTest:
 			}
 		}
 
-		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 && 
+		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState == 0 && 
 			// Wait for Memory fifo to be empty...
 			(mod->GPU_DDR__DOT__gpu_inst__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__empty == 1)) {
 			waitCount++; 
@@ -1152,7 +1152,7 @@ int mainTestVideo() {
 	// Follow commands.
 	// pScan->addMemberFullPath("COMMAND_ID", WIRE, BIN, 32, &currentCommandID, -1, 0);
 	// ------------------------------------------------------------------
-	registerVerilatedMemberIntoScannerVideo(mod, pScan);
+	// registerVerilatedMemberIntoScannerVideo(mod, pScan);
 	
 	if (useScan) {
 		pScan->addPlugin(new ValueChangeDump_Plugin("gpuVideo.vcd"));
@@ -1339,7 +1339,7 @@ int main(int argcount, char** args)
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	bool useScan = true;
+	bool useScan = false;
 	static bool useTimedScript = false;
 
 	const int   useScanRange			= false;
@@ -1392,13 +1392,13 @@ int main(int argcount, char** args)
 	VCScanner*	pScan = new VCScanner();
 				pScan->init(4000);
 
-	VerilatedVcdC   tfp;
+//	VerilatedVcdC   tfp;
 	if (useScan) {
 		Verilated::traceEverOn(true);
 		VL_PRINTF("Enabling GTKWave Trace Output...\n");
 
-		mod->trace (&tfp, 99);
-		tfp.open ("wave_dump.vcd");
+//		mod->trace (&tfp, 99);
+//		tfp.open ("wave_dump.vcd");
 	}
 
 	// ------------------ Register debug info into VCD ------------------
@@ -1467,7 +1467,7 @@ int main(int argcount, char** args)
 		COPY_TORAM
 	};
 
-	DEMO demo = NO_TEXTURE;
+	DEMO demo = USE_AVOCADO_DATA;
 
 	if (demo == TEXTURE_TRUECOLOR_BLENDING) {
 		// Load Gradient128x64.png at [0,0] in VRAM as true color 1555 (bit 15 = 0).
@@ -2762,7 +2762,7 @@ int main(int argcount, char** args)
 	while (
 //		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 //		&& (stuckState < 2500)
-		(clockCnt < (9000))
+		(clockCnt < (900000))
 	)
 	{
 		// By default consider stuck...
@@ -2782,13 +2782,13 @@ int main(int argcount, char** args)
 		bool updateBuff = false;
 		if (log) {
 			// If some work is done, reset stuckState.
-			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currState     != prevCommandParseState) { 
+			if (mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState     != prevCommandParseState) { 
 #if 0
 				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
 				printf("NEW STATE : %s (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString /*,clockCnt >> 1*/,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
 	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
 #endif
-				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__currState; 
+				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState; 
 				if (prevCommandParseState == 1) {	// switched to LOAD_COMMAND
 //					printf("\t[%i] COMMAND : %x (%i/%i)\n",currentCommandID,mod->GPU_DDR__DOT__gpu_inst__DOT__command, mod->GPU_DDR__DOT__gpu_inst__DOT__HitACounter, mod->GPU_DDR__DOT__gpu_inst__DOT__TotalACounter);
 					currentCommandID++;				// Increment current command ID.
@@ -2818,7 +2818,7 @@ int main(int argcount, char** args)
 			}
 		}
 
-		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 && 
+		if ( mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState == 0 && 
 			// Wait for Memory fifo to be empty...
 			(mod->GPU_DDR__DOT__gpu_inst__DOT__MemoryArbitratorInstance__DOT__FIFOCommand__DOT__fifo_fwftInst__DOT__empty == 1)) {
 			waitCount++; 
@@ -2833,7 +2833,7 @@ int main(int argcount, char** args)
 		if (useScan) {
 			if (!useScanRange || (useScanRange && ((clockCnt>>1) >= scanStartCycle) && ((clockCnt>>1) <= scanEndCycle))) {
 				pScan->eval(clockCnt);
-				tfp.dump(clockCnt);
+				// tfp.dump(clockCnt);
 
 			}
 		}
@@ -3109,7 +3109,7 @@ int main(int argcount, char** args)
 		} else {
 			if (mod->o_dbg_canWrite) {
 
-				bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__currState == 0 /*DEFAULT_STATE wait*/);
+				bool isGPUWaiting = (mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState == 0 /*DEFAULT_STATE wait*/);
 				static int cycleCounter = 0;
 
 				bool uploadData = false;
@@ -3142,7 +3142,7 @@ int main(int argcount, char** args)
 		if (useScan) {
 //			if (!useScanRange || (useScanRange && ((clockCnt>>1) >= scanStartCycle) && ((clockCnt>>1) <= scanEndCycle))) {
 				pScan->eval(clockCnt);
-				tfp.dump(clockCnt);
+				// tfp.dump(clockCnt);
 //			}
 		}
 
@@ -3203,6 +3203,7 @@ int main(int argcount, char** args)
 	//
 	// ALWAYS WRITE A FRAME AT THE END : BOTH STENCIL AND VRAM.
 	//
+	/*
 	printf("\n");
 	for (int y=0; y < 2048*16; y+=2048) {
 		for (int n=0; n < 16*2; n++) {
@@ -3210,13 +3211,14 @@ int main(int argcount, char** args)
 		}
 		printf("\n");
 	}
+	*/
 
  	dumpFrame(mod, "output.png", "output_msk.png",buffer,clockCnt>>1, true);
 
 	delete [] buffer;
 	delete [] refBuffer;
 	pScan->shutdown();
-	tfp.close();
+	// tfp.close();
 }
 
 typedef unsigned char u8;

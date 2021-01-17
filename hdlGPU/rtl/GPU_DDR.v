@@ -58,6 +58,7 @@ module GPU_DDR
     // --------------------------------------
 	//   Display Controller
     // --------------------------------------
+	/*
 	input			i_gpuPixClk,
 	output			o_HBlank,
 	output			o_VBlank,
@@ -71,6 +72,19 @@ module GPU_DDR
 	output [8:0]	o_DisplayBaseY,
 	output			o_IsInterlace,
 	output			o_CurrentField,
+	*/
+	// [ULTRA STUFF DISPLAY]
+    // GPU -> Display
+    output [  9:0]  display_res_x_o,
+    output [  8:0]  display_res_y_o,
+    output [  9:0]  display_x_o,
+    output [  8:0]  display_y_o,
+    output          display_interlaced_o,
+    output          display_pal_o,
+    // Display -> GPU
+    input           display_field_i,
+    input           display_hblank_i,
+    input           display_vblank_i,
 	
     // --------------------------------------
 	//   Avalon MM DDR Bus
@@ -141,6 +155,7 @@ gpu	gpu_inst(
     // --------------------------------------
 	//   Display Controller
     // --------------------------------------
+	/*
 	.i_gpuPixClk	(i_gpuPixClk),
 	.o_HBlank		(o_HBlank),
 	.o_VBlank		(o_VBlank),
@@ -154,6 +169,16 @@ gpu	gpu_inst(
 	.o_DisplayBaseY	(o_DisplayBaseY),
 	.o_IsInterlace	(o_IsInterlace),
 	.o_CurrentField	(o_CurrentField),
+	*/
+    .display_res_x_o		(display_res_x_o),
+    .display_res_y_o		(display_res_y_o),
+    .display_x_o			(display_x_o),
+    .display_y_o			(display_y_o),
+    .display_interlaced_o	(display_interlaced_o),
+    .display_pal_o			(display_pal_o),
+    .display_field_i		(display_field_i),
+    .display_hblank_i		(display_hblank_i),
+    .display_vblank_i		(display_vblank_i),
 	
     // --------------------------------------
 	//   CPU Bus
