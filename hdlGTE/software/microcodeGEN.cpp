@@ -32,6 +32,24 @@ See LICENSE file.
 		- Tool support for temporary expression flags.
 */
 
+/*
+// MICROCODE => REGISTER WRITE (Direct control, without compute path)
+typedef struct packed { // 24 bit
+	logic [3:0] wrIR;	-> Sel1:IR0/T3/T2 Sel2:IR0/IR3/T1 Sel3:IR0/IR2/T1
+	logic [3:0] wrMAC;	-> AddSel MAC1..3
+	logic       wrOTZ;  [!!! ONLY ONE NOT USED !!!]
+	
+	logic pushR;	    -> i_computeCtrl.selCol0 => Sel1/2/3:CRGB0.rgb (.color)
+	logic pushG;	       FIND REGISTER MAPPING OTHER REGISTERS !!!!
+	logic pushB;
+
+	logic pushX;	-> Input of SEL1,2,3
+	logic pushY;    -> Input of SEL1,2,3
+	logic pushZ;	-> Input of SEL1,2,3
+					specialRGBMulTMP = TMP * [Constant CPU ONLY-CRGB]
+} gteWriteBack;
+*/
+
 #define GENERATE_MICROCODE	(1)
 
 bool useBRAM		   = true;
@@ -1385,6 +1403,7 @@ void patternE(bool useColor, bool useCol0) {
 	for (int v=1; v<=3; v++) {
 		registerNext();
 
+		// Do before ANY register marking operation, need to detect pipelining issues.
 		if (useColor && useCol0) { globalPath.useCol0(); }
 
 		const char* cte     = NULL;

@@ -2,34 +2,34 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
-If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
+If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
 // ----------------------------------------------------------------------------------------------
-//   Compute Path
+//	 Compute Path
 // ----------------------------------------------------------------------------------------------
 `include "GTEDefine.hv"
 
 module GTEComputePath(
-    input                   i_clk,
-    input                   i_nRst,
+	input					i_clk,
+	input					i_nRst,
 
-	input                   isMVMVA,
+	input					isMVMVA,
 	input					WIDE,
-	input   gteWriteBack    i_wb,
-    input   CTRL            i_instrParam,
-    input   gteComputeCtrl  i_computeCtrl,
+	input	gteWriteBack	i_wb,
+	input	CTRL			i_instrParam,
+	input	gteComputeCtrl	i_computeCtrl,
 	input					i_DIP_FIXWIDE,
-    input   SgteREG         i_registers,
-    output  gteCtrl         o_RegCtrl
+	input	SgteREG			i_registers,
+	output	gteCtrl			o_RegCtrl
 );
 
-wire signed [43:0]  outAddSel;
-wire signed [34:0]  outSel1,outSel2,outSel3;
+wire signed [43:0]	outAddSel;
+wire signed [34:0]	outSel1,outSel2,outSel3;
 
 reg [15:0] TMP1,TMP2,TMP3;
 
@@ -44,25 +44,25 @@ reg [15:0] selIR0_1,selIR0_2,selIR0_3;
 always @(*) begin
 	case (i_computeCtrl.selOpInstr)
 	// Standard : IR0 is mapped to everybody.
-	2'd0:    begin selIR0_1 = i_registers.IR0; selIR0_2 = i_registers.IR0; selIR0_3 = i_registers.IR0; end
+	2'd0:	 begin selIR0_1 = i_registers.IR0;     selIR0_2 = i_registers.IR0;		selIR0_3 = i_registers.IR0; end
 	// Step 1 OP() : IR3 to unit2, IR2 to unit3.
-	2'd1:    begin selIR0_1 = i_registers.IR0; selIR0_2 = i_registers.IR3; selIR0_3 = i_registers.IR2; end
+	2'd1:	 begin selIR0_1 = i_registers.IR0;     selIR0_2 = i_registers.IR3;		selIR0_3 = i_registers.IR2; end
 	// Step 2 OP() : TMP3 to unit1, TMP1 to unit3 
-	2'd2:    begin selIR0_1 = TMP3;            selIR0_2 = i_registers.IR0; selIR0_3 = TMP1;            end
+	2'd2:	 begin selIR0_1 = TMP3;			       selIR0_2 = i_registers.IR0; 		selIR0_3 = TMP1;			end
 	// Step 3 OP() : 
-	default: begin selIR0_1 = TMP2;            selIR0_2 = TMP1;            selIR0_3 = i_registers.IR0; end
+	default: begin selIR0_1 = TMP2;			       selIR0_2 = TMP1;					selIR0_3 = i_registers.IR0; end
 	endcase
 end
 
 wire [15:0] minusR = {4'd15, ~i_registers.CRGB.r, 4'd15} + 16'd1;
 
 GTESelPath SelMuxUnit1 (
-  .ctrl    (i_computeCtrl.sel1),
+  .ctrl	   (i_computeCtrl.sel1),
 
   .isMVMVA (isMVMVA),
-  .vec     (i_instrParam.vec),
-  .mx      (i_instrParam.mx),
-  .WIDE    (WIDE),
+  .vec	   (i_instrParam.vec),
+  .mx	   (i_instrParam.mx),
+  .WIDE	   (WIDE),
 
   .MAT0_C0 (i_registers.R11),
   .MAT0_C1 (i_registers.R21),
@@ -80,32 +80,32 @@ GTESelPath SelMuxUnit1 (
   .MAT3_C1 (i_registers.R13),
   .MAT3_C2 (i_registers.R22),
   
-  .SX      (i_registers.SX0),
-  .SYA     (i_registers.SY1),
-  .SYB     (i_registers.SY2),
+  .SX	   (i_registers.SX0),
+  .SYA	   (i_registers.SY1),
+  .SYB	   (i_registers.SY2),
   
-  .color (colR),
-  .IRn (i_registers.IR1),
-  .SZ (i_registers.SZ1),
-  .DQA(i_registers.DQA),
-  .HS3Z(divRes),
-  .V0c (i_registers.VX0),
-  .V1c (i_registers.VX1),
-  .V2c (i_registers.VX2),
-  .tmpReg (TMP1),
-  .Z3 (i_registers.ZSF3),
-  .Z4 (i_registers.ZSF4),
-  .IR0 (selIR0_1),
+  .color   (colR),
+  .IRn     (i_registers.IR1),
+  .SZ      (i_registers.SZ1),
+  .DQA     (i_registers.DQA),
+  .HS3Z    (divRes),
+  .V0c     (i_registers.VX0),
+  .V1c     (i_registers.VX1),
+  .V2c     (i_registers.VX2),
+  .tmpReg  (TMP1),
+  .Z3      (i_registers.ZSF3),
+  .Z4      (i_registers.ZSF4),
+  .IR0     (selIR0_1),
   .outstuff(outSel1)
 );
 
 GTESelPath SelMuxUnit2 (
-  .ctrl    (i_computeCtrl.sel2),
+  .ctrl	   (i_computeCtrl.sel2),
 
   .isMVMVA (isMVMVA),
-  .vec     (i_instrParam.vec),
-  .mx      (i_instrParam.mx),
-  .WIDE    (WIDE),
+  .vec	   (i_instrParam.vec),
+  .mx	   (i_instrParam.mx),
+  .WIDE	   (WIDE),
 
   .MAT0_C0 (i_registers.R12),
   .MAT0_C1 (i_registers.R22),
@@ -123,32 +123,32 @@ GTESelPath SelMuxUnit2 (
   .MAT3_C1 (i_registers.R13),
   .MAT3_C2 (i_registers.R22),
 
-  .SX      (i_registers.SX1),
-  .SYA     (i_registers.SY2),
-  .SYB     (i_registers.SY0),
+  .SX	   (i_registers.SX1),
+  .SYA	   (i_registers.SY2),
+  .SYB	   (i_registers.SY0),
   
-  .color (colG),
-  .IRn (i_registers.IR2),
-  .SZ (i_registers.SZ2),
-  .DQA(16'd0), // DQA not used in SEL2.
-  .HS3Z(divRes),
-  .V0c (i_registers.VY0),
-  .V1c (i_registers.VY1),
-  .V2c (i_registers.VY2),
-  .tmpReg (TMP2),
-  .Z3 (i_registers.ZSF3),
-  .Z4 (i_registers.ZSF4),
-  .IR0 (selIR0_2),
+  .color   (colG),
+  .IRn     (i_registers.IR2),
+  .SZ      (i_registers.SZ2),
+  .DQA     (16'd0), // DQA not used in SEL2.
+  .HS3Z    (divRes),
+  .V0c     (i_registers.VY0),
+  .V1c     (i_registers.VY1),
+  .V2c     (i_registers.VY2),
+  .tmpReg  (TMP2),
+  .Z3      (i_registers.ZSF3),
+  .Z4      (i_registers.ZSF4),
+  .IR0     (selIR0_2),
   .outstuff(outSel2)
 );
 
 GTESelPath SelMuxUnit3 (
-  .ctrl    (i_computeCtrl.sel3),
+  .ctrl	   (i_computeCtrl.sel3),
 
   .isMVMVA (isMVMVA),
-  .vec     (i_instrParam.vec),
-  .mx      (i_instrParam.mx),
-  .WIDE    (1'b0),
+  .vec	   (i_instrParam.vec),
+  .mx	   (i_instrParam.mx),
+  .WIDE	   (1'b0),
   
   .MAT0_C0 (i_registers.R13),
   .MAT0_C1 (i_registers.R23),
@@ -166,22 +166,22 @@ GTESelPath SelMuxUnit3 (
   .MAT3_C1 (i_registers.R13),
   .MAT3_C2 (i_registers.R22),
   
-  .SX      (i_registers.SX2),
-  .SYA     (i_registers.SY0),
-  .SYB     (i_registers.SY1),
+  .SX	   (i_registers.SX2),
+  .SYA	   (i_registers.SY0),
+  .SYB	   (i_registers.SY1),
   
-  .color (colB),
-  .IRn (i_registers.IR3),
-  .SZ (i_registers.SZ3),
-  .DQA(16'd0), // DQA not used in SEL3.
-  .HS3Z(17'd0),
-  .V0c (i_registers.VZ0),
-  .V1c (i_registers.VZ1),
-  .V2c (i_registers.VZ2),
-  .tmpReg (TMP3),
-  .Z3 (i_registers.ZSF3),
-  .Z4 (i_registers.ZSF4),
-  .IR0 (selIR0_3),
+  .color   (colB),
+  .IRn     (i_registers.IR3),
+  .SZ      (i_registers.SZ3),
+  .DQA     (16'd0), // DQA not used in SEL3.
+  .HS3Z    (17'd0),
+  .V0c     (i_registers.VZ0),
+  .V1c     (i_registers.VZ1),
+  .V2c     (i_registers.VZ2),
+  .tmpReg  (TMP3),
+  .Z3      (i_registers.ZSF3),
+  .Z4      (i_registers.ZSF4),
+  .IR0     (selIR0_3),
   .outstuff(outSel3)
 );
 
@@ -189,8 +189,8 @@ reg signed [ 8:0] colSide;
 reg signed [15:0] PrevSide;
 always @(*) begin
 	case (i_computeCtrl.addSel.id)
-	2'd0    : begin PrevSide = TMP1; colSide = { 1'b0, i_registers.CRGB.r }; end
-	2'd1    : begin PrevSide = TMP2; colSide = { 1'b0, i_registers.CRGB.g }; end
+	2'd0	: begin PrevSide = TMP1; colSide = { 1'b0, i_registers.CRGB.r }; end
+	2'd1	: begin PrevSide = TMP2; colSide = { 1'b0, i_registers.CRGB.g }; end
 	default : begin PrevSide = TMP3; colSide = { 1'b0, i_registers.CRGB.b }; end
 	endcase
 end
@@ -246,7 +246,7 @@ GTESelAddPath selAddInst (
 // - Cycle 2 : Fast Div Pipeline (Div pipeline to second part)
 // - Cycle 3 : Value output of pipeline !!!!
 // NOW : SZ3 and H won't change from Cycle 1+, so no need to save values !
-wire        divOverflow;
+wire		divOverflow;
 GTEFastDiv GTEFastDiv_Inst(
 	.i_clk		(i_clk),
 	.h			(i_registers.H),	// Dividend
@@ -256,15 +256,67 @@ GTEFastDiv GTEFastDiv_Inst(
 );
 
 // Seperate sum because we will have intermediate flag check.
-wire [34:0]  outSel1P = i_computeCtrl.negSel[0] ? (~outSel1 + 35'd1) : outSel1;
-wire [34:0]  outSel2P = i_computeCtrl.negSel[1] ? (~outSel2 + 35'd1) : outSel2;
-wire [34:0]  outSel3P = i_computeCtrl.negSel[2] ? (~outSel3 + 35'd1) : outSel3;
+wire [34:0]	 outSel1P = i_computeCtrl.negSel[0] ? (~outSel1 + 35'd1) : outSel1;
+wire [34:0]	 outSel2P = i_computeCtrl.negSel[1] ? (~outSel2 + 35'd1) : outSel2;
+wire [34:0]	 outSel3P = i_computeCtrl.negSel[2] ? (~outSel3 + 35'd1) : outSel3;
 
-wire [44:0]  part1Sum = {outAddSel[43],outAddSel} + {{10{outSel1P[34]}},outSel1P};
+//---------------------- If pipeline HERE, reaches 52.01 Mhz
+reg	 [34:0]			outSel3P_p;
+reg	 [34:0]			outSel2P_p;
+reg	 [34:0]			outSel1P_p;
+reg	 signed [43:0]	outAddSel_p;
+
+// All pipelined Control signals.
+reg					pcheck44Local, puseStoreFull,pisIRnCheckUseLM,plmFalseForIR3Saturation,pcheck44Global,puseSFWrite32,pcheckIRn,pcheckColor,pcheckOTZ,pcheckDIV,pcheck32Global,pcheckXY,pX0_or_Y1,pcheckIR0,passignIRtoTMP,pwrTMP1,pwrTMP2,pwrTMP3,pstoreFull;
+reg [1:0]			pmaskID;
+
+always @(posedge i_clk) begin
+	outSel1P_p					<= outSel1P;
+	outSel3P_p					<= outSel3P;
+	outSel2P_p					<= outSel2P;
+	outAddSel_p					<= outAddSel;
+	
+	// Post Pipeline signal control.
+	// MICROCODE Could perform the shift, but prefer now to have 'easy' hardware for debug.
+	pcheck44Local				<= i_computeCtrl.check44Local;
+	puseStoreFull				<= i_computeCtrl.useStoreFull;
+	pisIRnCheckUseLM			<= i_computeCtrl.isIRnCheckUseLM;
+	plmFalseForIR3Saturation	<= i_computeCtrl.lmFalseForIR3Saturation;
+	pcheck44Global				<= i_computeCtrl.check44Global;
+	puseSFWrite32				<= i_computeCtrl.useSFWrite32;
+	pmaskID						<= i_computeCtrl.maskID;
+	pcheckIRn					<= i_computeCtrl.checkIRn;
+	pcheckColor					<= i_computeCtrl.checkColor;
+	pcheckOTZ					<= i_computeCtrl.checkOTZ;
+	pcheckDIV					<= i_computeCtrl.checkDIV;
+	pcheck32Global				<= i_computeCtrl.check32Global;
+	pcheckXY					<= i_computeCtrl.checkXY;
+	pX0_or_Y1					<= i_computeCtrl.X0_or_Y1;
+	pcheckIR0					<= i_computeCtrl.checkIR0;
+	passignIRtoTMP				<= i_computeCtrl.assignIRtoTMP;
+	pwrTMP1						<= i_computeCtrl.wrTMP1;
+	pwrTMP2						<= i_computeCtrl.wrTMP2;
+	pwrTMP3						<= i_computeCtrl.wrTMP3;
+	pstoreFull					<= i_computeCtrl.storeFull;
+end
+
+wire [44:0]	 part1Sum = {outAddSel_p[43],outAddSel_p} + {{10{outSel1P_p[34]}},outSel1P_p};
 
 wire [3:0] isOverflowS44 ;
 wire [3:0] isUnderflowS44;
-wire       isOverflowS32,isUnderflowS32;
+wire	   isOverflowS32,isUnderflowS32;
+
+/*
+//---------------------- If pipeline HERE, reaches 43.04 Mhz
+reg	 [44:0]	 part1Sum;
+reg	 [34:0]	 outSel3P_p;
+reg	 [34:0]	 outSel2P_p;
+always @(posedge i_clk) begin
+	part1Sum   <= part1Sum_pre;
+	outSel3P_p <= outSel3P;
+	outSel2P_p <= outSel2P;
+end
+*/
 
 FlagsS44 FlagS44Local1(
 	.v			(part1Sum),
@@ -272,8 +324,8 @@ FlagsS44 FlagS44Local1(
 	.isUnderflow(isUnderflowS44[0])
 );
 
-wire [44:0]  part1SumPostExt = { i_computeCtrl.check44Local ? part1Sum[43] : part1Sum[44] , part1Sum[43:0] };
-wire [44:0]  part2Sum = part1SumPostExt + {{10{outSel2P[34]}},outSel2P};
+wire [44:0]	 part1SumPostExt = { pcheck44Local ? part1Sum[43] : part1Sum[44] , part1Sum[43:0] };
+wire [44:0]	 part2Sum = part1SumPostExt + {{10{outSel2P_p[34]}},outSel2P_p};
 
 FlagsS44 FlagS44Local2(
 	.v			(part2Sum),
@@ -282,15 +334,17 @@ FlagsS44 FlagS44Local2(
 );
 
 /*
-reg  [44:0]  pipe_part2Sum;
+//---------------------- If pipeline HERE, reaches 40.37 Mhz
+reg	 [44:0]	 part2Sum;
+reg	 [34:0]	 outSel3P_p;
 always @(posedge i_clk) begin
-	pipe_part2Sum <= part2Sum;
+	part2Sum   <= part2Sum_pre;
+	outSel3P_p <= outSel3P;
 end
 */
-
-reg  [44:0]  tempSumREG;
-wire [44:0]  part2SumPostExt = { i_computeCtrl.check44Local ? /*pipe_*/part2Sum[43] : /*pipe_*/part2Sum[44], /*pipe_*/part2Sum[43:0] };
-wire [44:0]  finalSumBeforeExt = part2SumPostExt + {{10{outSel3P[34]}},outSel3P} + (i_computeCtrl.useStoreFull ? tempSumREG : 45'd0);
+reg	 [44:0]	 tempSumREG;
+wire [44:0]	 part2SumPostExt = { pcheck44Local ? /*pipe_*/part2Sum[43] : /*pipe_*/part2Sum[44], /*pipe_*/part2Sum[43:0] };
+wire [44:0]	 finalSumBeforeExt = part2SumPostExt + {{10{outSel3P_p[34]}},outSel3P_p} + (puseStoreFull ? tempSumREG : 45'd0);
 
 FlagsS44 FlagS44Local3(
 	.v			(finalSumBeforeExt),
@@ -298,7 +352,16 @@ FlagsS44 FlagS44Local3(
 	.isUnderflow(isUnderflowS44[2])
 );
 
-wire [44:0]  finalSum = { i_computeCtrl.check44Local ? finalSumBeforeExt[43] : finalSumBeforeExt[44] , finalSumBeforeExt[43:0] };
+wire [44:0]	 finalSum = { pcheck44Local ? finalSumBeforeExt[43] : finalSumBeforeExt[44] , finalSumBeforeExt[43:0] };
+
+/*
+////------------------- 1 : FINAL SUM ----------------------------------  [34.03 Mhz]
+reg	 [44:0]	 finalSum;
+always @(posedge i_clk) begin
+	finalSum <= finalSumBefore;
+end
+*/
+
 
 FlagsS44 FlagS44Global(
 	.v			(finalSum),
@@ -332,7 +395,7 @@ FlagClipOTZ FlagClipOTZ_inst(
 wire [15:0] xyValue;
 wire isXY_UOFlow;
 FlagClipXY FlagClipXY_inst(
-	.v					({finalSum[44],finalSum[31:16]}), 		// 11 bit (27:16)
+	.v					({finalSum[44],finalSum[31:16]}),		// 11 bit (27:16)
 	.i_overflowS32		(isOverflowS32),
 	.i_underflowS32		(isUnderflowS32),
 	
@@ -345,13 +408,13 @@ wire [15:0] IRnPostClip;
 wire ou_IRn;
 wire ou_Color;
 
-wire useLM = i_computeCtrl.isIRnCheckUseLM & i_instrParam.lm;
+wire useLM = pisIRnCheckUseLM & i_instrParam.lm;
 
 FlagClipIRnColor FlagClipIRnColor_Inst(
 	.i_v44			(finalSum),
 	.i_sf			(useSFWrite32),
 	.i_LM			(useLM),
-	.i_useFixedSFLM	(i_computeCtrl.lmFalseForIR3Saturation),
+	.i_useFixedSFLM	(plmFalseForIR3Saturation),
 	
 	.o_OU_IRn		(ou_IRn),
 	.o_OU_Color		(ou_Color),
@@ -360,33 +423,33 @@ FlagClipIRnColor FlagClipIRnColor_Inst(
 	.clampOutCol	(colorPostClip)
 );
 
-wire useSFWrite32     = i_instrParam.sf & i_computeCtrl.useSFWrite32;
+wire useSFWrite32	  = i_instrParam.sf & puseSFWrite32;
 
 wire [31:0] valWriteBack32 = useSFWrite32 ? finalSum[43:12] : finalSum[31:0];
 
-wire overFlow44       = (( isOverflowS44[3] & i_computeCtrl.check44Global) || (( |isOverflowS44[2:0]) & i_computeCtrl.check44Local));
-wire underFlow44      = ((isUnderflowS44[3] & i_computeCtrl.check44Global) || ((|isUnderflowS44[2:0]) & i_computeCtrl.check44Local));
+wire overFlow44		  = (( isOverflowS44[3] & pcheck44Global) || (( |isOverflowS44[2:0]) & pcheck44Local));
+wire underFlow44	  = ((isUnderflowS44[3] & pcheck44Global) || ((|isUnderflowS44[2:0]) & pcheck44Local));
 
-wire writeFlag30      = (i_computeCtrl.maskID == 2'd1) && overFlow44;
-wire writeFlag29      = (i_computeCtrl.maskID == 2'd2) && overFlow44;
-wire writeFlag28      = (i_computeCtrl.maskID == 2'd3) && overFlow44;
-wire writeFlag27      = (i_computeCtrl.maskID == 2'd1) && underFlow44;
-wire writeFlag26      = (i_computeCtrl.maskID == 2'd2) && underFlow44;
-wire writeFlag25      = (i_computeCtrl.maskID == 2'd3) && underFlow44;
-wire writeFlag24      = (i_computeCtrl.maskID == 2'd1) && i_computeCtrl.checkIRn   && ou_IRn;
-wire writeFlag23      = (i_computeCtrl.maskID == 2'd2) && i_computeCtrl.checkIRn   && ou_IRn;
-wire writeFlag22      = (i_computeCtrl.maskID == 2'd3) && i_computeCtrl.checkIRn   && ou_IRn;
-wire writeFlag21      = (i_computeCtrl.maskID == 2'd1) && i_computeCtrl.checkColor && ou_Color;
-wire writeFlag20      = (i_computeCtrl.maskID == 2'd2) && i_computeCtrl.checkColor && ou_Color;
-wire writeFlag19      = (i_computeCtrl.maskID == 2'd3) && i_computeCtrl.checkColor && ou_Color;
+wire writeFlag30	  = (pmaskID == 2'd1) && overFlow44;
+wire writeFlag29	  = (pmaskID == 2'd2) && overFlow44;
+wire writeFlag28	  = (pmaskID == 2'd3) && overFlow44;
+wire writeFlag27	  = (pmaskID == 2'd1) && underFlow44;
+wire writeFlag26	  = (pmaskID == 2'd2) && underFlow44;
+wire writeFlag25	  = (pmaskID == 2'd3) && underFlow44;
+wire writeFlag24	  = (pmaskID == 2'd1) && pcheckIRn   && ou_IRn;
+wire writeFlag23	  = (pmaskID == 2'd2) && pcheckIRn   && ou_IRn;
+wire writeFlag22	  = (pmaskID == 2'd3) && pcheckIRn   && ou_IRn;
+wire writeFlag21	  = (pmaskID == 2'd1) && pcheckColor && ou_Color;
+wire writeFlag20	  = (pmaskID == 2'd2) && pcheckColor && ou_Color;
+wire writeFlag19	  = (pmaskID == 2'd3) && pcheckColor && ou_Color;
 
-wire writeFlag18      = (      isUO_OTZ & i_computeCtrl.checkOTZ);
-wire writeFlag17      =     divOverflow & i_computeCtrl.checkDIV ;
-wire writeFlag16      = (isOverflowS32  & i_computeCtrl.check32Global);
-wire writeFlag15      = (isUnderflowS32 & i_computeCtrl.check32Global);
-wire writeFlag14      = (   isXY_UOFlow & i_computeCtrl.checkXY & (!i_computeCtrl.X0_or_Y1)); // X Selected.
-wire writeFlag13      = (   isXY_UOFlow & i_computeCtrl.checkXY & ( i_computeCtrl.X0_or_Y1)); // Y Selected.
-wire writeFlag12      = (      isUO_IR0 & i_computeCtrl.checkIR0);
+wire writeFlag18	  = (	   isUO_OTZ & pcheckOTZ);
+wire writeFlag17	  =		divOverflow & pcheckDIV ;
+wire writeFlag16	  = (isOverflowS32	& pcheck32Global);
+wire writeFlag15	  = (isUnderflowS32 & pcheck32Global);
+wire writeFlag14	  = (	isXY_UOFlow & pcheckXY & (!pX0_or_Y1)); // X Selected.
+wire writeFlag13	  = (	isXY_UOFlow & pcheckXY & ( pX0_or_Y1)); // Y Selected.
+wire writeFlag12	  = (	   isUO_IR0 & pcheckIR0);
 
 // -------------------------------------------------------------------------------
 assign o_RegCtrl.updateFlags =	{
@@ -413,24 +476,24 @@ assign o_RegCtrl.updateFlags =	{
 
 /*
 	Generic write back :
-	MAC0    Hard coded (can use same MAC1?)
+	MAC0	Hard coded (can use same MAC1?)
 	MAC1..3 same unit.
 	IR 1..3 except that IR3 is Z in RTCP (Different path) => Same CLIP unit, with just different setup.
-	IR0     Hard coded clip
-	X/Y     Hard coded clip
-	Color   Hard coded clip
+	IR0		Hard coded clip
+	X/Y		Hard coded clip
+	Color	Hard coded clip
  */
 //CASE 0/1
 // ir[i] = clip(value , 0x7fff, lm ? 0 : -0x8000, saturatedBits);
-// ir[3] = clip(mac[3], 0x7fff, lm ? 0 : -0x8000);               // RTP --> TAKE CARE OF mac[3] value there... shifted ???
+// ir[3] = clip(mac[3], 0x7fff, lm ? 0 : -0x8000);				 // RTP --> TAKE CARE OF mac[3] value there... shifted ???
 // ===> THOSE REALLY NEED CARE -> RTP is weird, and clip(value, ...) depends a lot on who is doing the call.
-//      Need to systematically log all the callers, and check one by one !
+//		Need to systematically log all the callers, and check one by one !
 //
 //CASE 2
-//   otz = clip(value >> 12, 0xffff, 0x0000, Flag::SZ3_OTZ_SATURATED); // AVZ3/4
-//   pushScreenZ((int32_t)(mac3 >> 12)); ==> clip(z, 0xffff, 0x0000, Flag::SZ3_OTZ_SATURATED); // PUSH Z, same as AVZ3/4
+//	 otz = clip(value >> 12, 0xffff, 0x0000, Flag::SZ3_OTZ_SATURATED); // AVZ3/4
+//	 pushScreenZ((int32_t)(mac3 >> 12)); ==> clip(z, 0xffff, 0x0000, Flag::SZ3_OTZ_SATURATED); // PUSH Z, same as AVZ3/4
 //CASE 3
-//   clip(x, 0x3ff, -0x400, Flag::SX2_SATURATED); // Push X,Y
+//	 clip(x, 0x3ff, -0x400, Flag::SX2_SATURATED); // Push X,Y
 assign o_RegCtrl.MAC0  = finalSum[31:0];
 assign o_RegCtrl.MAC13 = valWriteBack32;
 assign o_RegCtrl.colV  = colorPostClip;
@@ -446,16 +509,16 @@ always @(posedge i_clk) begin
 		TMP3		<= 16'd0;
 		tempSumREG	<= 45'd0;
 	end else begin
-		if (i_computeCtrl.assignIRtoTMP) begin
+		if (passignIRtoTMP) begin
 			TMP1 <= i_registers.IR1;
 			TMP2 <= i_registers.IR2;
 			TMP3 <= i_registers.IR3;
 		end
-		if (i_computeCtrl.wrTMP1)   begin TMP1 <= IRnPostClip; end
-		if (i_computeCtrl.wrTMP2)   begin TMP2 <= IRnPostClip; end
-		if (i_computeCtrl.wrTMP3)   begin TMP3 <= IRnPostClip; end
-	//	if (i_computeCtrl.wrDivRes) begin divResREG = divRes; end NOT USED ANYMORE, BUT WANT TO KEEP ROM SIGNAL FOR NOW [TODO CLEAN AFTER DEBUG]
-		if (i_computeCtrl.storeFull) begin tempSumREG <= (~finalSum + 45'd1); end // Negative value. TODO OPTIMIZE : Move to NEG post REG ?
+		if (pwrTMP1)	begin TMP1 <= IRnPostClip; end
+		if (pwrTMP2)	begin TMP2 <= IRnPostClip; end
+		if (pwrTMP3)	begin TMP3 <= IRnPostClip; end
+	//	if (pwrDivRes) begin divResREG = divRes; end NOT USED ANYMORE, BUT WANT TO KEEP ROM SIGNAL FOR NOW [TODO CLEAN AFTER DEBUG]
+		if (pstoreFull) begin tempSumREG <= (~finalSum + 45'd1); end // Negative value. TODO OPTIMIZE : Move to NEG post REG ?
 	end
 end
 
