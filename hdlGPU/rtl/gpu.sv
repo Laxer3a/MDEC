@@ -208,29 +208,20 @@ typedef enum logic[5:0] {
     TMP_2 						= 6'd26,
     TMP_3 						= 6'd27,
     TMP_4 						= 6'd28,
-    SETUP_RX					= 6'd29,
-    SETUP_RY					= 6'd30,
-    SETUP_GX					= 6'd31,
-    SETUP_GY					= 6'd32,
-    SETUP_BX					= 6'd33,
-    SETUP_BY					= 6'd34,
-    SETUP_UX					= 6'd35,
-    SETUP_UY					= 6'd36,
-    SETUP_VX					= 6'd37,
-    SETUP_VY					= 6'd38,
-    RECT_SCAN_LINE				= 6'd39,
-    WAIT_3						= 6'd40,
-    WAIT_2						= 6'd41,
-    WAIT_1						= 6'd42,
-    SELECT_PRIMITIVE			= 6'd43,
-    COPYCV_COPY					= 6'd44,
-    RECT_READ_MASK				= 6'd45,
-    COPYVC_TOCPU				= 6'd46,
-    LINE_END					= 6'd47,
-    FLUSH_COMPLETE_STATE		= 6'd48,
-    COPY_START_LINE				= 6'd49,
-    CPY_ENDLINE					= 6'd50,
-	COPYVC_WAITFLUSH			= 6'd51
+    SETUP_INTERP				= 6'd29,
+    RECT_SCAN_LINE				= 6'd30,
+    WAIT_3						= 6'd31,
+    WAIT_2						= 6'd32,
+    WAIT_1						= 6'd33,
+    SELECT_PRIMITIVE			= 6'd34,
+    COPYCV_COPY					= 6'd35,
+    RECT_READ_MASK				= 6'd36,
+    COPYVC_TOCPU				= 6'd37,
+    LINE_END					= 6'd38,
+    FLUSH_COMPLETE_STATE		= 6'd39,
+    COPY_START_LINE				= 6'd40,
+    CPY_ENDLINE					= 6'd41,
+	COPYVC_WAITFLUSH			= 6'd42
 } workState_t;
 
 // Quartus did not like
@@ -581,8 +572,25 @@ wire		doBlockWork;
 
 // State machine for triangle
 // State to control setup...
-reg [2:0]		compoID;
-reg				vecID;
+reg [4:0]		interpolationCounter;
+reg             setInterCounter, setInterTexOnly, incrementInterpCounter;
+`define DOUBLE_DIVUNIT
+wire [4:0]		nextInterpolationCounter = 
+											`ifdef DOUBLE_DIVUNIT
+												5'd2
+											`else
+												5'd1
+											`endif
+											;
+always @(posedge clk) begin
+	if (setInterCounter) begin
+		interpolationCounter <= { 1'b0,setInterTexOnly,!setInterTexOnly, 2'b00 };
+	end else begin
+		if (incrementInterpCounter)
+			interpolationCounter <= nextInterpolationCounter;
+	end
+end
+
 reg				resetDir;
 reg				switchDir;
 reg				loadNext;
@@ -1896,8 +1904,6 @@ begin
     selNextY					= Y_ASIS;
     switchDir					= 0;
     resetDir					= 0;
-    compoID						= 0;
-    vecID						= 0;
     writePixelL					= 0;
     writePixelR					= 0;
 //	readStencil					= 0;
@@ -1937,6 +1943,9 @@ begin
 // TODOSTENCIL	stencilWriteBitSelect	= 16'h0000;
 // TODOSTENCIL	stencilWriteBitValue	= 16'h0000;
 // TODOSTENCIL	stencilWordAdr	= 15'd0;
+	setInterCounter			= (nextWorkState == SETUP_INTERP);
+	setInterTexOnly			= 0; // Default start value.
+	incrementInterpCounter	= 0; // Incr by 1 with single divide unit, 2 with two units.
 
     case (currWorkState)
     NOT_WORKING_DEFAULT_STATE:
@@ -1951,9 +1960,10 @@ begin
         begin
             setStencilMode		= 3'd1;
             if (bIsPerVtxCol) begin
-                nextWorkState = SETUP_RX;
+                nextWorkState = SETUP_INTERP;
             end else begin
-                nextWorkState = (bUseTexture) ? SETUP_UX : TRIANGLE_START;
+				setInterTexOnly = bUseTexture;
+                nextWorkState   = (bUseTexture) ? SETUP_INTERP : TRIANGLE_START;
             end
         end
         ISSUE_RECT:
@@ -1966,7 +1976,7 @@ begin
         begin
             setStencilMode		= 3'd1;
             if (bIsPerVtxCol) begin
-                nextWorkState = SETUP_RX;
+                nextWorkState = SETUP_INTERP;
             end else begin
                 nextWorkState = /*(bUseTexture) ? SETUP_UX :*/ LINE_START;	// Impossible : bUseTexture always false with LINES.
             end
@@ -2407,60 +2417,10 @@ begin
     // --------------------------------------------------------------------
     //   TRIANGLE STATE MACHINE
     // --------------------------------------------------------------------
-    SETUP_RX:
+    SETUP_INTERP:
     begin
-        compoID	= 3'd1;	vecID = 1'b0;
-        nextWorkState = SETUP_RY;
-    end
-    SETUP_RY:
-    begin
-        compoID	= 3'd1;	vecID = 1'b1;
-        nextWorkState = SETUP_GX;
-    end
-    SETUP_GX:
-    begin
-        compoID	= 3'd2;	vecID = 1'b0;
-        nextWorkState = SETUP_GY;
-    end
-    SETUP_GY:
-    begin
-        compoID	= 3'd2;	vecID = 1'b1;
-        nextWorkState = SETUP_BX;
-    end
-    SETUP_BX:
-    begin
-        compoID	= 3'd3;	vecID = 1'b0;
-        nextWorkState = SETUP_BY;
-    end
-    SETUP_BY:
-    begin
-        compoID	= 3'd3;	vecID = 1'b1;
-        if (bUseTexture) begin
-            nextWorkState = SETUP_UX;
-        end else begin
-            // Wait 6 cycle now...
-            nextWorkState = WAIT_3;
-        end
-    end
-    SETUP_UX:
-    begin
-        compoID	= 3'd4;	vecID = 1'b0;
-        nextWorkState = SETUP_UY;
-    end
-    SETUP_UY:
-    begin
-        compoID	= 3'd4;	vecID = 1'b1;
-        nextWorkState = SETUP_VX;
-    end
-    SETUP_VX:
-    begin
-        compoID	= 3'd5;	vecID = 1'b0;
-        nextWorkState = SETUP_VY;
-    end
-    SETUP_VY:
-    begin
-        compoID	= 3'd5;	vecID = 1'b1;
-        nextWorkState = WAIT_3;
+		nextWorkState = (nextInterpolationCounter[4:2] == { 1'b1, bUseTexture , 1'b0 }) ? WAIT_3 : SETUP_INTERP;
+		incrementInterpCounter = 1;
     end
     WAIT_3: // 4 cycles to wait
     begin
@@ -2984,8 +2944,7 @@ gpu_setupunit gpu_setupunit_inst(
 	// State machine Control
 	// --------------------------
 	// Signal when setup primitive
-	.i_compoID					(compoID),
-	.i_vecID					(vecID),
+	.i_interpolationCounter		(interpolationCounter),
 	.i_assignRectSetup			(assignRectSetup),
 	
 	// Line runtime logic control from state machine

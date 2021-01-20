@@ -51,8 +51,7 @@ module gpu_setupunit(
 	// --------------------------
 	// State machine Control signal when setup
 	// --------------------------
-	input [2:0]					i_compoID,
-	input       				i_vecID,
+	input [4:0]					i_interpolationCounter,
 	input						i_assignRectSetup,
 	
 	// --------------------------
@@ -300,11 +299,52 @@ module gpu_setupunit(
 	wire signed [11:0]	negb	= -b;
 	wire signed [11:0]	nega	= -a;
 
-	wire signed [21:0]	DETP1	= a*d;
-	wire signed [21:0]	DETP2	= b*negc;			// -b*c -> b*negc
-	wire signed [21:0]	DET		= DETP1 + DETP2;	// Same as (a*d) - (b*c)
+
+	reg signed [11:0]	pnegc;
+	reg signed [11:0]	pnega;
+	reg signed [11:0]	pnegb;
+	reg signed [11:0]	pa;
+	reg signed [11:0]	pb;
+	reg signed [11:0]	pd;
+	
+	/* PIPELINE
+	always @(posedge i_clk) begin
+		pnega <= nega;
+		pnegb <= negb;
+		pnegc <= negc;
+		pa    <= a;
+		pb    <= b;
+		pd    <= d;
+	end
+	*/
+
+	wire signed [21:0]	/*P*/DET1	= /*p*/a*/*p*/d;
+	wire signed [21:0]	/*P*/DET2	= /*p*/b*/*p*/negc;			// -b*c -> b*negc
+	wire signed [21:0]	DET			= /*P*/DET1 + /*P*/DET2;	// Same as (a*d) - (b*c)
+
+	/* PIPELINE
+	reg  signed [21:0]	PDET;
+	always @(posedge i_clk) begin
+		PDET <= DET;
+	end
+	*/
+	
 	reg signed [11:0]	mulFA,mulFB;
 	reg  signed [9:0]	v0C,v1C,v2C;
+
+	// ------------------------------------------------------------------
+	// 1st Step : Pipeline Compo/Vect from state machine, isolate.
+	// ------------------------------------------------------------------
+/*	PIPELINE
+	reg [2:0] compoID; // Normally = i_compoID
+	reg       vectID;
+	always @(posedge i_clk) begin
+		compoID 	<= i_interpolationCounter[4:2];
+		vectID		<= i_interpolationCounter[1];
+	end
+*/
+	wire [2:0] compoID = i_interpolationCounter[4:2];
+	wire       vectID  = i_interpolationCounter[1];
 
 	reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6;
 	reg       vecID2,vecID3,vecID4,vecID5,vecID6;
@@ -314,13 +354,13 @@ module gpu_setupunit(
 		compoID5 <= compoID4;
 		compoID4 <= compoID3;
 		compoID3 <= compoID2;
-		compoID2 <= i_compoID;
+		compoID2 <= compoID;
 
 		vecID6   <= vecID5;
 		vecID5   <= vecID4;
 		vecID4   <= vecID3;
 		vecID3   <= vecID2;
-		vecID2   <= i_vecID;
+		vecID2   <= vectID;
 	end
 
 	reg memW0,memW1,memW2;
@@ -334,7 +374,7 @@ module gpu_setupunit(
 
 	always @(*)
 	begin
-		case (i_compoID)
+		case (compoID)
 		default:	begin v0C = { 1'b0, RegR0 }; v1C = { 1'b0, RegR1 }; v2C = { 1'b0, RegR2 }; end
 		3'd2:		begin v0C = { 1'b0, RegG0 }; v1C = { 1'b0, RegG1 }; v2C = { 1'b0, RegG2 }; end
 		3'd3:		begin v0C = { 1'b0, RegB0 }; v1C = { 1'b0, RegB1 }; v2C = { 1'b0, RegB2 }; end
@@ -342,7 +382,7 @@ module gpu_setupunit(
 		3'd5:		begin v0C = { 2'b0, RegV0 }; v1C = { 2'b0, RegV1 }; v2C = { 2'b0, RegV2 }; end
 		endcase
 
-		if (i_vecID) begin
+		if (vectID) begin
 			mulFA = negc;	mulFB = a;
 		end else begin
 			mulFA = d;   	mulFB = negb;
@@ -352,15 +392,25 @@ module gpu_setupunit(
 	wire signed [10:0]	C20i	= i_bIsLineCommand ? 11'd0 : ({ 1'b0 ,v2C } + negv0c);
 	wire signed [10:0]	C10i	=  { 1'b0 ,v1C } + negv0c; // -512..+511
 
+	// TODO : Use i_interpolationCounter[1] and mux inputDivA / inputDivB
 	wire signed [20:0] inputDivA	= mulFA * C20i; // -2048..+2047 x -512..+511 = Signed 21 bit.
 	wire signed [20:0] inputDivB	= mulFB * C10i;
 
 	// Signed 21 bit << 11 bit => 32 bit signed value.
-	wire signed [31:0] inputDivAShft= { inputDivA, 11'b0 }; // PREC'd0
-	wire signed [31:0] inputDivBShft= { inputDivB, 11'b0 };
+	wire signed [31:0] inputDivAShft/*Pre*/= { inputDivA, 11'b0 }; // PREC'd0
+	wire signed [31:0] inputDivBShft/*Pre*/= { inputDivB, 11'b0 };
+	/*
+	reg signed [31:0] inputDivAShft;
+	reg signed [31:0] inputDivBShft;
+	always @(posedge i_clk)
+	begin
+		inputDivAShft <= inputDivAShftPre;
+		inputDivBShft <= inputDivBShftPre;
+	end
+	*/
+		
 	wire signed [PREC+8:0] outputA;
-	wire signed [PREC+8:0] outputB;
-
+	wire signed [PREC+8:0] outputB;	
 	dividerWrapper instDivisorA(
 		.clock			( i_clk ),
 		.numerator		( inputDivAShft),
@@ -488,7 +538,7 @@ module gpu_setupunit(
 	assign o_pixUR 						= RegU0 + offUR[PREC+7:PREC];
 	assign o_pixVR 						= RegV0 + offVR[PREC+7:PREC];
 
-	assign o_isNULLDET					= (DET == 22'd0);
+	assign o_isNULLDET					= (/*P*/DET == 22'd0);
 	assign o_isNegXAxis					= isNegXAxis;
 	assign o_isValidPixelL				= (isCCWInsideL | isCWInsideL) & isInsideBBoxTriRectL;
 	assign o_isValidPixelR				= (isCCWInsideR | isCWInsideR) & isInsideBBoxTriRectR;
