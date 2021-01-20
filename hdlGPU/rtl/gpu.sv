@@ -575,7 +575,7 @@ wire		doBlockWork;
 reg [4:0]		interpolationCounter;
 reg             setInterCounter, setInterTexOnly, incrementInterpCounter;
 `define DOUBLE_DIVUNIT
-wire [4:0]		nextInterpolationCounter = 
+wire [4:0]		nextInterpolationCounter = interpolationCounter +
 											`ifdef DOUBLE_DIVUNIT
 												5'd2
 											`else
@@ -584,7 +584,9 @@ wire [4:0]		nextInterpolationCounter =
 											;
 always @(posedge clk) begin
 	if (setInterCounter) begin
-		interpolationCounter <= { 1'b0,setInterTexOnly,!setInterTexOnly, 2'b00 };
+		// 1000.0  <-- UV Only
+		// 0010.0  <-- RGB First
+		interpolationCounter <= { setInterTexOnly,1'b0,!setInterTexOnly, 2'b00 };
 	end else begin
 		if (incrementInterpCounter)
 			interpolationCounter <= nextInterpolationCounter;
@@ -1943,7 +1945,8 @@ begin
 // TODOSTENCIL	stencilWriteBitSelect	= 16'h0000;
 // TODOSTENCIL	stencilWriteBitValue	= 16'h0000;
 // TODOSTENCIL	stencilWordAdr	= 15'd0;
-	setInterCounter			= (nextWorkState == SETUP_INTERP);
+	// Reset
+	setInterCounter			= (nextWorkState == NOT_WORKING_DEFAULT_STATE);
 	setInterTexOnly			= 0; // Default start value.
 	incrementInterpCounter	= 0; // Incr by 1 with single divide unit, 2 with two units.
 
@@ -1968,7 +1971,7 @@ begin
         end
         ISSUE_RECT:
         begin
-            setStencilMode		= 3'd1;
+            setStencilMode	= 3'd1;
             assignRectSetup	= 1;
             nextWorkState	= WAIT_3; // Force checking palette fully.
         end
