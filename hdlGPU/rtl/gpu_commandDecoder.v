@@ -66,4 +66,4 @@ module gpu_commandDecoder(
 	assign o_bIs4PointPoly  		= i_command[3] & o_bIsPolyCommand;
 	assign o_bIsPerVtxCol   		= (o_bIsPolyCommand | o_bIsLineCommand) & i_command[4];
 
-endmodule;
+endmodule

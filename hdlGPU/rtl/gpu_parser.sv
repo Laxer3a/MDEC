@@ -201,7 +201,7 @@ always @(*)
 
 wire isSecondVertex		= (vertexCnt == 2'd1);
 wire canEmitTriangle	= (vertexCnt >= 2'd2);	// 2 or 3 for any tri or quad primitive. intermediate or final.
-wire isPolyFinalVertex	= ((bIs4PointPoly & (vertexCnt == 2'd3)) | (!bIs4PointPoly & (vertexCnt == 2'd2)));;
+wire isPolyFinalVertex	= ((bIs4PointPoly & (vertexCnt == 2'd3)) | (!bIs4PointPoly & (vertexCnt == 2'd2)));
 wire bNotFirstVert		= !isFirstVertex;		// Can NOT use counter == 0. Won't work in MULTILINE. (0/1/2/0/1/2/....)
 
 //------------------------------------------------

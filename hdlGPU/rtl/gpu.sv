@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright Â© 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -233,6 +233,8 @@ typedef enum logic[5:0] {
 	COPYVC_WAITFLUSH			= 6'd51
 } workState_t;
 
+// Quartus did not like
+`ifdef VERILATOR
 //parameter
 typedef enum logic[2:0] {
     X_TRI_NEXT		= 3'd1,
@@ -255,8 +257,7 @@ typedef enum logic[2:0] {
     // 6,7 free...
     Y_ASIS			= 3'd0
 } nextY_t;
-
-
+`endif
 
 parameter   IS_NOT_NEWBLOCK				= 2'b00,
             IS_NEW_BLOCK_IN_PRIMITIVE	= 2'b01,	// The first time we flush a 16 pixel block, there is NO WRITE of the previous block, but LOAD must be done if doing blending.
@@ -446,7 +447,7 @@ assign display_pal_o        = GPU_REG_VideoMode;
 wire GPU_DisplayEvenOddLinesInterlace	= VBlank ? 1'd0 : (GPU_REG_VerticalResolution ? GPU_REG_CurrentInterlaceField : currentLineOddEven);
 
 // [Interlace render generate 1 for primitive supporting it : LINE,RECT,TRIANGLE,FILL IF VALID]
-wire InterlaceRender					= DIP_Allow480i & ((!GPU_REG_DrawDisplayAreaOn) & GPU_REG_IsInterlaced) & GPU_REG_VerticalResolution & (!bIsCopyCommand);
+wire InterlaceRender					= DIP_Allow480i & ((!GPU_REG_DrawDisplayAreaOn) & GPU_REG_IsInterlaced) & GPU_REG_VerticalResolution & (!bIsCopyCommand) & (!bIsLineCommand);
 // HACK: Disable interlace support
 //wire InterlaceRender = 1'b0;
 
@@ -562,15 +563,9 @@ wire [1:0]		stencilReadValue;
 
 wire  [9:0]		scrY;
 
-reg signed [11:0] pixelX;
-reg signed [11:0] nextPixelX; // Wire
-reg signed [11:0] pixelY;
-reg signed [11:0] nextPixelY; // Wire
-
 wire pixelInFlight;
 
-/// issue_t issue;  FUCKING VERILATOR.
-
+wire signed [11:0] pixelX,pixelY;
 
 reg [7:0] RegCommand;
 
@@ -705,6 +700,7 @@ always @(posedge clk) begin
     end
 end
 
+// [TODO NEXT STEP BUS]
 //---------------------------------------------------------------
 //  Handling READ including pipelined latency for read result.
 //---------------------------------------------------------------
@@ -733,6 +729,7 @@ end
 assign cpuDataOut	= pDataOut;
 assign validDataOut = pDataOutValid;
 //---------------------------------------------------------------
+//END [TODO NEXT STEP BUS]
 
 assign IRQRequest = GPU_REG_IRQSet;
 
@@ -920,6 +917,7 @@ always @(*) begin
 	endcase
 end
 
+// [TODO NEXT STEP BUS]
 wire parserWaitingNewCommand;
 assign reg1Out = {
                     // Default : 1480.2.000h
@@ -1027,7 +1025,6 @@ begin
     endcase
 end
 
-wire [14:0] fifoDataOutClut			= fifoDataOut[30:16];
 wire [15:0] newClutValue = { /*issue.*/rstTextureCache, fifoDataOutClut };
 reg   		rClutLoading;
 reg			endClutLoading; // From state machine.
@@ -1186,6 +1183,9 @@ begin
     //end else begin
     //end
 end
+// END [TODO NEXT STEP BUS]
+
+wire [14:0] fifoDataOutClut			= fifoDataOut[30:16];
 
 //-------------------------------------------------------------
 // Run time stuff based on command decoder
@@ -1372,16 +1372,70 @@ wire isNULLDET,isNegXAxis,isValidPixelL,isValidPixelR,earlyTriangleReject,edgeDi
 wire isValidHorizontalTriBbox,isRightPLXmaxTri,isInsideBBoxTriRectL,isInsideBBoxTriRectR,isBottomInsideBBox,isLineInsideDrawArea,isLineLeftPix,isLineRightPix;
 wire reachEdgeTriScan;
 // Next Pixel for line algorithm
-wire signed [11:0] nextLineX,nextLineY;
+wire signed [11:0] nextLineX,nextLineY,nextPixelX,nextPixelY;
 // Bounding box info for triangle
 wire signed [11:0] minTriDAX0,maxTriDAX1,minTriDAY0;
 
+wire signed [ 9:0] loopIncrNextPixelY;
+
 wire lineStart			= (currWorkState == LINE_START);
 
+wire dir;
 
+gpu_scan gpu_scan_instance(
+	.i_clk							(clk),
+
+	.i_InterlaceRender				(InterlaceRender),
+
+	.GPU_REG_CurrentInterlaceField	(GPU_REG_CurrentInterlaceField),
+	.i_RegX0						(RegX0),
+	.i_RegY0						(RegY0),
+
+	// Line Primitive                / Line Primitive
+	.i_nextLineX					(nextLineX),
+	.i_nextLineY					(nextLineY),
+
+	// Triangle BBox                 / Triangle BBox
+	.i_minTriDAX0					(minTriDAX0),
+	.i_minTriDAY0					(minTriDAY0),
+	.i_maxTriDAX1					(maxTriDAX1),
+
+	// Scan control for all.         / Scan control for all.
+	.i_loadNext						(loadNext),	// All primitive
+	.i_selNextX						(selNextX),	// All primitive except FILL / CopyVV
+	.i_selNextY						(selNextY),	// All primitive
+
+	// Current pixel                 / Current pixel
+	.o_pixelX						(pixelX),
+	.o_pixelY						(pixelY),
+	.o_nextPixelX					(nextPixelX),
+	.o_nextPixelY					(nextPixelY),
+	.o_loopIncrNextPixelY			(loopIncrNextPixelY),
+
+
+	//---------------------------------------
+	//  Independant Triangle Flags Management
+	//---------------------------------------
+
+	// Control 
+	.i_tri_resetDir					(resetDir),				// Triangle Only but reset at each primitive
+	.i_tri_switchDir				(switchDir),			// Triangle Only
+	.i_tri_setPixelFound			(setPixelFound),		// Triangle Only
+	.i_tri_setDirectionComplete		(setDirectionComplete),	// Triangle Only
+	.i_tri_resetPixelFound			(resetPixelFound),		// Triangle Only
+
+	.o_tri_dir						(dir),					// Triangle Only
+	.o_tri_pixelFound				(pixelFound),			// Triangle Only
+	.o_tri_completedOneDirection	(completedOneDirection)	// Triangle Only
+);
+
+
+/* 
+	TODO VERIFY IF FUNCTION IS IMPLEMENTED OR NOT (GUARDBAND)
+	This code below is not used / DEPRECATED => Check with early triangle reject ???
 
 // TODO : Rejection occurs with DX / DY. Not range. wire rejectVertex			= (fifoDataOutX[11] != fifoDataOutX[10]) | (fifoDataOutY[11] != fifoDataOutY[10]); // Primitive with offset out of range -1024..+1023
-wire resetReject			= 0/*[TODO] Why ?*/;
+wire resetReject			= 0; // [TODO] Why ?
 wire rejectVertex			= 0;
 
 reg  rejectPrimitive;
@@ -1391,6 +1445,7 @@ begin
         rejectPrimitive <= !resetReject;
     end
 end
+*/
 
 wire canIssueWork       = (currWorkState == NOT_WORKING_DEFAULT_STATE);
 
@@ -1519,40 +1574,6 @@ wire dblLoadR2L				= sxe16 < cpyIdx;
 wire isDoubleLoad			= xCopyDirectionIncr ? dblLoadL2R : dblLoadR2L;
 wire isLongLine				= RegSizeW[9] | RegSizeW[10]; // At least >= 512
 
-
-//---------------------------------------------------------------------------------------------------
-// Stuff to handle INTERLACED RENDERING !!!
-//
-// But counter increment +2 is only valid for RECT,TRIANGLE,FILL. (LINE is ALWAYS Y+1 !!!)
-wire IncrementInterlaceRender           = InterlaceRender & (!bIsLineCommand);
-// So Start coordinate offset +0/+1 is only valid for RECT, TRIANGLE, FILL. It depends on the current field.
-wire renderYOffsetInterlace				= (IncrementInterlaceRender ? (RegY0[0] ^ GPU_REG_CurrentInterlaceField) : 1'b0);
-
-reg dir;
-wire 				extIX		= dir;
-always @(*)
-begin
-    case (selNextX)
-        X_TRI_NEXT:		nextPixelX	= pixelX + { {10{extIX}}, 2'b10 };	// -2,0,+2
-        X_LINE_START:	nextPixelX	= RegX0;
-        X_LINE_NEXT:	nextPixelX	= nextLineX; // Optimize and merge with case 0
-        X_TRI_BBLEFT:	nextPixelX	= { minTriDAX0[11:1], 1'b0 };
-        X_TRI_BBRIGHT:	nextPixelX	= { maxTriDAX1[11:1], 1'b0 };
-        X_CV_START:		nextPixelX	= { 2'b0, RegX0[9:1], 1'b0 };
-        default:		nextPixelX	= pixelX;
-    endcase
-
-    case (selNextY)
-        Y_LINE_START:	nextPixelY	= RegY0;
-        Y_LINE_NEXT:	nextPixelY	= nextLineY;
-        Y_TRI_START:	nextPixelY	= minTriDAY0 + { 11'd0 , renderYOffsetInterlace };
-        Y_TRI_NEXT:		nextPixelY	= pixelY + { 9'b0 , IncrementInterlaceRender , !IncrementInterlaceRender };	// +1 for normal mode, +2 for interlaced locked render.
-        Y_CV_ZERO:		nextPixelY	= { 11'd0, renderYOffsetInterlace };
-        default:		nextPixelY	= pixelY;
-    endcase
-end
-
-
 wire storeStencilRead = (memoryCommand == MEM_CMD_RDBURST);
 reg [31:0]	stencilReadCache;
 reg [31:0]  maskReadCache;
@@ -1607,38 +1628,6 @@ end
 
 always @(posedge clk)
 begin
-    if (loadNext) begin
-        pixelX <= nextPixelX;
-        pixelY <= nextPixelY;
-    end
-    if (resetDir) begin
-        dir    <= 0; // Left to Right
-    end else begin
-        if (switchDir) begin
-            dir <= !dir;
-        end
-    end
-
-
-    if (resetPixelFound) begin
-        pixelFound				<= 0; // No pixel found.
-		completedOneDirection	<= 0; // Scan in one direction.
-    end
-    if (setPixelFound) begin
-        pixelFound 				<= 1;
-    end
-	if (setDirectionComplete) begin
-		completedOneDirection	<= 1; // Completed Scan in one direction.
-	end
-	/* Early optimization removed.
-    if (resetEnteredTriangle) begin
-        enteredTriangle = 0;
-    end
-    if (setEnteredTriangle) begin
-        enteredTriangle = 1;
-    end
-	*/
-
     // BEFORE cpyBank UPDATE !!!
     if (storeStencilRead) begin
         if (cpyBank) begin
@@ -1735,9 +1724,8 @@ wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
 wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
 wire  [9:0]  nextScrY	= nextPixelY[9:0] + RegY0[9:0];
 
-wire [ 9:0]	nextY		= pixelY[9:0] + { 8'd0, IncrementInterlaceRender , !IncrementInterlaceRender };
 wire		WidthNot1	= |RegSizeW[10:1];
-assign		endVertical	= (nextY >= RegSizeH);
+assign		endVertical	= (loopIncrNextPixelY >= RegSizeH);
 assign			scrY	= pixelY[9:0] + RegY0[9:0];
 assign       scrDstY	= pixelY[8:0] + RegY1[8:0];
 
@@ -3077,8 +3065,10 @@ CLUT_Cache CLUT_CacheInst(
 // wire            dataArrived;
 // wire			dataConsumed;
 
+// [TODO NEXT STEP BUS]
 wire  [5:0]    XPosClut           = {1'b0, nextClutPacket/*rClutPacketCount*/} + RegCLUT[5:0];
 wire  [14:0]   adrClutCacheUpdate = { RegCLUT[14:6] , XPosClut };
+// END [TODO NEXT STEP BUS]
 
 MemoryArbitratorFat MemoryArbitratorInstance(
     .gpuClk					(clk),
