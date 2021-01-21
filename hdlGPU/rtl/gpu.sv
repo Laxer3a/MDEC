@@ -9,6 +9,9 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
+// See also gpu_setupunit.v
+`define DOUBLE_DIVUNIT
+
 /*
     POSSIBLE OPTIMIZATION :
     - Line outside draw area check optimization can be added.
@@ -574,7 +577,6 @@ wire		doBlockWork;
 // State to control setup...
 reg [4:0]		interpolationCounter;
 reg             setInterCounter, setInterTexOnly, incrementInterpCounter;
-`define DOUBLE_DIVUNIT
 wire [4:0]		nextInterpolationCounter = interpolationCounter +
 											`ifdef DOUBLE_DIVUNIT
 												5'd2

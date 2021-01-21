@@ -148,28 +148,28 @@ void addEnumIntoScanner(VCScanner* pScan) {
 			{26,"TMP_2"},
 			{27,"TMP_3"},
 			{28,"TMP_4"},
-			{29,"SETUP_RX"},
-			{30,"SETUP_RY"},
-			{31,"SETUP_GX"},
-			{32,"SETUP_GY"},
-			{33,"SETUP_BX"},
-			{34,"SETUP_BY"},
-			{35,"SETUP_UX"},
-			{36,"SETUP_UY"},
-			{37,"SETUP_VX"},
-			{38,"SETUP_VY"},
-			{39,"RECT_SCAN_LINE"},
-			{40,"WAIT_3"},
-			{41,"WAIT_2"},
-			{42,"WAIT_1"},
-			{43,"SELECT_PRIMITIVE"},
-			{44,"COPYCV_COPY"},
-			{45,"RECT_READ_MASK"},
-			{46,"COPYVC_TOCPU"},
-			{47,"LINE_END"},
-			{48,"FLUSH_COMPLETE_STATE"},
-			{49,"COPY_START_LINE"},
-			{50,"CPY_ENDLINE"},
+			{29,"SETUP_INTERP"},
+			{30,"RECT_SCAN_LINE"},
+			{31,"WAIT_3"},
+			{32,"WAIT_2"},
+			{33,"WAIT_1"},
+			{34,"SELECT_PRIMITIVE"},
+			{35,"COPYCV_COPY"},
+			{36,"RECT_READ_MASK"},
+			{37,"COPYVC_TOCPU"},
+			{38,"LINE_END"},
+			{39,"FLUSH_COMPLETE_STATE"},
+			{40,"COPY_START_LINE"},
+			{41,"CPY_ENDLINE"},
+			{42,"CPY_WAITFLUSH"},
+			{43,"INVALID_43"},
+			{44,"INVALID_44"},
+			{45,"INVALID_45"},
+			{46,"INVALID_46"},
+			{47,"INVALID_47"},
+			{48,"INVALID_48"},
+			{49,"INVALID_49"},
+			{50,"INVALID_50"},
 			{51,"INVALID_51"},
 			{52,"INVALID_52"},
 			{53,"INVALID_53"},
@@ -594,7 +594,6 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__stencilWritePairC,2,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__stencilWriteSelectC,1,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__stencilWriteValueC,1,0);
-    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isBottomInsideBBox,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__requestNextPixel,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__selectPixelWriteMaskLine,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__adrXSrc,5,0);
@@ -661,13 +660,13 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__nextClutPacket,4,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__FifoDataValid,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__bIsTerminator,0,0);
-    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__bUseTexture,0,0);
-    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__ditherSetup,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__bDither,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__command,7,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__vertexID,1,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isVertexLoadState,0,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__bUseTexture,0,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__rstTextureCache,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__loadE5Offsets,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__loadTexPageE1,0,0);
@@ -698,6 +697,7 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isRightPLXmaxTri,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isInsideBBoxTriRectL,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isInsideBBoxTriRectR,0,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isBottomInsideBBox,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isLineInsideDrawArea,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isLineLeftPix,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__isLineRightPix,0,0);
@@ -857,8 +857,6 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__commandDecoderInstance__DOT__o_bIsNop,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__commandDecoderInstance__DOT__o_bIsPolyOrRect,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__commandDecoderInstance__DOT__o_bUseTextureParser,0,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__commandDecoderInstance__DOT__o_bUseTexture,0,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__commandDecoderInstance__DOT__o_bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__commandDecoderInstance__DOT__o_bSemiTransp,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__commandDecoderInstance__DOT__o_bOpaque,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__commandDecoderInstance__DOT__o_bIs4PointPoly,0,0);
@@ -867,6 +865,7 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__i_rstGPU,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__i_command,7,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__o_waitingNewCommand,0,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__i_bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__i_gpuBusy,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__o_issuePrimitive,4,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__i_isFifoNotEmpty32,0,0);
@@ -935,7 +934,6 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__bIsRenderAttrib,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__bIsNop,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__bUseTextureParser,0,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__bIs4PointPoly,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__bIsPerVtxCol,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__bIsMultiLineTerminator,0,0);
@@ -972,8 +970,6 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__gpu_commandDecoder_instance__DOT__o_bIsNop,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__gpu_commandDecoder_instance__DOT__o_bIsPolyOrRect,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__gpu_commandDecoder_instance__DOT__o_bUseTextureParser,0,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__gpu_commandDecoder_instance__DOT__o_bUseTexture,0,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__gpu_commandDecoder_instance__DOT__o_bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__gpu_commandDecoder_instance__DOT__o_bSemiTransp,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__gpu_commandDecoder_instance__DOT__o_bOpaque,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__gpu_commandDecoder_instance__DOT__o_bIs4PointPoly,0,0);
@@ -982,6 +978,8 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_validData,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_command,7,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_targetVertex,1,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_bUseTexture,0,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_loadVertices,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_loadUV,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_loadRGB,0,0);
@@ -992,14 +990,13 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_loadSizeParam,1,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_loadRectEdge,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_isVertexLoadState,0,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__i_GPU_REG_TextureDisable,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__o_RegU0,7,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__o_RegV0,7,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__o_RegU1,7,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__o_RegV1,7,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__o_RegU2,7,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__o_RegV2,7,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__bUseTexture,0,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__bIsFillCommand,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__bIsCopyCommand,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__bIsBase0x,0,0);
@@ -1036,8 +1033,6 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__decoder__DOT__o_bIsNop,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__decoder__DOT__o_bIsPolyOrRect,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__decoder__DOT__o_bUseTextureParser,0,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__decoder__DOT__o_bUseTexture,0,0);
-//    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__decoder__DOT__o_bIgnoreColor,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__decoder__DOT__o_bSemiTransp,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__decoder__DOT__o_bOpaque,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_vertexRegisters__DOT__decoder__DOT__o_bIs4PointPoly,0,0);
@@ -1361,10 +1356,10 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__i_compoID,2,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__i_vecID,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__i_assignRectSetup,0,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__i_scanDirectionR2L,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__i_memorizeLineEqu,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__i_lineStart,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__i_loadNext,0,0);
-    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__i_scanDirectionR2L,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isNULLDET,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isNegXAxis,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isValidPixelL,0,0);
@@ -1376,6 +1371,7 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isRightPLXmaxTri,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isInsideBBoxTriRectL,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isInsideBBoxTriRectR,0,0);
+    VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isBottomInsideBBox,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isLineInsideDrawArea,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isLineLeftPix,0,0);
     VL_SIG8(GPU_DDR__DOT__gpu_inst__DOT__gpu_setupunit_inst__DOT__o_isLineRightPix,0,0);

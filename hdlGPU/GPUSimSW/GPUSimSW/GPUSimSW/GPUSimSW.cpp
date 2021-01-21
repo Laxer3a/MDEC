@@ -2077,8 +2077,8 @@ int main(int argcount, char** args)
 	case USE_AVOCADO_DATA:
 	{
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station","rb");			// GOOD COMPLETE
-		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");		// GOOD COMPLETE
-//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Fight","rb");			// GOOD COMPLETE
+//		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");		// GOOD COMPLETE
+		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\FF7Fight","rb");			// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerMenu","rb");		// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerGame","rb");		// GOOD COMPLETE
 //		FILE* binSrc = fopen("E:\\JPSX\\Avocado\\RidgeScore","rb");			// GOOD COMPLETE
@@ -2759,10 +2759,14 @@ int main(int argcount, char** args)
 		= true;
 #endif
 
+
+
+	int primitiveCount = 0;
+
 	while (
 //		(waitCount < 20)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 //		&& (stuckState < 2500)
-		(clockCnt < (900000))
+		(clockCnt < (1400000))
 	)
 	{
 		// By default consider stuck...
@@ -2783,9 +2787,9 @@ int main(int argcount, char** args)
 		if (log) {
 			// If some work is done, reset stuckState.
 			if (mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState     != prevCommandParseState) { 
-#if 0
-				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currState");
-				printf("NEW STATE : %s (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currState].outputString /*,clockCnt >> 1*/,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
+#if 1
+				VCMember* pCurrState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.gpu_parser_instance.currState");
+//				printf("NEW STATE : %s (Data=%08x)\n", pCurrState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState].outputString /*,clockCnt >> 1*/,mod->GPU_DDR__DOT__gpu_inst__DOT__fifoDataOut);
 	//			printf("NEW STATE : %i\n", mod->gpu__DOT__currState);
 #endif
 				stuckState = 0; prevCommandParseState = mod->GPU_DDR__DOT__gpu_inst__DOT__gpu_parser_instance__DOT__currState; 
@@ -2797,8 +2801,13 @@ int main(int argcount, char** args)
 			}
 			
 			if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState != prevCommandWorkState)  {
+				if (mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState == 0) {
+					printf("PRIMITIVE COUNT : %i\n",primitiveCount);
+					primitiveCount++;
+				}
+
 //				savePic = true;
-//				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
+				VCMember* pCurrWorkState = pScan->findMemberFullPath("GPU_DDR.gpu_inst.currWorkState");
 //				printf("\tNEW WORK STATE : %s\n",pCurrWorkState->getEnum()[mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState].outputString);
 				/*stuckState = 0;*/ prevCommandWorkState = mod->GPU_DDR__DOT__gpu_inst__DOT__currWorkState;  
 			}

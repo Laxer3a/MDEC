@@ -9,6 +9,9 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
+// See also gpu_.sv
+`define DOUBLE_DIVUNIT
+
 module gpu_setupunit(
 	input						i_clk,
 
@@ -318,8 +321,9 @@ module gpu_setupunit(
 	end
 	*/
 
-	wire signed [21:0]	/*P*/DET1	= /*p*/a*/*p*/d;
-	wire signed [21:0]	/*P*/DET2	= /*p*/b*/*p*/negc;			// -b*c -> b*negc
+	// Pipeline to do a,d,b,negc...
+	wire signed [21:0]	/*P*/ DET1	= a * d;
+	wire signed [21:0]	/*P*/ DET2	= b * negc;			// -b*c -> b*negc
 	wire signed [21:0]	DET			= /*P*/DET1 + /*P*/DET2;	// Same as (a*d) - (b*c)
 
 	/* PIPELINE
@@ -348,6 +352,9 @@ module gpu_setupunit(
 
 	reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6;
 	reg       vecID2,vecID3,vecID4,vecID5,vecID6;
+`ifndef DOUBLE_DIVUNIT
+	reg		  part2,part3,part4,part5,part6;
+`endif
 	always @(posedge i_clk)
 	begin
 		compoID6 <= compoID5;
@@ -361,16 +368,15 @@ module gpu_setupunit(
 		vecID4   <= vecID3;
 		vecID3   <= vecID2;
 		vecID2   <= vectID;
+		
+`ifndef DOUBLE_DIVUNIT
+		part6	 <= part5;
+		part5	 <= part4;
+		part4	 <= part3;
+		part3	 <= part2;
+		part2	 <= i_interpolationCounter[0];
+`endif
 	end
-
-	reg memW0,memW1,memW2;
-	always @(posedge i_clk)
-		if (i_memorizeLineEqu) begin
-			// Backup the edge result for FIST PIXEL INSIDE BBOX.
-			memW0 <= minTriDAX0[0] ? w0R[EQUMSB] : w0L[EQUMSB];
-			memW1 <= minTriDAX0[0] ? w1R[EQUMSB] : w1L[EQUMSB];
-			memW2 <= minTriDAX0[0] ? w2R[EQUMSB] : w2L[EQUMSB];
-		end
 
 	always @(*)
 	begin
@@ -396,9 +402,13 @@ module gpu_setupunit(
 	wire signed [20:0] inputDivA	= mulFA * C20i; // -2048..+2047 x -512..+511 = Signed 21 bit.
 	wire signed [20:0] inputDivB	= mulFB * C10i;
 
+`ifdef DOUBLE_DIVUNIT
 	// Signed 21 bit << 11 bit => 32 bit signed value.
 	wire signed [31:0] inputDivAShft/*Pre*/= { inputDivA, 11'b0 }; // PREC'd0
-	wire signed [31:0] inputDivBShft/*Pre*/= { inputDivB, 11'b0 };
+`else
+	wire signed [31:0] inputDivAShft/*Pre*/= { i_interpolationCounter[0] ? inputDivB : inputDivA, 11'b0 }; // PREC'd0
+`endif
+
 	/*
 	reg signed [31:0] inputDivAShft;
 	reg signed [31:0] inputDivBShft;
@@ -418,6 +428,9 @@ module gpu_setupunit(
 		.output20		( outputA )
 	);
 
+`ifdef DOUBLE_DIVUNIT
+	wire signed [31:0] inputDivBShft/*Pre*/= { inputDivB, 11'b0 };
+	
 	dividerWrapper instDivisorB(
 		.clock			( i_clk ),
 		.numerator 		( inputDivBShft ),
@@ -427,6 +440,17 @@ module gpu_setupunit(
 
 	// 11 bit prec + 9 bit = 20 bit.
 	wire signed [PREC+8:0] perPixelComponentIncrement = outputA + outputB;
+`else
+	reg signed [PREC+8:0] RegOutputA;
+	always @(posedge i_clk) begin
+		RegOutputA <= outputA;
+	end
+
+	// 11 bit prec + 9 bit = 20 bit.
+	wire signed [PREC+8:0] perPixelComponentIncrement = RegOutputA + outputA;
+`endif
+
+
 	// ---------------------------------------------------------------------------------------------------------------------
 	//  [ Interpolator Storage Stage ]
 	// ---------------------------------------------------------------------------------------------------------------------
@@ -435,16 +459,23 @@ module gpu_setupunit(
 
 	wire /*reg*/ [3:0]	assignDivResult = { compoID6, vecID6 }; // 1..A, 0 none
 	always @(posedge i_clk) begin
-		if (assignDivResult == 4'd2) begin RSX <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'd3) begin RSY <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'd4) begin GSX <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'd5) begin GSY <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'd6) begin BSX <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'd7) begin BSY <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'd8) begin USX <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'd9) begin USY <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'hA) begin VSX <= perPixelComponentIncrement; end
-		if (assignDivResult == 4'hB) begin VSY <= perPixelComponentIncrement; end
+`ifndef DOUBLE_DIVUNIT
+		if (part6) begin
+`endif
+			if (assignDivResult == 4'd2) begin RSX <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'd3) begin RSY <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'd4) begin GSX <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'd5) begin GSY <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'd6) begin BSX <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'd7) begin BSY <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'd8) begin USX <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'd9) begin USY <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'hA) begin VSX <= perPixelComponentIncrement; end
+			if (assignDivResult == 4'hB) begin VSY <= perPixelComponentIncrement; end
+`ifndef DOUBLE_DIVUNIT
+		end
+`endif
+
 		// Assign rasterization parameter for RECT mode.
 		if (i_assignRectSetup) begin
 			RSX <= ZERO_PREC;
@@ -493,6 +524,14 @@ module gpu_setupunit(
 	assign w1R							= w1L + { {11{b[11]}}, b};
 	assign w2R							= w2L + { {11{negd[11]}}, negd};
 
+	reg memW0,memW1,memW2;
+	always @(posedge i_clk)
+		if (i_memorizeLineEqu) begin
+			// Backup the edge result for FIST PIXEL INSIDE BBOX.
+			memW0 <= minTriDAX0[0] ? w0R[EQUMSB] : w0L[EQUMSB];
+			memW1 <= minTriDAX0[0] ? w1R[EQUMSB] : w1L[EQUMSB];
+			memW2 <= minTriDAX0[0] ? w2R[EQUMSB] : w2L[EQUMSB];
+		end
 	/*
 		[Original Implementation in Avocado, based on the famous Ryg article about rasterization.]
 		if ((w0L | w1L | w2L) > 0) {    but Avocado always garantee CCW oriented polygon.
