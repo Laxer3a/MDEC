@@ -8,6 +8,7 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
+`include "gpu_def.sv"
 
 module gpu_loadedRegs(
 	input				i_clk,
@@ -77,9 +78,6 @@ module gpu_loadedRegs(
 	output        [ 9:0] o_RegSizeH,
 	output        [ 9:0] o_OriginalRegSizeH
 );
-
-// TODO SAME CONSTANT FILE
-parameter SIZE_VAR	= 2'd0, SIZE_1x1 = 2'd1, SIZE_8x8 = 2'd2, SIZE_16x16 = 2'd3;
 
 //-------------------------------------------
 // [Command Decoder give control information]

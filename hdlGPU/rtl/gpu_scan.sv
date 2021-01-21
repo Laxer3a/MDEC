@@ -1,26 +1,15 @@
+/* ----------------------------------------------------------------------------------------------------------------------
 
-//parameter
-typedef enum logic[2:0] {
-    X_TRI_NEXT		= 3'd1,
-    X_LINE_START	= 3'd2,
-    X_LINE_NEXT		= 3'd3,
-    X_TRI_BBLEFT	= 3'd4,
-    X_TRI_BBRIGHT	= 3'd5,
-    X_ASIS			= 3'd0,
-    // 7 free...
-    X_CV_START		= 3'd6
-} nextX_t;
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-//parameter
-typedef enum logic[2:0] {
-    Y_LINE_START	= 3'd1,
-    Y_LINE_NEXT		= 3'd2,
-    Y_TRI_START		= 3'd3,
-    Y_TRI_NEXT		= 3'd4,
-    Y_CV_ZERO		= 3'd5,
-    // 6,7 free...
-    Y_ASIS			= 3'd0
-} nextY_t;
+This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
+`include "gpu_def.sv"
 
 module gpu_scan(
 	input					i_clk,

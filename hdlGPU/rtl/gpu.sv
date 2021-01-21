@@ -9,8 +9,7 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
-// See also gpu_setupunit.v
-`define DOUBLE_DIVUNIT
+`include "gpu_def.sv"
 
 /*
     POSSIBLE OPTIMIZATION :
@@ -120,20 +119,6 @@ module gpu
     input            i_dataInValid,
     output [255:0]   o_dataOut,
 	
-    /*
-    output			hSync,
-    output			vSync, // cSync pin exist in real HW : hSync | vSync most likely
-    output			hBlank,
-    output			vBlank,
-    */
-
-    /*
-    input	[14:0]	iaddrWord,
-    input	[15:0]	iwriteBitSelect,
-    input	[15:0]	iwriteBitValue,
-    output	[15:0]	oStencilOut,
-    */
-
     // --------------------------------------
 	//   CPU Bus
     // --------------------------------------
@@ -166,6 +151,23 @@ typedef enum logic[1:0] {
 	DMA_CPUtoGP0	= 2'd2,
 	DMA_GP0toCPU	= 2'd3
 } DMADirection;
+
+wire       		GPU_REG_IsInterlaced;
+wire       		GPU_REG_BufferRGB888;
+wire       		GPU_REG_VideoMode;
+wire       		GPU_REG_VerticalResolution;
+wire [1:0] 		GPU_REG_HorizResolution;
+wire       		GPU_REG_HorizResolution368;
+wire			GPU_REG_ReverseFlag;
+wire       		GPU_REG_DisplayDisabled;
+wire			GPU_REG_DrawDisplayAreaOn;
+
+wire [9:0]		GPU_REG_DispAreaX;
+wire [8:0]		GPU_REG_DispAreaY;
+wire [11:0]		GPU_REG_RangeX0;
+wire [11:0]		GPU_REG_RangeX1;
+wire [9:0]		GPU_REG_RangeY0;
+wire [9:0]		GPU_REG_RangeY1;
 
 DMADirection      GPU_REG_DMADirection;
 reg firstRead;
@@ -227,32 +229,6 @@ typedef enum logic[5:0] {
 	COPYVC_WAITFLUSH			= 6'd42
 } workState_t;
 
-// Quartus did not like
-`ifdef VERILATOR
-//parameter
-typedef enum logic[2:0] {
-    X_TRI_NEXT		= 3'd1,
-    X_LINE_START	= 3'd2,
-    X_LINE_NEXT		= 3'd3,
-    X_TRI_BBLEFT	= 3'd4,
-    X_TRI_BBRIGHT	= 3'd5,
-    X_ASIS			= 3'd0,
-    // 7 free...
-    X_CV_START		= 3'd6
-} nextX_t;
-
-//parameter
-typedef enum logic[2:0] {
-    Y_LINE_START	= 3'd1,
-    Y_LINE_NEXT		= 3'd2,
-    Y_TRI_START		= 3'd3,
-    Y_TRI_NEXT		= 3'd4,
-    Y_CV_ZERO		= 3'd5,
-    // 6,7 free...
-    Y_ASIS			= 3'd0
-} nextY_t;
-`endif
-
 parameter   IS_NOT_NEWBLOCK				= 2'b00,
             IS_NEW_BLOCK_IN_PRIMITIVE	= 2'b01,	// The first time we flush a 16 pixel block, there is NO WRITE of the previous block, but LOAD must be done if doing blending.
             IS_OTHER_BLOCK_IN_PRIMITIVE	= 2'b10,	// For other block we simply do WRITE the previous block, or WRITE + LOAD next block BG if doing blending.
@@ -263,9 +239,6 @@ parameter PIX_4BIT   =2'd0, PIX_8BIT  =2'd1, PIX_16BIT =2'd2, PIX_RESERVED     =
 
 parameter XRES_256  =2'd0, XRES_320   =2'd1, XRES_512  =2'd2, XRES_640  =2'd3;
 parameter DMADIR_OFF=2'd0, DMADIR_FIFO=2'd1, DMADIR_C2G=2'd2, DMADIR_G2C=2'd3;
-
-parameter SIZE_VAR	= 2'd0, SIZE_1x1 = 2'd1, SIZE_8x8 = 2'd2, SIZE_16x16 = 2'd3;
-parameter NO_ISSUE = 5'd0, ISSUE_TRIANGLE = 5'b00001,ISSUE_RECT = 5'b00010,ISSUE_LINE = 5'b00100,ISSUE_FILL = 5'b01000,ISSUE_COPY = 5'b10000;
 
 /* VERILATOR DID NOT LIKE IT !!!!!
 typedef struct packed {
@@ -303,48 +276,6 @@ parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
             // Other command to come later...
             MEM_CMD_NONE		= 3'b000;
 
-// ----------------------------- Parsing Stage -----------------------------------
-reg signed [10:0] GPU_REG_OFFSETX;
-reg signed [10:0] GPU_REG_OFFSETY;
-reg         [3:0] GPU_REG_TexBasePageX;
-reg               GPU_REG_TexBasePageY;
-reg         [1:0] GPU_REG_Transparency;
-reg         [1:0] GPU_REG_TexFormat;
-reg               GPU_REG_DitherOn;
-reg               GPU_REG_DrawDisplayAreaOn;
-reg               GPU_REG_TextureDisable;
-reg               GPU_REG_TextureXFlip;
-reg               GPU_REG_TextureYFlip;
-reg         [4:0] GPU_REG_WindowTextureMaskX;
-reg         [4:0] GPU_REG_WindowTextureMaskY;
-reg         [4:0] GPU_REG_WindowTextureOffsetX;
-reg         [4:0] GPU_REG_WindowTextureOffsetY;
-reg         [9:0] GPU_REG_DrawAreaX0;
-reg         [9:0] GPU_REG_DrawAreaY0;				// 8:0 on old GPU.
-reg         [9:0] GPU_REG_DrawAreaX1;
-reg         [9:0] GPU_REG_DrawAreaY1;				// 8:0 on old GPU.
-reg               GPU_REG_ForcePixel15MaskSet;		// Stencil force to 1.
-reg               GPU_REG_CheckMaskBit; 			// Stencil Read/Compare Enabled
-
-reg               GPU_REG_IRQSet;
-reg               GPU_REG_DisplayDisabled;
-reg               GPU_REG_IsInterlaced;
-reg               GPU_REG_BufferRGB888;
-reg               GPU_REG_VideoMode;
-reg               GPU_REG_VerticalResolution;
-reg         [1:0] GPU_REG_HorizResolution;
-reg               GPU_REG_HorizResolution368;
-reg				  GPU_REG_ReverseFlag;
-
-//---------------------------------------------------------------
-//  Video Module START
-//---------------------------------------------------------------
-reg			[9:0]	GPU_REG_DispAreaX;
-reg			[8:0]	GPU_REG_DispAreaY;
-reg			[11:0]	GPU_REG_RangeX0;
-reg			[11:0]	GPU_REG_RangeX1;
-reg			[9:0]	GPU_REG_RangeY0;
-reg			[9:0]	GPU_REG_RangeY1;
 
 /* === MY OLD VIDEO SYSTEM ===
 wire				GPU_REG_CurrentInterlaceField;
@@ -445,10 +376,161 @@ wire InterlaceRender					= DIP_Allow480i & ((!GPU_REG_DrawDisplayAreaOn) & GPU_R
 // HACK: Disable interlace support
 //wire InterlaceRender = 1'b0;
 
-reg [31:0] regGpuInfo;
+//-----------------------------------------
+// CPU write/read GP0/GP1/FifoOut
+//-----------------------------------------
 
-wire rstGPU;
-wire rstCmd;
+wire stillDoingVRAMCPUXFER = (RegCommand == 8'hC0) & (currWorkState != NOT_WORKING_DEFAULT_STATE);
+wire parserWaitingNewCommand;
+wire rstGPU,rstCmd,rstIRQ;
+wire GPU_REG_IRQSet;
+
+gpu_irq IRQModule_inst (
+	.i_clk							(clk),
+	.i_rstIRQ						(rstGPU | rstIRQ),
+	.i_setIRQ						(setIRQ),
+	.o_irq							(GPU_REG_IRQSet)
+);
+
+wire signed [10:0] 	GPU_REG_OFFSETX;
+wire signed [10:0] 	GPU_REG_OFFSETY;
+wire         [3:0] 	GPU_REG_TexBasePageX;
+wire               	GPU_REG_TexBasePageY;
+wire         [1:0] 	GPU_REG_Transparency;
+wire         [1:0] 	GPU_REG_TexFormat;
+wire               	GPU_REG_DitherOn;
+wire               	GPU_REG_TextureDisable;
+wire               	GPU_REG_TextureXFlip;
+wire               	GPU_REG_TextureYFlip;
+wire         [4:0] 	GPU_REG_WindowTextureMaskX;
+wire         [4:0] 	GPU_REG_WindowTextureMaskY;
+wire         [4:0] 	GPU_REG_WindowTextureOffsetX;
+wire         [4:0] 	GPU_REG_WindowTextureOffsetY;
+wire         [9:0] 	GPU_REG_DrawAreaX0;
+wire         [9:0] 	GPU_REG_DrawAreaY0;
+wire         [9:0] 	GPU_REG_DrawAreaX1;
+wire         [9:0] 	GPU_REG_DrawAreaY1;
+wire               	GPU_REG_ForcePixel15MaskSet;
+wire               	GPU_REG_CheckMaskBit;
+
+gpu_frontend gpu_frontend_instance (
+	.i_clk							(clk),
+	.i_nRst							(i_nrst),
+	
+	.gpuSel							(gpuSel),
+	.gpuAdrA2						(gpuAdrA2),
+	.write							(write),
+	.read							(read),
+	
+	.cpuDataIn						(cpuDataIn),
+	.cpuDataOut						(cpuDataOut),
+	.cpuDataOutValid				(validDataOut),
+	
+	.o_rstGPU						(rstGPU),
+	.o_rstCmd						(rstCmd),
+	.o_rstIRQ						(rstIRQ),
+	
+	.i_useVCCopyFIFOOut				(stillDoingVRAMCPUXFER),
+	.i_valueVCCopyFIFOOut			(outFIFO_readV),
+	
+	//-------------------------------------------------------
+	//  Inputs
+	//-------------------------------------------------------
+	.i_statusBit31					(GPU_DisplayEvenOddLinesInterlace),
+	.i_statusBit28					(currWorkState == NOT_WORKING_DEFAULT_STATE),
+	.i_statusBit27					(gpuReadySendToCPU),
+	.i_statusBit26					(isFifoEmpty32 && parserWaitingNewCommand && (currWorkState == NOT_WORKING_DEFAULT_STATE)),
+	.i_statusBit25					(dmaDataRequest),
+	.i_statusBit24					(GPU_REG_IRQSet),
+	.i_statusBit13					((GPU_REG_CurrentInterlaceField & GPU_REG_IsInterlaced) | (!GPU_REG_IsInterlaced)),
+
+	//-------------------------------------------------------
+	//  Inputs
+	//-------------------------------------------------------
+	.GPU_REG_TextureDisable			(GPU_REG_TextureDisable),
+	.GPU_REG_CheckMaskBit			(GPU_REG_CheckMaskBit),
+	.GPU_REG_ForcePixel15MaskSet	(GPU_REG_ForcePixel15MaskSet),
+	.GPU_REG_DrawDisplayAreaOn		(GPU_REG_DrawDisplayAreaOn),
+	.GPU_REG_DitherOn				(GPU_REG_DitherOn),
+	.GPU_REG_TexFormat				(GPU_REG_TexFormat),
+	.GPU_REG_Transparency			(GPU_REG_Transparency),
+	.GPU_REG_TexBasePageX			(GPU_REG_TexBasePageX),
+	.GPU_REG_TexBasePageY			(GPU_REG_TexBasePageY),
+	.GPU_REG_WindowTextureMaskX		(GPU_REG_WindowTextureMaskX),
+	.GPU_REG_WindowTextureMaskY		(GPU_REG_WindowTextureMaskY),
+	.GPU_REG_DrawAreaX0				(GPU_REG_DrawAreaX0),
+	.GPU_REG_DrawAreaY0				(GPU_REG_DrawAreaY0),
+	.GPU_REG_DrawAreaX1				(GPU_REG_DrawAreaX1),
+	.GPU_REG_DrawAreaY1				(GPU_REG_DrawAreaY1),
+	.GPU_REG_OFFSETX				(GPU_REG_OFFSETX),
+	.GPU_REG_OFFSETY				(GPU_REG_OFFSETY),
+	.GPU_REG_WindowTextureOffsetX	(GPU_REG_WindowTextureOffsetX),
+	.GPU_REG_WindowTextureOffsetY	(GPU_REG_WindowTextureOffsetY),
+
+	//-------------------------------------------------------
+	//  Outputs
+	//-------------------------------------------------------
+	.o_GPU_REG_DMADirection			(GPU_REG_DMADirection),
+
+	.o_GPU_REG_IsInterlaced			(GPU_REG_IsInterlaced),
+	.o_GPU_REG_BufferRGB888			(GPU_REG_BufferRGB888),
+	.o_GPU_REG_VideoMode			(GPU_REG_VideoMode),
+	.o_GPU_REG_VerticalResolution	(GPU_REG_VerticalResolution),
+	.o_GPU_REG_HorizResolution		(GPU_REG_HorizResolution),
+	.o_GPU_REG_HorizResolution368	(GPU_REG_HorizResolution368),
+	.o_GPU_REG_ReverseFlag			(GPU_REG_ReverseFlag),
+	.o_GPU_REG_DisplayDisabled		(GPU_REG_DisplayDisabled),
+
+	.o_GPU_REG_DispAreaX			(GPU_REG_DispAreaX),
+	.o_GPU_REG_DispAreaY			(GPU_REG_DispAreaY),
+	.o_GPU_REG_RangeX0				(GPU_REG_RangeX0),
+	.o_GPU_REG_RangeX1				(GPU_REG_RangeX1),
+	.o_GPU_REG_RangeY0				(GPU_REG_RangeY0),
+	.o_GPU_REG_RangeY1				(GPU_REG_RangeY1)
+);
+
+GPURegisters_GP0 GPURegisters_GP0_instance (
+	.i_clk							(clk),
+	.rstGPU							(rstGPU),
+
+	//-------------------------------
+	//  INPUT : Loading From Parser
+	//-------------------------------
+	.loadE5Offsets					(loadE5Offsets),
+	.loadTexPageE1					(loadTexPageE1),
+	.loadTexPage					(loadTexPage),
+	.loadTexWindowSetting			(loadTexWindowSetting),
+	.loadDrawAreaTL					(loadDrawAreaTL),
+	.loadDrawAreaBR					(loadDrawAreaBR),
+	.loadMaskSetting				(loadMaskSetting),
+	.fifoDataOut					(fifoDataOut),
+
+	//-------------------------------
+	//  OUTPUT : GP0 Registers      
+	//-------------------------------
+	.o_GPU_REG_OFFSETX				(GPU_REG_OFFSETX),
+	.o_GPU_REG_OFFSETY				(GPU_REG_OFFSETY),
+	.o_GPU_REG_TexBasePageX			(GPU_REG_TexBasePageX),
+	.o_GPU_REG_TexBasePageY			(GPU_REG_TexBasePageY),
+	.o_GPU_REG_Transparency			(GPU_REG_Transparency),
+	.o_GPU_REG_TexFormat			(GPU_REG_TexFormat),
+	.o_GPU_REG_DitherOn				(GPU_REG_DitherOn),
+	.o_GPU_REG_DrawDisplayAreaOn	(GPU_REG_DrawDisplayAreaOn),
+	.o_GPU_REG_TextureDisable		(GPU_REG_TextureDisable),
+	.o_GPU_REG_TextureXFlip			(GPU_REG_TextureXFlip),
+	.o_GPU_REG_TextureYFlip			(GPU_REG_TextureYFlip),
+	.o_GPU_REG_WindowTextureMaskX	(GPU_REG_WindowTextureMaskX),
+	.o_GPU_REG_WindowTextureMaskY	(GPU_REG_WindowTextureMaskY),
+	.o_GPU_REG_WindowTextureOffsetX	(GPU_REG_WindowTextureOffsetX),
+	.o_GPU_REG_WindowTextureOffsetY	(GPU_REG_WindowTextureOffsetY),
+	.o_GPU_REG_DrawAreaX0			(GPU_REG_DrawAreaX0),
+	.o_GPU_REG_DrawAreaY0			(GPU_REG_DrawAreaY0),
+	.o_GPU_REG_DrawAreaX1			(GPU_REG_DrawAreaX1),
+	.o_GPU_REG_DrawAreaY1			(GPU_REG_DrawAreaY1),
+	.o_GPU_REG_ForcePixel15MaskSet	(GPU_REG_ForcePixel15MaskSet),
+	.o_GPU_REG_CheckMaskBit			(GPU_REG_CheckMaskBit)
+);
+
 wire readFifo;
 wire saveLoadOnGoing;
 
@@ -489,9 +571,6 @@ reg [1:0] vertCnt;
 reg       isFirstVertex;
 
 // For RECT Commands.
-
-
-wire [31:0] reg1Out;
 
 // [UNCONNECTED FOR NOW]
 wire commandFifoFull, commandFifoComplete;
@@ -712,37 +791,6 @@ always @(posedge clk) begin
     end
 end
 
-// [TODO NEXT STEP BUS]
-//---------------------------------------------------------------
-//  Handling READ including pipelined latency for read result.
-//---------------------------------------------------------------
-reg [31:0] pDataOut;
-reg        pDataOutValid;
-reg [31:0] dataOut;
-reg        dataOutValid;
-always @(*)
-begin
-	// Register +4 Read
-	if (gpuAdrA2) begin
-		dataOut	=  reg1Out;
-	end else begin
-		if ((RegCommand == 8'hC0) && (currWorkState != NOT_WORKING_DEFAULT_STATE)) begin
-			dataOut = outFIFO_readV;
-		end else begin
-			dataOut	= regGpuInfo;
-		end
-	end
-end
-
-always @(posedge clk) begin
-	pDataOut		<= dataOut;
-	pDataOutValid	<= (gpuSel & read);
-end
-assign cpuDataOut	= pDataOut;
-assign validDataOut = pDataOutValid;
-//---------------------------------------------------------------
-//END [TODO NEXT STEP BUS]
-
 assign IRQRequest = GPU_REG_IRQSet;
 
 wire [31:0] fifoDataOut;
@@ -928,276 +976,6 @@ always @(*) begin
 	DMA_GP0toCPU : dmaDataRequest = gpuReadySendToCPU;	// Follow No$ specs, delegate signal logic to GPUSTAT.27 interpretation.
 	endcase
 end
-
-// [TODO NEXT STEP BUS]
-wire parserWaitingNewCommand;
-assign reg1Out = {
-                    // Default : 1480.2.000h
-
-                    // Default 1
-                    GPU_DisplayEvenOddLinesInterlace,	// 31
-                    GPU_REG_DMADirection,				// 29-30
-                    (currWorkState == NOT_WORKING_DEFAULT_STATE), // 28
-
-                    // default 4
-                    gpuReadySendToCPU,				// 27
-                    isFifoEmpty32 && parserWaitingNewCommand && (currWorkState == NOT_WORKING_DEFAULT_STATE),     // 26
-                    dmaDataRequest,					// 25
-                    GPU_REG_IRQSet,					// 24
-
-                    // default 80
-                    GPU_REG_DisplayDisabled,		// 23
-                    GPU_REG_IsInterlaced,			// 22
-                    GPU_REG_BufferRGB888,			// 21
-                    GPU_REG_VideoMode,				// 20 (0=NTSC, 1=PAL)
-                    GPU_REG_VerticalResolution,		// 19 (0=240, 1=480, when Bit22=1)
-                    GPU_REG_HorizResolution,		// 17-18 (0=256, 1=320, 2=512, 3=640)
-                    GPU_REG_HorizResolution368,		// 16 (0=256/320/512/640, 1=368)
-                    // default 2
-                    GPU_REG_TextureDisable,			// 15
-                    GPU_REG_ReverseFlag,			// 14
-                    (GPU_REG_CurrentInterlaceField & GPU_REG_IsInterlaced) | (!GPU_REG_IsInterlaced),	// 13
-                    GPU_REG_CheckMaskBit,			// 12
-                    // default 000
-                    GPU_REG_ForcePixel15MaskSet,	// 11
-                    GPU_REG_DrawDisplayAreaOn,		// 10
-                    GPU_REG_DitherOn,				// 9
-                    GPU_REG_TexFormat,				// 7-8
-                    GPU_REG_Transparency,			// 5-6
-                    GPU_REG_TexBasePageY,			// 4
-                    GPU_REG_TexBasePageX			// 0-3
-                };
-
-
-wire cmdGP1			= writeGP1 & (cpuDataIn[29:27] == 3'd0); // Short cut for most commands.
-assign rstGPU  		=(cmdGP1   & (cpuDataIn[26:24] == 3'd0)) | (i_nrst == 0);
-assign rstCmd  		= cmdGP1   & (cpuDataIn[26:24] == 3'd1);
-wire rstIRQ  		= cmdGP1   & (cpuDataIn[26:24] == 3'd2);
-wire setDisp 		= cmdGP1   & (cpuDataIn[26:24] == 3'd3);
-wire setDmaDir		= cmdGP1   & (cpuDataIn[26:24] == 3'd4);
-wire setDispArea	= cmdGP1   & (cpuDataIn[26:24] == 3'd5);
-wire setDispRangeX	= cmdGP1   & (cpuDataIn[26:24] == 3'd6);
-wire setDispRangeY	= cmdGP1   & (cpuDataIn[26:24] == 3'd7);
-wire setDisplayMode	= writeGP1 & (cpuDataIn[29:24] == 6'd8);
-// Command GP1-09 not supported.
-wire getGPUInfo		= writeGP1 & (cpuDataIn[29:28] == 2'd1); // 0h1X command.
-
-/*	GP1(10h) - Get GPU Info
-    GP1(11h..1Fh) - Mirrors of GP1(10h), Get GPU Info
-    After sending the command, the result can be read (immediately) from GPUREAD register (there's no NOP or other delay required) (namely GPUSTAT.Bit27 is used only for VRAM-Reads, but NOT for GPU-Info-Reads, so do not try to wait for that flag).
-      0-23  Select Information which is to be retrieved (via following GPUREAD)
-    On Old 180pin GPUs, following values can be selected:
-      00h-01h = Returns Nothing (old value in GPUREAD remains unchanged)
-      02h     = Read Texture Window setting  ;GP0(E2h) ;20bit/MSBs=Nothing
-      03h     = Read Draw area top left      ;GP0(E3h) ;19bit/MSBs=Nothing
-      04h     = Read Draw area bottom right  ;GP0(E4h) ;19bit/MSBs=Nothing
-      05h     = Read Draw offset             ;GP0(E5h) ;22bit
-      06h-07h = Returns Nothing (old value in GPUREAD remains unchanged)
-      08h-FFFFFFh = Mirrors of 00h..07h
-    On New 208pin GPUs, following values can be selected:
-      00h-01h = Returns Nothing (old value in GPUREAD remains unchanged)
-      02h     = Read Texture Window setting  ;GP0(E2h) ;20bit/MSBs=Nothing
-      03h     = Read Draw area top left      ;GP0(E3h) ;20bit/MSBs=Nothing
-      04h     = Read Draw area bottom right  ;GP0(E4h) ;20bit/MSBs=Nothing
-      05h     = Read Draw offset             ;GP0(E5h) ;22bit
-      06h     = Returns Nothing (old value in GPUREAD remains unchanged)
-      07h     = Read GPU Type (usually 2)    ;see "GPU Versions" chapter		/// EXTENSION GPU
-      08h     = Unknown (Returns 00000000h) (lightgun on some GPUs?)
-      09h-0Fh = Returns Nothing (old value in GPUREAD remains unchanged)
-      10h-FFFFFFh = Mirrors of 00h..0Fh
- */
-reg [31:0] gpuInfoMux;
-always @(*)
-begin
-    case (cpuDataIn[3:0])	// NEW GPU SPEC, 2:0 on OLD GPU
-    4'd0:
-        gpuInfoMux = regGpuInfo;
-    4'd1:
-        gpuInfoMux = regGpuInfo;
-    4'd2:
-        // Texture Window Setting.
-        gpuInfoMux = { 12'd0, GPU_REG_WindowTextureOffsetY, GPU_REG_WindowTextureOffsetX, GPU_REG_WindowTextureMaskY,GPU_REG_WindowTextureMaskX };
-    4'd3:
-        // Draw Top Left
-        gpuInfoMux = { 12'd0, GPU_REG_DrawAreaY0,GPU_REG_DrawAreaX0}; // 20 bit on new GPU, 19 bit on OLD GPU.
-    4'd4:
-        // Draw Bottom Right
-        gpuInfoMux = { 12'd0, GPU_REG_DrawAreaY1,GPU_REG_DrawAreaX1};
-    4'd5:
-        // Draw Offset
-        gpuInfoMux = { 10'd0, GPU_REG_OFFSETY, GPU_REG_OFFSETX };
-    4'd6:
-        gpuInfoMux = regGpuInfo;
-    4'd7:
-        gpuInfoMux = 32'h00000002;
-    4'd8:
-        gpuInfoMux = 32'd0;
-    default:	// 0x9..F
-        gpuInfoMux = regGpuInfo;
-    endcase
-end
-
-wire [15:0] newClutValue = { /*issue.*/rstTextureCache, fifoDataOutClut };
-reg   		rClutLoading;
-reg			endClutLoading; // From state machine.
-reg			decClutCount;
-reg	 [4:0]	rClutPacketCount;
-reg         rPalette4Bit;
-wire [4:0]	nextClutPacket	= rClutPacketCount + 5'h1F;
-
-always @(posedge clk)
-if (getGPUInfo)
-	regGpuInfo <= gpuInfoMux;
-	
-always @(posedge clk)
-begin
-    if (rstGPU) begin
-        GPU_REG_OFFSETX				<= 11'd0;
-        GPU_REG_OFFSETY				<= 11'd0;
-        GPU_REG_TexBasePageX		<= 4'd0;
-        GPU_REG_TexBasePageY		<= 1'b0;
-        GPU_REG_Transparency		<= 2'd0;
-        GPU_REG_TexFormat			<= 2'd0; //
-        GPU_REG_DitherOn			<= 1'd0; //
-        GPU_REG_DrawDisplayAreaOn	<= 1'b0; // Default by GP1(00h) definition.
-        GPU_REG_TextureDisable		<= 1'b0;
-        GPU_REG_TextureXFlip		<= 1'b0;
-        GPU_REG_TextureYFlip		<= 1'b0;
-        GPU_REG_WindowTextureMaskX	<= 5'd0;
-        GPU_REG_WindowTextureMaskY	<= 5'd0;
-        GPU_REG_WindowTextureOffsetX<= 5'd0;
-        GPU_REG_WindowTextureOffsetY<= 5'd0;
-        GPU_REG_DrawAreaX0			<= 10'd0;
-        GPU_REG_DrawAreaY0			<= 10'd0; // 8:0 on old GPU.
-        GPU_REG_DrawAreaX1			<= 10'd1023;	//
-        GPU_REG_DrawAreaY1			<= 10'd511;		//
-        GPU_REG_ForcePixel15MaskSet <= 0;
-        GPU_REG_CheckMaskBit		<= 0;
-        GPU_REG_IRQSet				<= 0;
-        GPU_REG_DisplayDisabled		<= 1;
-        GPU_REG_DMADirection		<= DMA_DirOff; // Off
-        GPU_REG_IsInterlaced		<= 0;
-        GPU_REG_BufferRGB888		<= 0;
-        GPU_REG_VideoMode			<= 0;
-        GPU_REG_VerticalResolution	<= 0;
-        GPU_REG_HorizResolution		<= 2'b0;
-        GPU_REG_HorizResolution368	<= 0;
-        GPU_REG_ReverseFlag			<= 0;
-
-        GPU_REG_DispAreaX			<= 10'd0;
-        GPU_REG_DispAreaY			<=  9'd0;
-        GPU_REG_RangeX0				<= 12'h200;		// 200h
-        GPU_REG_RangeX1				<= 12'hC00;		// 200h + 256x10
-        GPU_REG_RangeY0				<= 10'h10;		//  10h
-        GPU_REG_RangeY1				<= 10'h100; 	//  10h + 240
-        RegCLUT						<= 16'h8000;	// Invalid CLUT ADR on reset.
-        rClutLoading				<= 1'b0;
-        rClutPacketCount			<= 5'd0;
-        rPalette4Bit				<= 1'b0;
-
-    end else begin
-        if (/*issue.*/loadE5Offsets) begin
-            GPU_REG_OFFSETX <= fifoDataOut[10: 0];
-            GPU_REG_OFFSETY <= fifoDataOut[21:11];
-        end
-        if (/*issue.*/loadTexPageE1 || /*issue.*/loadTexPage) begin
-            GPU_REG_TexBasePageX 	<= /*issue.*/loadTexPage ? fifoDataOut[19:16] : fifoDataOut[3:0];
-            GPU_REG_TexBasePageY 	<= /*issue.*/loadTexPage ? fifoDataOut[20]    : fifoDataOut[4];
-            GPU_REG_Transparency 	<= /*issue.*/loadTexPage ? fifoDataOut[22:21] : fifoDataOut[6:5];
-            GPU_REG_TexFormat    	<= /*issue.*/loadTexPage ? fifoDataOut[24:23] : fifoDataOut[8:7];
-            GPU_REG_TextureDisable	<= /*issue.*/loadTexPage ? fifoDataOut[27]    : fifoDataOut[11];
-        end
-        if (/*issue.*/issuePrimitive != NO_ISSUE) begin
-            rClutPacketCount		<= { CLUTIs8BPP , 3'b0, !CLUTIs8BPP }; // Load 1 packet or 16
-        end
-        if (/*issue.*/loadTexPageE1) begin // Texture Attribute only changed by E1 Command.
-            GPU_REG_DitherOn     <= fifoDataOut[9];
-            GPU_REG_DrawDisplayAreaOn <= fifoDataOut[10];
-            GPU_REG_TextureXFlip <= fifoDataOut[12];
-            GPU_REG_TextureYFlip <= fifoDataOut[13];
-        end
-        if (/*issue.*/loadTexWindowSetting) begin
-            GPU_REG_WindowTextureMaskX   <= fifoDataOut[4:0];
-            GPU_REG_WindowTextureMaskY   <= fifoDataOut[9:5];
-            GPU_REG_WindowTextureOffsetX <= fifoDataOut[14:10];
-            GPU_REG_WindowTextureOffsetY <= fifoDataOut[19:15];
-        end
-
-        if (decClutCount) begin
-            rClutPacketCount <= nextClutPacket; // Decrement -1.
-        end
-
-        if (/*issue.*/loadClutPage) begin
-            if (newClutValue[15] == 1'b0 && (newClutValue != RegCLUT)) begin
-                // Loading only happens when :
-                // - Switch from invalid to valid CLUT ADR. (Reset or cache flush)
-                // - Switch from valid   do difference valid CLUT ADR.
-                //
-                // WARNING : rClutPacketCount the number of PACKET TO LOAD IS UPDATED WHEN LOADING THE TEXTURE FORMAT !!!! NOT WHEN CLUT FLAT IS SET !!!!
-                //
-                rClutLoading	<= 1'b1;
-            end
-            // Load always the value, whatever the value is (valid or invalid)
-            RegCLUT		<= newClutValue;
-        end
-
-        if (endClutLoading) begin
-            rClutLoading	<= 1'b0;
-            rPalette4Bit	<= (GPU_REG_TexFormat == PIX_4BIT);
-        end
-
-        if (/*issue.*/loadDrawAreaTL) begin
-            GPU_REG_DrawAreaX0 <= fifoDataOut[ 9: 0];
-            GPU_REG_DrawAreaY0 <= { 1'b0, fifoDataOut[18:10] }; // 19:10 on NEW GPU.
-        end
-        if (/*issue.*/loadDrawAreaBR) begin
-            GPU_REG_DrawAreaX1 <= fifoDataOut[ 9: 0];
-            GPU_REG_DrawAreaY1 <= { 1'b0, fifoDataOut[18:10] }; // 19:0 on NEW GPU.
-        end
-        if (/*issue.*/loadMaskSetting) begin
-            GPU_REG_ForcePixel15MaskSet <= fifoDataOut[0];
-            GPU_REG_CheckMaskBit		<= fifoDataOut[1];
-        end
-        if (rstIRQ | /*issue.*/setIRQ) begin
-            GPU_REG_IRQSet				<= /*issue.*/setIRQ;
-        end
-        if (setDisp) begin
-            GPU_REG_DisplayDisabled		<= cpuDataIn[0];
-        end
-        if (setDmaDir) begin
-            GPU_REG_DMADirection		<= DMADirection'(cpuDataIn[1:0]);
-        end
-        if (setDispArea) begin
-            GPU_REG_DispAreaX			<= cpuDataIn[ 9: 0];
-            GPU_REG_DispAreaY			<= cpuDataIn[18:10];
-        end
-        if (setDispRangeX) begin
-            GPU_REG_RangeX0				<= cpuDataIn[11: 0];
-            GPU_REG_RangeX1				<= cpuDataIn[23:12];
-        end
-        if (setDispRangeY) begin
-            GPU_REG_RangeY0				<= cpuDataIn[ 9: 0];
-            GPU_REG_RangeY1				<= cpuDataIn[19:10];
-        end
-        if (setDisplayMode) begin
-            GPU_REG_IsInterlaced		<= cpuDataIn[5];
-            GPU_REG_BufferRGB888		<= cpuDataIn[4];
-            GPU_REG_VideoMode			<= cpuDataIn[3];
-            GPU_REG_VerticalResolution	<= cpuDataIn[2];
-            GPU_REG_HorizResolution		<= cpuDataIn[1:0];
-            GPU_REG_HorizResolution368	<= cpuDataIn[6];
-            GPU_REG_ReverseFlag			<= cpuDataIn[7];
-        end
-    end
-
-    //if (rstGPU) begin
-        //RegCommand <= '0;
-    //end else begin
-    //end
-end
-// END [TODO NEXT STEP BUS]
-
-wire [14:0] fifoDataOutClut			= fifoDataOut[30:16];
 
 //-------------------------------------------------------------
 // Run time stuff based on command decoder
@@ -1717,15 +1495,6 @@ begin
     endcase
 end
 
-always @(posedge clk)
-begin
-    if (rstGPU | rstCmd) begin
-        currWorkState	<= NOT_WORKING_DEFAULT_STATE;
-    end else begin
-        currWorkState	<= nextWorkState;
-    end
-end
-
 // --------------------------------------------------------------------------------------------
 //   CPU TO VRAM STATE SIGNALS & REGISTERS
 // --------------------------------------------------------------------------------------------
@@ -1787,9 +1556,6 @@ reg				stencilReadSigW; // USED ONLY WHEN READING THE STENCIL ON TARGET BEFORE A
 
 wire allowNextRead = (!isLastSegment) | isLongLine;
 wire isPalettePrimitive = (!GPU_REG_TexFormat[1]) & bUseTexture;
-wire validCLUTLoad = rClutLoading & isPalettePrimitive; // Format is 0 or 1 and clut load is required.
-wire updateClutCacheComplete;
-reg  requClutCacheUpdate;
 
 
 // --------------------------------------------------------------------------------------------
@@ -1888,6 +1654,18 @@ FifoPixOut_inst
 //--------------------------------------------------------------------
 // Work State machine
 //--------------------------------------------------------------------
+reg endClutLoading,decClutCount,requClutCacheUpdate;
+wire isLoadingPalette, stillRemainingClutPacket;
+
+always @(posedge clk)
+begin
+    if (rstGPU | rstCmd) begin
+        currWorkState	<= NOT_WORKING_DEFAULT_STATE;
+    end else begin
+        currWorkState	<= nextWorkState;
+    end
+end
+
 always @(*)
 begin
     // -----------------------
@@ -2439,10 +2217,10 @@ begin
 		
 		// validCLUTLoad is when CLUT reloading was set
 		// isPalettePrimitive & rPalette4Bit & CLUTIs8BPP is when nothing changed, EXCEPT WE WENT FROM 4 BIT TO 8 BIT !
-        if (validCLUTLoad || (isPalettePrimitive & rPalette4Bit & CLUTIs8BPP)) begin
+        if (isLoadingPalette) begin
             // Not using signal updateClutCacheComplete but could... rely on transaction only.
             if (saveLoadOnGoing == 0) begin // Wait for an on going memory transaction to complete.
-                if (rClutPacketCount != 5'd0) begin
+                if (stillRemainingClutPacket) begin
                     // And request ours.
                     requClutCacheUpdate = 1;
                     decClutCount		= 1;
@@ -3007,13 +2785,48 @@ gpu_setupunit gpu_setupunit_inst(
 );
 
 
+wire  [14:0]	adrClutCacheUpdate;
+wire   [3:0]	currentClutBlockWrite;
+
+//wire clutLoading;
+gpu_clutManager clutManagerInstance (
+	.i_clk					(clk),
+	.i_rstGPU				(rstGPU),
+
+	// [Parser Timing]
+	.i_setClutLoading		(loadClutPage),
+		.i_rstTextureCache		(rstTextureCache),
+		.i_fifoDataOutClut		(fifoDataOut[30:16]),
+
+	.i_isPalettePrimitive	(isPalettePrimitive),
+
+	// [Palette loading Timing]
+	// --- Start ---
+	.i_issuePrimitive		(issuePrimitive != NO_ISSUE),	// TODO : look if can't optimize with setClutLoading and also i_is4BitPalette
+		.i_CLUTIs8BPP			(CLUTIs8BPP),
+
+	// --- Loop ---
+	.i_decClutCount			(decClutCount),
+	.o_stillRemainingClutPacket (stillRemainingClutPacket),
+
+	// --- End
+	.i_endClutLoading		(endClutLoading),
+		.i_is4BitPalette		(GPU_REG_TexFormat == PIX_4BIT),
+//	.o_isClutLoading		(clutLoading),
+	
+	// CLUT Memory adress for current clut block request.
+	.o_adrClutCacheUpdate	(adrClutCacheUpdate),
+	.o_isLoadingPalette		(isLoadingPalette),
+	.o_currentClutBlock		(currentClutBlockWrite)
+);
+
 // ------------------------------------------------
 CLUT_Cache CLUT_CacheInst(
     .i_clk								(clk),
     .i_nrst								(i_nrst),
 
     .i_write							(ClutCacheWrite),
-    .i_writeBlockIndex					(rClutPacketCount[3:0]),
+    .i_writeBlockIndex					(currentClutBlockWrite),
     .i_writeIdxInBlk					(ClutWriteIndex),
     .i_Colors							(ClutCacheData),
 
@@ -3028,11 +2841,6 @@ CLUT_Cache CLUT_CacheInst(
 // wire [31:0]		readValue32;
 // wire            dataArrived;
 // wire			dataConsumed;
-
-// [TODO NEXT STEP BUS]
-wire  [5:0]    XPosClut           = {1'b0, nextClutPacket/*rClutPacketCount*/} + RegCLUT[5:0];
-wire  [14:0]   adrClutCacheUpdate = { RegCLUT[14:6] , XPosClut };
-// END [TODO NEXT STEP BUS]
 
 MemoryArbitratorFat MemoryArbitratorInstance(
     .gpuClk					(clk),
@@ -3072,7 +2880,7 @@ MemoryArbitratorFat MemoryArbitratorInstance(
     // -- CLUT$ Stuff --
     .requClutCacheUpdate	(requClutCacheUpdate),
     .adrClutCacheUpdate		(adrClutCacheUpdate),
-    .updateClutCacheComplete(updateClutCacheComplete),
+    .updateClutCacheComplete(/* DEPRECATED : updateClutCacheComplete*/),
 
     // CLUT$ feed updated $ data to cache.
     .ClutCacheWrite			(ClutCacheWrite),

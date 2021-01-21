@@ -9,8 +9,7 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
-// See also gpu_.sv
-`define DOUBLE_DIVUNIT
+`include "gpu_def.sv"
 
 module gpu_setupunit(
 	input						i_clk,
@@ -115,11 +114,10 @@ module gpu_setupunit(
 	output	signed [7:0] 		o_pixUR,
 	output	signed [7:0] 		o_pixVR
 );
-	// TODO common constant file
 	parameter EQUMSB		= 22; // 11bit signed * 11 bit signed.
 	parameter PREC			= 11;
 	parameter PRECM1		= PREC-1;
-	parameter ZERO_PREC = 20'd0, ONE_PREC = 20'h800;
+	parameter ZERO_PREC 	= 20'd0, ONE_PREC = 20'h800;
 
 	// Alias
 	wire signed [11:0] pixelX = i_pixelX;

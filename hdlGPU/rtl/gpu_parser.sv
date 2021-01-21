@@ -9,6 +9,8 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
+`include "gpu_def.sv"
+
 module gpu_parser(
 	input				i_clk,
 	input				i_rstGPU,
@@ -66,10 +68,6 @@ module gpu_parser(
 	output				o_loadClutPage,
 	output				o_loadTexPage
 );
-
-// TODO : Same constant file
-parameter NO_ISSUE = 5'd0, ISSUE_TRIANGLE = 5'b00001,ISSUE_RECT = 5'b00010,ISSUE_LINE = 5'b00100,ISSUE_FILL = 5'b01000,ISSUE_COPY = 5'b10000;
-parameter SIZE_VAR	= 2'd0, SIZE_1x1 = 2'd1, SIZE_8x8 = 2'd2, SIZE_16x16 = 2'd3;
 
 //------------------------------------------------
 // States
