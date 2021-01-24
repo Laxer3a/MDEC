@@ -9,39 +9,43 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
-module CVCopyState(
+`include "gpu_def.sv"
+
+module gpu_SM_CopyVC(
 	input			clk,
 	input			nRst,
 	
-	input			active,
+	input			i_activate,
+	output			o_exitSig,
+	output			o_active,
+	
+	
+	// Control Scanning [Input]
 	input			isWidthNot1,
 	input			xb_0,
 	input			wb_0,
 	
-	input			canNearPush,
-	input			canPush,
 	input			endVertical,
 	input			nextPairIsLineLast,
 	input			currPairIsLineLast,
-	input			readACK,
-	
+
+	// Control Scanning [Output]
 	output	[2:0]	o_nextX,
 	output  [2:0]	o_nextY,
-	output			read,
-	output			exitSig,
-	output	[1:0]	o_aSelABDX,
-	output			o_bSelAB,
+	output	[2:0]	o_memoryCommand,
+	
+	// Memory System
+	output			o_read,
+	input			i_readACK,
+	input  [31:0]	i_readPairValue,
+
+	// FIFO
+	input			canNearPush,		// Unused
+	input			i_canPush,
+	input			i_outFIFO_empty,
 	output			o_writeFIFOOut,
-	output			o_wbSel
+	output	[31:0]	o_pairPixelToCPU
 );
-
-parameter	X_TRI_NEXT		= 3'd1,
-			X_ASIS			= 3'd0,
-			X_CV_START		= 3'd6;
-
-parameter	Y_CV_ZERO		= 3'd6,
-			Y_TRI_NEXT		= 3'd4,
-			Y_ASIS			= 3'd0;
 
 parameter LEFT = 1'b0,
           CRLF = 1'b1;
@@ -63,31 +67,33 @@ parameter	SELA_A = 2'd0,
 parameter	SELB_A = 1'd0,
 			SELB_B = 1'd1;
 
-parameter	END = 5'd0,
+parameter	WAIT = 5'd0,
+			FIRST = 5'd1,
 			
-			A1 = 5'd1,
+			A1 = 5'd2,
 			
-			B1 = 5'd2,
-			B2 = 5'd3,
-			B3 = 5'd4,
-			B4 = 5'd5,
+			B1 = 5'd3,
+			B2 = 5'd4,
+			B3 = 5'd5,
+			B4 = 5'd6,
 			
-			C1 = 5'd6,
-			C2 = 5'd7,
-			C3 = 5'd8,
+			C1 = 5'd7,
+			C2 = 5'd8,
+			C3 = 5'd9,
 			
-			D1 = 5'd9,
-			D2 = 5'd10,
-			D3 = 5'd11,
-			D4 = 5'd12,
-			D5 = 5'd13,
-			D6 = 5'd14,
+			D1 = 5'd10,
+			D2 = 5'd11,
+			D3 = 5'd12,
+			D4 = 5'd13,
+			D5 = 5'd14,
+			D6 = 5'd15,
 			
-			P0 = 5'd15,
-			P1 = 5'd16,
+			P0 = 5'd16,
+			P1 = 5'd17,
 			
-			T0 = 5'd17,
-			T1 = 5'd18;
+			T0 = 5'd18,
+			T1 = 5'd19,
+			FINAL = 5'd20;
 
 	reg [4:0] subState, next;
 	
@@ -99,29 +105,34 @@ assign o_nextY = nextY;
 wire goNextState;
 wire sread;
 
-wire nextStateIsEnd	= (next     == END);
-wire currStateIsEnd	= (subState == END);
-assign exitSig		= goNextState && nextStateIsEnd;
+// Allow to know that ACK happened, even cycles before it could not be handled...
+// We can go to the next step when : 
+// - FIFO space is available for NEXT command result.
+// - That we received data for current command or do not need one. (control is S5)
+assign goNextState		= canPushI && (stateDoNotNeedDataForTransition || realReadAck || enterStateMachine);
+
 
 reg [2:0] ctrl;
 reg pReadAck;
 // reg readSet;
-reg pActive;
+reg pActivate;
 reg reqRead;
 
 
-wire stateDoNotNeedDataForTransition	= (ctrl == S5);
 // Is this state going to write to FIFO when complete.
 // If state is not S1 nor S3 (or that S1 and S3 are the LAST state in the state machine).
-wire isCurrentStateWriter				= ((ctrl != S1) && (ctrl != S3) && (!currStateIsEnd)) || nextStateIsEnd;
-wire enterStateMachine					= (active && !pActive);
+wire stateDoNotNeedDataForTransition	= (ctrl == S5);																	// OK
+wire nextStateIsEnd						= (next == WAIT);															    // OK
+wire currStateIsActive					= (subState != WAIT);															// OK
+wire isCurrentStateWriter				= ((ctrl != S1) && (ctrl != S3) && currStateIsActive) || nextStateIsEnd;		// OK
+
+wire enterStateMachine					= (i_activate && !pActivate);
 
 always @(posedge clk) begin
 	if (nRst == 0) begin
-		subState <= END;
-//		readSet  <= 1'b0;
-		pActive  <= 1'b0;
-		reqRead	 <= 1'b0;
+		subState <= WAIT;
+		pActivate<= 0;
+		reqRead	 <= 0;
 	end else begin
 		// READACK WILL ALWAYS BE ACCEPTED, BECAUSE WE ISSUE READ WHEN FIFO IS NOT FULL !
 		if (goNextState) begin
@@ -137,17 +148,8 @@ always @(posedge clk) begin
 	end
 	
 	// Allow read at next step then...
-	pReadAck <= goNextState;
-	pActive  <= active;
-
-/*
-	if (readACK) begin
-		readSet <= 1'b1;
-	end
-	if (goNextState) begin
-		readSet <= 1'b0;
-	end
-*/
+	pReadAck  <= goNextState;
+	pActivate <= i_activate;
 end
 
 reg [1:0] aSelABDX;
@@ -176,11 +178,9 @@ reg       bSelAB;
 		See 
  */
 
-wire canPushI                = active && canPush;
-
 reg readAckDefer;
 
-wire realReadAck = readAckDefer | readACK;
+wire realReadAck			= readAckDefer | i_readACK;
 
 always @(posedge clk) begin
 	if (nRst == 0)
@@ -191,24 +191,11 @@ always @(posedge clk) begin
 	    readAckDefer <= 1'b0;
 end
 
-// Allow to know that ACK happened, even cycles before it could not be handled...
-// We can go to the next step when : 
-// - FIFO space is available for NEXT command result.
-// - That we received data for current command or do not need one. (control is S5)
-assign goNextState            = canPushI && (stateDoNotNeedDataForTransition || realReadAck || enterStateMachine);
-
-// Allow to push when transition (=receive data or no need to receive data)
-// Some state do NOT require to write data (S1 and S3), so we do not write in those case.
-// But in some special cases if S1 and S3 are the LAST executing state, we allow them to push the data (with garbage in it)
-assign o_writeFIFOOut		= goNextState && isCurrentStateWriter;
 
 // EXCEPT that we ISSUE READ ONLY IF current command is NOT S5.
+wire canPushI				= i_activate && i_canPush;
 assign sread				= (canPushI && ((pReadAck || reqRead) && (!stateDoNotNeedDataForTransition)));
-assign read					= sread;
 
-assign o_aSelABDX = aSelABDX;
-assign o_wbSel    = wbSel;
-assign o_bSelAB   = bSelAB;
 always @(*) begin
 	aSelABDX	= SELA__;
 	wbSel		= 1'd0;
@@ -247,14 +234,43 @@ reg nextCoord;
 
 // State change is dependent on current coordinate and READ ACK to authorize state change.
 always @(*) begin
-	nextCoord = 1'dx;
+	nextCoord = CRLF;
 	
 	case (subState)
+	WAIT: begin
+		ctrl		= S5;	// AVOID REQUESTING MEMORY READ.
+		// Force loading.
+		nextCoord	= CRLF;
+		if (i_activate) begin
+			next = FIRST;
+		end else begin
+			next = WAIT;
+		end
+	end
+	FIRST: begin
+		ctrl		= S5;	// AVOID REQUESTING MEMORY READ.
+		nextCoord	= LEFT;	// IGNORED (no readACK)
+		if (isWidthNot1) begin
+			// TODO Width = 1 states....
+			case ({xb_0,wb_0})
+			2'd00: next = A1;
+			2'b01: next = B1;
+			2'b10: next = C1;
+			/*2'b11*/ default: next = D1;
+			endcase
+		end else begin
+			 if (xb_0) begin
+				next = T0;
+			 end else begin
+				next = P0;
+			 end
+		end
+	end
 	A1: begin
 		ctrl = MA;
 		if (currPairIsLineLast) begin
 			nextCoord	= CRLF;
-			next		= (endVertical) ? END : A1;
+			next		= (endVertical) ? FINAL : A1;
 		end else begin
 			nextCoord	= LEFT;
 			next		= A1;
@@ -268,7 +284,7 @@ always @(*) begin
 	B2: begin
 		ctrl		= S3;
 		nextCoord	= CRLF;
-		next		= (endVertical) ? END : B3;
+		next		= (endVertical) ? FINAL : B3;
 	end
 	B3: begin
 		ctrl		= S2;
@@ -282,7 +298,7 @@ always @(*) begin
 			next 		= B4;
 		end else begin
 			nextCoord	= CRLF;
-			next		= (endVertical) ? END : B1;
+			next		= (endVertical) ? FINAL : B1;
 		end
 	end
 	C1: begin
@@ -294,7 +310,7 @@ always @(*) begin
 		ctrl		= S2;
 		if (currPairIsLineLast) begin
 			nextCoord	= CRLF;
-			next		= (endVertical) ? END : C1; 
+			next		= (endVertical) ? FINAL : C1; 
 		end else begin
 			nextCoord	= LEFT;
 			next		= C3;
@@ -307,7 +323,7 @@ always @(*) begin
 			next 		= C3;
 		end else begin
 			nextCoord	= CRLF;
-			next		= (endVertical) ? END : C1;
+			next		= (endVertical) ? FINAL : C1;
 		end
 	end
 	D1: begin
@@ -352,57 +368,42 @@ always @(*) begin
 			next		= D5;
 		end else begin
 			nextCoord	= CRLF;
-			next		= endVertical ? END: D1;
+			next		= endVertical ? FINAL: D1;
 		end
 	end
 	D6: begin
 		ctrl		= S5;
-		next		= END;
+		next		= FINAL;
 	end
 	// ALIGNED
 	P0: begin
 		ctrl		= S3;
 		nextCoord	= CRLF;
-		next		= endVertical ? END : P1;
+		next		= endVertical ? FINAL : P1;
 	end
 	P1: begin
 		ctrl		= S2;
 		nextCoord	= CRLF;
-		next		= endVertical ? END : P0;
+		next		= endVertical ? FINAL : P0;
 	end
 	// UNALIGNED
 	T0: begin
 		ctrl		= S1;
 		nextCoord	= CRLF;
-		next		= endVertical ? END : T1;
+		next		= endVertical ? FINAL : T1;
 	end
 	T1: begin
 		ctrl		= S4;
 		nextCoord	= CRLF;
-		next		= endVertical ? END : T0;
+		next		= endVertical ? FINAL : T0;
+	end
+	FINAL: begin
+		ctrl		= S5;	// AVOID REQUESTING MEMORY READ.
+		next = (i_outFIFO_empty) ? WAIT : FINAL;
 	end
 	default: begin
 		ctrl		= S5;	// AVOID REQUESTING MEMORY READ.
-		nextCoord	= LEFT;	// IGNORED (no readACK)
-		if (active) begin
-			if (isWidthNot1) begin
-				// TODO Width = 1 states....
-				case ({xb_0,wb_0})
-				2'd00: next = A1;
-				2'b01: next = B1;
-				2'b10: next = C1;
-				2'b11: next = D1;
-				endcase
-			end else begin
-				 if (xb_0) begin
-					next = T0;
-				 end else begin
-					next = P0;
-				 end
-			end
-		end else begin
-			next = END;
-		end
+		next = WAIT;
 	end
 	endcase
 end
@@ -417,9 +418,45 @@ always @(*) begin
 		nextX = nextCoord	?  X_CV_START /*CRLF*/ 
 							:  X_TRI_NEXT /*LEFT*/;
 		if (nextCoord) begin
-			nextY = Y_TRI_NEXT; /*CRLF*/
+			nextY = i_activate ? Y_CV_ZERO : Y_TRI_NEXT; /*CRLF*/
 		end // else Y_ASIS      /*LEFT*/;
 	end
 end
+
+// Allow to push when transition (=receive data or no need to receive data)
+// Some state do NOT require to write data (S1 and S3), so we do not write in those case.
+// But in some special cases if S1 and S3 are the LAST executing state, we allow them to push the data (with garbage in it)
+wire  writeNextCycle		= goNextState && isCurrentStateWriter;
+
+reg pipeToFIFOOut;
+reg [31:0] pairPixelToCPU;
+reg [15:0] DPixelReg;
+always @(posedge clk)
+begin
+	// A Part
+	case (aSelABDX)
+	/*SELA_A = */2'd0: pairPixelToCPU[15:0] <= i_readPairValue[15:0];
+	/*SELA_B = */2'd1: pairPixelToCPU[15:0] <= i_readPairValue[31:16];
+	/*SELA_D = */2'd2: pairPixelToCPU[15:0] <= DPixelReg;
+	/*SELA__ = */2'd3: begin /*Nothing*/ end
+	endcase
+	
+	// B Part
+	if (wbSel) begin
+		pairPixelToCPU[31:16] <= bSelAB ? i_readPairValue[31:16] : i_readPairValue[15:0];
+	end
+	
+	if (i_readACK) begin
+		DPixelReg <= i_readPairValue[31:16];
+	end
+	pipeToFIFOOut <= writeNextCycle;
+end
+
+assign o_pairPixelToCPU 	= pairPixelToCPU;
+assign o_writeFIFOOut		= pipeToFIFOOut;
+assign o_active				= currStateIsActive;
+assign o_exitSig			= goNextState && nextStateIsEnd;
+assign o_read				= sread;
+assign o_memoryCommand		= sread ? MEM_CMD_VRAM2CPU : MEM_CMD_NONE;
 	
 endmodule

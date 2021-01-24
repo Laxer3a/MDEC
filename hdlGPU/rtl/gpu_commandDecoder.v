@@ -33,7 +33,8 @@ module gpu_commandDecoder(
 	output			o_bSemiTransp,
 	output			o_bOpaque,
 	output			o_bIs4PointPoly,
-	output			o_bIsPerVtxCol
+	output			o_bIsPerVtxCol,
+	output			o_bIgnoreColor
 );
 	// [Command Type]
 	assign o_bIsBase0x				= (i_command[7:5]==3'b000);
@@ -65,5 +66,8 @@ module gpu_commandDecoder(
 	assign o_bOpaque        		= !o_bSemiTransp;
 	assign o_bIs4PointPoly  		= i_command[3] & o_bIsPolyCommand;
 	assign o_bIsPerVtxCol   		= (o_bIsPolyCommand | o_bIsLineCommand) & i_command[4];
+	
+	// 
+	assign o_bIgnoreColor			= o_bUseTextureParser & i_command[0];
 
 endmodule

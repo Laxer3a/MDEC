@@ -18,9 +18,6 @@ module gpu_parser(
 	input	[7:0]		i_command,
 	output				o_waitingNewCommand,
 
-	// Runtime parameter from instruction
-	input				i_bIgnoreColor,
-
 	//================================================
 	// Transaction management
 	//================================================
@@ -131,7 +128,7 @@ wire FifoDataValid = i_dataValid;
 //  Command Decoder
 //------------------------------------------------
 wire bIsBase0x,bIsBase01,bIsBase1F,bIsPolyCommand,bIsRectCommand,bIsLineCommand,bIsMultiLine,bIsCopyVVCommand,
-	 bIsCopyCommand,bIsFillCommand,bIsRenderAttrib,bIsNop,bUseTextureParser,bIs4PointPoly,bIsPerVtxCol;
+	 bIsCopyCommand,bIsFillCommand,bIsRenderAttrib,bIsNop,bUseTextureParser,bIs4PointPoly,bIsPerVtxCol,bIgnoreColor;
 	 
 gpu_commandDecoder gpu_commandDecoder_instance(
 	.i_command				(i_command),
@@ -156,7 +153,8 @@ gpu_commandDecoder gpu_commandDecoder_instance(
 	.o_bSemiTransp			(),
 	.o_bOpaque				(),
 	.o_bIs4PointPoly		(bIs4PointPoly),
-	.o_bIsPerVtxCol         (bIsPerVtxCol)
+	.o_bIsPerVtxCol         (bIsPerVtxCol),
+	.o_bIgnoreColor			(bIgnoreColor)
 );
 
 wire bIsMultiLineTerminator = (bIsLineCommand & bIsMultiLine & i_bIsTerminator);
@@ -250,7 +248,7 @@ begin
     begin
         /*issue.*/storeCommand  	= 1;
         /*issue.*/loadRGB           = 1; // Work for all command, just ignored.
-        /*issue.*/loadAllRGB        = (i_bIgnoreColor) ? 1'b1 : (!bIsPerVtxCol);
+        /*issue.*/loadAllRGB        = bIgnoreColor | (!bIsPerVtxCol);
         /*issue.*/setIRQ			= bIsBase0x & bIsBase1F;
         /*issue.*/rstTextureCache	= bIsBase0x & bIsBase01;
         /*issue.*/loadClutPage		= bIsBase0x & bIsBase01; // Reset CLUT adr, using rstTextureCache for MSB -> Invalid adr.
@@ -531,5 +529,6 @@ assign o_loadMaskSetting		= loadMaskSetting;
 assign o_setIRQ					= setIRQ;
 assign o_loadClutPage			= loadClutPage;
 assign o_loadTexPage			= loadTexPage;
+assign o_waitingNewCommand		= (currState == DEFAULT_STATE);
 
 endmodule

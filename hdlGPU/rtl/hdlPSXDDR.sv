@@ -97,9 +97,7 @@ parameter	CMD_32BYTE		= 2'd1,
 	reg  [2:0] burstAdrSub;
 	
 	reg   [1:0] blkCounterEmit;
-	reg   [1:0] blkCounterRecv;
-	reg   [1:0] regSize;
-	
+	reg   [1:0] blkCounterRecv;	
 	
 	// --------------- State Machine ------------------
 	typedef enum logic[2:0] {
@@ -223,7 +221,6 @@ parameter	CMD_32BYTE		= 2'd1,
 		if (i_command) begin
 			blkCounterEmit <= 2'd0;
 			blkCounterRecv <= 2'd0;
-			regSize		   <= i_commandSize;
 			case (i_commandSize)
 			CMD_8BYTE : lastCounter <= 2'd0;
 			CMD_32BYTE: lastCounter <= 2'd3;
@@ -268,9 +265,6 @@ parameter	CMD_32BYTE		= 2'd1,
 
 	wire [1:0] lowPart			= burstAdrSub[2:1] + blkCounterEmit;
 	assign o_targetAddr			= { burstAdr, lowPart };
-	
-	// TRICK TO KEEP SIZE THE SAME AT THE CYCLE WE RECEIVE THE COMMAND AND DURING THE TRANSACTION.
-	wire [1:0] size             = (currState == DEFAULT_STATE) ? i_commandSize : regSize;
 	
 	// 
 	// IMPORTANT !!!! FOR NOW IT SEEMS THAT READ USING 4 consecutive READ SIG is SIZE OF 1.

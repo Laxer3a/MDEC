@@ -397,11 +397,6 @@ module GPUBackend(
 	wire writeSigR			= finalValidR & ((validTextureR & !noTexture) | noTexture);
 	
 	// MEMO BEFORE_TEXTURE : writeSig = (oValidPixelR | oValidPixelL);
-	reg PPausePipeline;
-	always @(posedge clk)
-	begin
-		PPausePipeline <= i_pausePipeline;
-	end
 	wire        writeSig	= !i_pausePipeline & (writeSigL | writeSigR);
 	wire [14:0] writeAdr 	= { oScryL, oScrxL[9:4] }; // TODO : Same as loadAdr
 	wire  [1:0] selPair		= {oValidPixelR,oValidPixelL};
@@ -461,17 +456,9 @@ module GPUBackend(
 	// 10 : Next Pair,
 	// 11 : Last Pair / Flush.
 	wire [1:0] pairCode				= ((oPixelStateSpikeL == 2'b01) & noblend) ? 2'b00 : (oPixelStateSpikeL | {flushLastBlock,flushLastBlock});
-	reg  [1:0] PpairCode;
 	wire doBlockOp					= pairCode[0] | pairCode[1]; /* | oNewBGCacheLineR*/ // Should be the SAME, only one item needed
-	reg  PdoBlockOp;
 	
 	// Operating step is given to the memory module. (None,First,Second & Others)
 	assign saveBGBlock				= pairCode;
 	assign o_writePixelOnNewBlock	= doBlockOp;
-
-	always @(posedge clk)
-	begin
-		PpairCode  <= pairCode;
-		PdoBlockOp <= doBlockOp;
-	end
 endmodule

@@ -57,7 +57,7 @@ module gpu_scan(
 //---------------------------------------------------------------------------------------------------
 // Stuff to handle INTERLACED RENDERING !!!
 // So Start coordinate offset +0/+1 is only valid for RECT, TRIANGLE, FILL. It depends on the current field.
-wire renderYOffsetInterlace		= (i_InterlaceRender ? (i_RegY0[0] ^ GPU_REG_CurrentInterlaceField) : 1'b0);
+wire renderYOffsetInterlace		= (i_InterlaceRender ? (i_minTriDAY0[0] ^ GPU_REG_CurrentInterlaceField) : 1'b0);
 
 reg dir;
 reg pixelFound;

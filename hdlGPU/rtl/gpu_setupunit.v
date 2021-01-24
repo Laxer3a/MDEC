@@ -174,7 +174,6 @@ module gpu_setupunit(
 	wire				isLineInsideDrawArea;
 	wire				isInsideBBoxTriRectL;
 	wire				isInsideBBoxTriRectR;
-	wire				isValidPixelL,isValidPixelR;
 
 	// Test Current Pixel Pair against [Drawing Area]
 	// [NEEDED FOR LINES] : Line are scanned independantly from draw area.

@@ -145,13 +145,6 @@ wire rstInFIFO;
 //                      CPU to VRAM transfer + in transfer state + FIFO has space to store data.
 //                      => Should not overtransfer because DMA knows size.
 // DMA REQ
-typedef enum logic[1:0] {
-	DMA_DirOff		= 2'd0,
-	DMA_FIFO		= 2'd1,
-	DMA_CPUtoGP0	= 2'd2,
-	DMA_GP0toCPU	= 2'd3
-} DMADirection;
-
 wire       		GPU_REG_IsInterlaced;
 wire       		GPU_REG_BufferRGB888;
 wire       		GPU_REG_VideoMode;
@@ -183,52 +176,6 @@ assign gpu_p2m_data_i  = outFIFO_readV;
 
 // Notes: Manually sending/reading data by software (non-DMA) is ALWAYS possible, regardless of the GP1(04h) setting. The GP1(04h) setting does affect the meaning of GPUSTAT.25.
 
-typedef enum logic[5:0] {
-    NOT_WORKING_DEFAULT_STATE	= 6'd0,
-    LINE_START					= 6'd1,
-    LINE_DRAW					= 6'd2,
-    RECT_START					= 6'd3,
-    FILL_START					= 6'd4,
-    COPY_INIT					= 6'd5,
-    TRIANGLE_START				= 6'd6,
-    FILL_LINE  					= 6'd7,
-    COPYCV_START 				= 6'd8,
-    COPYVC_START 				= 6'd9,
-    CPY_RS1						= 6'd10,
-    CPY_R1						= 6'd11,
-    CPY_RS2						= 6'd12,
-    CPY_R2						= 6'd13,
-    CPY_LWS1					= 6'd14,
-    CPY_LW1						= 6'd15,
-    CPY_LRS						= 6'd16,
-    CPY_LR						= 6'd17,
-    CPY_WS2						= 6'd18,
-    CPY_W2						= 6'd19,
-    CPY_WS3						= 6'd20,
-    CPY_W3						= 6'd21,
-    START_LINE_TEST_LEFT		= 6'd22,
-    START_LINE_TEST_RIGHT		= 6'd23,
-    SCAN_LINE					= 6'd24,
-    SCAN_LINE_CATCH_END			= 6'd25,
-    TMP_2 						= 6'd26,
-    TMP_3 						= 6'd27,
-    TMP_4 						= 6'd28,
-    SETUP_INTERP				= 6'd29,
-    RECT_SCAN_LINE				= 6'd30,
-    WAIT_3						= 6'd31,
-    WAIT_2						= 6'd32,
-    WAIT_1						= 6'd33,
-    SELECT_PRIMITIVE			= 6'd34,
-    COPYCV_COPY					= 6'd35,
-    RECT_READ_MASK				= 6'd36,
-    COPYVC_TOCPU				= 6'd37,
-    LINE_END					= 6'd38,
-    FLUSH_COMPLETE_STATE		= 6'd39,
-    COPY_START_LINE				= 6'd40,
-    CPY_ENDLINE					= 6'd41,
-	COPYVC_WAITFLUSH			= 6'd42
-} workState_t;
-
 parameter   IS_NOT_NEWBLOCK				= 2'b00,
             IS_NEW_BLOCK_IN_PRIMITIVE	= 2'b01,	// The first time we flush a 16 pixel block, there is NO WRITE of the previous block, but LOAD must be done if doing blending.
             IS_OTHER_BLOCK_IN_PRIMITIVE	= 2'b10,	// For other block we simply do WRITE the previous block, or WRITE + LOAD next block BG if doing blending.
@@ -240,42 +187,9 @@ parameter PIX_4BIT   =2'd0, PIX_8BIT  =2'd1, PIX_16BIT =2'd2, PIX_RESERVED     =
 parameter XRES_256  =2'd0, XRES_320   =2'd1, XRES_512  =2'd2, XRES_640  =2'd3;
 parameter DMADIR_OFF=2'd0, DMADIR_FIFO=2'd1, DMADIR_C2G=2'd2, DMADIR_G2C=2'd3;
 
-/* VERILATOR DID NOT LIKE IT !!!!!
-typedef struct packed {
-    logic       storeCommand;
-    logic       resetVertexCounter;
-    logic       increaseVertexCounter;
-    logic       loadRGB,loadUV,loadVertices,loadAllRGB;
-    logic       loadE5Offsets;
-    logic       loadTexPageE1;
-    logic       loadTexWindowSetting;
-    logic       loadDrawAreaTL;
-    logic       loadDrawAreaBR;
-    logic       loadMaskSetting;
-    logic       setIRQ;
-    logic       rstTextureCache;
-    logic       loadClutPage;
-    logic       loadTexPage;
-    logic       loadSize;
-    logic       loadCoord1,loadCoord2;
-    logic       loadRectEdge;
-    logic       preCheckCLUT;
-    logic [1:0] loadSizeParam;
-    logic [4:0] issuePrimitive;
- } issue_t;
- */
-wire bIsCopyVVCommand,bIsCopyCVCommand,bIsRectCommand,bIsPolyCommand,bSemiTransp,bOpaque,bIsCopyCommand,bUseTextureParser,bIsPerVtxCol,bIsLineCommand;
+wire bIsCopyVVCommand,bIsCopyCVCommand,bIsCopyVCCommand,bIsRectCommand,bIsPolyCommand,bSemiTransp,bOpaque,bIsCopyCommand,bUseTextureParser,bIsPerVtxCol,bIsLineCommand;
 wire [1:0] loadSizeParam;
 wire [4:0] issuePrimitive;
-
-parameter	MEM_CMD_PIXEL2VRAM	= 3'b001,
-            MEM_CMD_FILL		= 3'b010,
-            MEM_CMD_RDBURST		= 3'b011,
-            MEM_CMD_WRBURST		= 3'b100,
-			MEM_CMD_VRAM2CPU	= 3'b101,
-            // Other command to come later...
-            MEM_CMD_NONE		= 3'b000;
-
 
 /* === MY OLD VIDEO SYSTEM ===
 wire				GPU_REG_CurrentInterlaceField;
@@ -380,7 +294,7 @@ wire InterlaceRender					= DIP_Allow480i & ((!GPU_REG_DrawDisplayAreaOn) & GPU_R
 // CPU write/read GP0/GP1/FifoOut
 //-----------------------------------------
 
-wire stillDoingVRAMCPUXFER = (RegCommand == 8'hC0) & (currWorkState != NOT_WORKING_DEFAULT_STATE);
+wire stillDoingVRAMCPUXFER = (RegCommand == 8'hC0) & (!waitWork);
 wire parserWaitingNewCommand;
 wire rstGPU,rstCmd,rstIRQ;
 wire GPU_REG_IRQSet;
@@ -437,9 +351,9 @@ gpu_frontend gpu_frontend_instance (
 	//  Inputs
 	//-------------------------------------------------------
 	.i_statusBit31					(GPU_DisplayEvenOddLinesInterlace),
-	.i_statusBit28					(currWorkState == NOT_WORKING_DEFAULT_STATE),
+	.i_statusBit28					(waitWork),
 	.i_statusBit27					(gpuReadySendToCPU),
-	.i_statusBit26					(isFifoEmpty32 && parserWaitingNewCommand && (currWorkState == NOT_WORKING_DEFAULT_STATE)),
+	.i_statusBit26					(isFifoEmpty32 && parserWaitingNewCommand && waitWork),
 	.i_statusBit25					(dmaDataRequest),
 	.i_statusBit24					(GPU_REG_IRQSet),
 	.i_statusBit13					((GPU_REG_CurrentInterlaceField & GPU_REG_IsInterlaced) | (!GPU_REG_IsInterlaced)),
@@ -470,7 +384,7 @@ gpu_frontend gpu_frontend_instance (
 	//-------------------------------------------------------
 	//  Outputs
 	//-------------------------------------------------------
-	.o_GPU_REG_DMADirection			(GPU_REG_DMADirection),
+	.o_GPU_REG_DMADirection			(DMADirection'(GPU_REG_DMADirection)),
 
 	.o_GPU_REG_IsInterlaced			(GPU_REG_IsInterlaced),
 	.o_GPU_REG_BufferRGB888			(GPU_REG_BufferRGB888),
@@ -642,11 +556,13 @@ wire signed [11:0] pixelX,pixelY;
 
 reg [7:0] RegCommand;
 
-workState_t currWorkState,nextWorkState;
-
 reg		resetXCounter;
 wire	endVertical;
 
+wire [2:0] selNextX_VC , selNextY_VC
+          ,selNextX_VV , selNextY_VV
+          ,selNextX_CV , selNextY_CV
+          ,selNextX_RDR, selNextY_RDR;
 nextX_t selNextX;
 nextY_t selNextY;
 
@@ -655,7 +571,7 @@ wire		doBlockWork;
 // State machine for triangle
 // State to control setup...
 reg [4:0]		interpolationCounter;
-reg             setInterCounter, setInterTexOnly, incrementInterpCounter;
+reg             setInterCounter, incrementInterpCounter;
 wire [4:0]		nextInterpolationCounter = interpolationCounter +
 											`ifdef DOUBLE_DIVUNIT
 												5'd2
@@ -663,11 +579,37 @@ wire [4:0]		nextInterpolationCounter = interpolationCounter +
 												5'd1
 											`endif
 											;
+
+
+
+
+
+
+
+/*
+bIsPolyCommand
+bIsRectCommand
+bIsLineCommand
+bUseTexture = (bUseTextureParser & GPU ENABLE TEXTURE)
+bIgnoreColor = Texture only, no color modulation (independant on texture used or not)
+bIsPerVtxCol
+
+// Runtime flag (Non textured lines, RAW Texture mode, etc...)
+
+
+*/
+
+
+
+
+wire useUV = (bUseTexture & !bIsLineCommand) & (!bIsPerVtxCol);
+wire endInterpCounter = (nextInterpolationCounter[4:2] == { 1'b1, bUseTexture , 1'b0 });
 always @(posedge clk) begin
 	if (setInterCounter) begin
+		// 1100.0  <-- RECT : No loading (end counter)
 		// 1000.0  <-- UV Only
 		// 0010.0  <-- RGB First
-		interpolationCounter <= { setInterTexOnly,1'b0,!setInterTexOnly, 2'b00 };
+		interpolationCounter <= { useUV,bIsRectCommand,!useUV, 2'b00 };
 	end else begin
 		if (incrementInterpCounter)
 			interpolationCounter <= nextInterpolationCounter;
@@ -692,15 +634,11 @@ reg				assignRectSetup;
 reg	[14:0]		PixelBGAdr;
 // reg isLoaded;
 // reg isWritten; // USE notMemoryBusyCurrCycle in state machine.
-reg	[2:0]		setStencilMode;
 reg 			writeStencil;
-reg				copyCVMode;
 
 // ------------------------------------------------------------------------
 //   Plumbing
 reg				stencilFullMode;
-reg  	[15:0]	stencilWriteValue16, stencilWriteMask16;
-
 wire  	[15:0]	stencilReadValue16;
 wire 			stencilWriteSig;
 reg				stencilReadSig;
@@ -725,12 +663,7 @@ wire        		selectPixelWriteMaskLine;
 wire  [5:0] adrXSrc;
 wire  [5:0] adrXDst;
 
-wire       performSwitch;
-reg         cpyBank;
-reg			resetBank, switchBank;
 wire xCopyDirectionIncr;
-wire [4:0] tmpidx;
-wire [3:0] cpyIdx;
 wire [8:0]	scrDstY;
 reg	 [ 6:0] counterXDst;
 
@@ -757,7 +690,6 @@ wire outFIFO_empty;
 wire outFIFO_full;
 
 wire writeFifo		= (!gpuAdrA2 & gpuSel & write & canWriteFIFO) || (gpu_m2p_valid_o && (GPU_REG_DMADirection == DMA_CPUtoGP0));
-wire writeGP1		=  gpuAdrA2 & gpuSel & write;
 wire cpuReadFifoOut = (gpuSel & !gpuAdrA2) & read;
 
 // READ FIFO WHEN :
@@ -769,11 +701,9 @@ wire cpuReadFifoOut = (gpuSel & !gpuAdrA2) & read;
 wire        outFIFO_read = ((((GPU_REG_DMADirection == DMA_GP0toCPU) && (!unconsummed || firstRead))) || cpuReadFifoOut) && (!outFIFO_empty);
 
 // Pipeline FIFO read to validate data out (1 cycle latency)
-reg pReadFifoOut;
 reg pACK;
 always @(posedge clk) begin
     if (i_nrst == 0) begin
-        pReadFifoOut <= 1'd0;
 		unconsummed  <= 1'b1;
     end else begin
 		if (outFIFO_read) begin
@@ -784,10 +714,9 @@ always @(posedge clk) begin
 				unconsummed <= 1'b0;
 			end
 		end
-		if (currWorkState == COPYVC_START) begin
+		if (activateCopy && bIsCopyVCCommand) begin
 			firstRead   <= 1'b1;
 		end
-		pReadFifoOut <= outFIFO_read;
     end
 end
 
@@ -799,26 +728,22 @@ assign isFifoEmpty32    = isFifoEmptyLSB | isFifoEmptyMSB;
 assign isFifoNotEmpty32 = !isFifoEmpty32;
 assign rstInFIFO        = rstGPU | rstCmd;
 
-wire readLFifo, readMFifo;
-wire readFifoLSB	= readFifo | readLFifo;
-wire readFifoMSB	= readFifo | readMFifo;
+wire readL, readM;
+wire readFifoLSB	= readFifo | readL;
+wire readFifoMSB	= readFifo | readM;
 
 wire [55:0] memoryWriteCommand;
-
-
-
 reg  [52:0] parameters;
 assign memoryWriteCommand = { parameters, memoryCommand};
 
 wire commandFIFOaccept = ((!commandFifoFull) && !saveLoadOnGoing);
 
-reg	swap;
-reg				regSaveL,regSaveM;
+wire swap,saveL,saveM;
+reg  flush;
 wire [15:0] LPixel = swap ? fifoDataOut[31:16] : fifoDataOut[15: 0];
 wire [15:0] RPixel = swap ? fifoDataOut[15: 0] : fifoDataOut[31:16];
-wire validL        = swap ? regSaveM : regSaveL;
-wire validR        = swap ? regSaveL : regSaveM;
-reg flush;
+wire validL        = swap ? saveM : saveL;
+wire validR        = swap ? saveL : saveM;
 
 reg	 [ 6:0] counterXSrc /* ,counterXDst*/;
 wire [5:0] scrSrcX = adrXSrc[5:0] + RegX0[9:4];
@@ -831,6 +756,7 @@ wire WRPixelR15 = RPixel[15] | GPU_REG_ForcePixel15MaskSet; // No sticky bit fro
 wire  [15:0] maskRead16;
 reg			clearBank0, clearBank1;
 reg			clearOtherBank;
+wire		cpyBank;
 wire		writeBankOld = performSwitch & (cpyBank ^ (!xCopyDirectionIncr));
 always @(*)
 begin
@@ -1016,7 +942,7 @@ gpu_commandDecoder commandDecoderInstance(
 	.o_bIsForECommand		(),
 	.o_bIsCopyVVCommand		(bIsCopyVVCommand),
 	.o_bIsCopyCVCommand		(bIsCopyCVCommand),
-	.o_bIsCopyVCCommand		(),
+	.o_bIsCopyVCCommand		(bIsCopyVCCommand),
 	.o_bIsCopyCommand		(bIsCopyCommand),
 	.o_bIsFillCommand		(),
 	.o_bIsRenderAttrib		(),
@@ -1026,12 +952,12 @@ gpu_commandDecoder commandDecoderInstance(
 	.o_bSemiTransp			(bSemiTransp),
 	.o_bOpaque				(bOpaque),
 	.o_bIs4PointPoly		(),
-	.o_bIsPerVtxCol			(bIsPerVtxCol)
+	.o_bIsPerVtxCol			(bIsPerVtxCol),
+	.o_bIgnoreColor			()
 );
 
 // Runtime flag (Non textured lines, RAW Texture mode, etc...)
 wire bUseTexture    		= bUseTextureParser & (!GPU_REG_TextureDisable); 										// Avoid texture fetching if we do LINE, Compute proper color for FILL.
-wire bIgnoreColor   		= bUseTexture       & command[0];
 
 wire rstTextureCache,loadE5Offsets,loadTexPageE1,loadTexWindowSetting,loadDrawAreaTL,loadDrawAreaBR,loadMaskSetting,setIRQ,loadClutPage,loadTexPage;
 wire storeCommand;
@@ -1044,7 +970,7 @@ gpu_parser gpu_parser_instance(
 	.i_command			(command),
 	.o_waitingNewCommand(parserWaitingNewCommand),
 
-	.i_gpuBusy			(!canIssueWork),
+	.i_gpuBusy			(!waitWork),
 	.o_issuePrimitive	(issuePrimitive),
 
 	// Request data to parse
@@ -1054,9 +980,6 @@ gpu_parser gpu_parser_instance(
 	// Valid data from previous request
 	.i_dataValid		(FifoDataValid),
 	.i_bIsTerminator	(bIsTerminator),
-	
-	// Runtime flag depending on command and GPU setup.
-	.i_bIgnoreColor		(bIgnoreColor),
 	
 	//================================================
 	// Control signals
@@ -1103,7 +1026,6 @@ gpu_loadedRegs gpu_vertexRegisters(
 	.i_targetVertex		(vertexID),	// 0..2
 	
 	.i_bUseTexture		(bUseTexture),
-	.i_bIgnoreColor		(bIgnoreColor),
 	
 	//-----------------------------------------
 	// OPERATION (set when i_validData VALID)
@@ -1168,9 +1090,59 @@ wire signed [11:0] minTriDAX0,maxTriDAX1,minTriDAY0;
 
 wire signed [ 9:0] loopIncrNextPixelY;
 
-wire lineStart			= (currWorkState == LINE_START);
-
 wire dir;
+
+wire loadNext_VV,loadNext_CV,loadNext_RDR;
+wire isCopyVCActive, isCopyVVActive, isCopyCVActive;
+wire [2:0] memoryCommand_VV,memoryCommand_CV,memoryCommand_VC,memoryCommand_RDR;
+wire resetXCounter_VV, resetXCounter_RDR, incrementXCounter_VV, incrementXCounter_RDR;
+wire writeStencil_VV,writeStencil_CV,writeStencil_RDR;
+wire stencilReadSig_VV,stencilReadSig_CV,stencilReadSig_RDR;
+wire flush_CV,flush_RDR;
+
+always @(*) begin
+	if (isCopyVCActive) begin
+		loadNext = 1;
+		selNextX = nextX_t'(selNextX_VC);
+		selNextY = nextY_t'(selNextY_VC);
+		memoryCommand		= memoryCommand_VC;
+		resetXCounter		= 0;
+		incrementXCounter	= 0;
+		writeStencil		= 0;
+		stencilReadSig		= 0;
+		flush				= 0;
+	end else if (isCopyVVActive) begin
+		loadNext = loadNext_VV;
+		selNextX = nextX_t'(selNextX_VV); // Unused
+		selNextY = nextY_t'(selNextY_VV);
+		memoryCommand		= memoryCommand_VV;
+		resetXCounter		= resetXCounter_VV;
+		incrementXCounter	= incrementXCounter_VV;
+		writeStencil		= writeStencil_VV;
+		stencilReadSig		= stencilReadSig_VV;
+		flush				= 0;
+	end else if (isCopyCVActive) begin
+		loadNext = loadNext_CV;
+		selNextX = nextX_t'(selNextX_CV);
+		selNextY = nextY_t'(selNextY_CV);
+		memoryCommand		= memoryCommand_CV;
+		resetXCounter		= 0;
+		incrementXCounter	= 0;
+		writeStencil		= writeStencil_CV;
+		stencilReadSig		= stencilReadSig_CV;
+		flush				= flush_CV;
+	end else begin
+		loadNext = loadNext_RDR;
+		selNextX = nextX_t'(selNextX_RDR);
+		selNextY = nextY_t'(selNextY_RDR);
+		memoryCommand		= memoryCommand_RDR;
+		resetXCounter		= resetXCounter_RDR;
+		incrementXCounter	= incrementXCounter_RDR;
+		writeStencil		= writeStencil_RDR;
+		stencilReadSig		= stencilReadSig_RDR;
+		flush				= flush_RDR;
+	end
+end
 
 gpu_scan gpu_scan_instance(
 	.i_clk							(clk),
@@ -1237,8 +1209,6 @@ begin
 end
 */
 
-wire canIssueWork       = (currWorkState == NOT_WORKING_DEFAULT_STATE);
-
 // When line start, ask to decrement
 reg         useDest;
 reg			incrementXCounter;
@@ -1259,9 +1229,6 @@ reg			incrementXCounter;
 
 assign xCopyDirectionIncr = isNegXAxis;
 
-wire  [9:0] OppRegSizeH			= OriginalRegSizeH - RegSizeH;
-
-//
 // Same for X Axis. Except we use an INCREMENTING COUNTER INSTEAD OF DEC FOR THE SAME AXIS.
 
 wire [10:0] fullSizeSrc			= RegSizeW + { 7'd0, RegX0[3:0] };
@@ -1279,57 +1246,29 @@ wire  [6:0] OppAdrXDst			= lengthBlockDstHM1 - counterXDst;
 assign adrXSrc = xCopyDirectionIncr ? counterXSrc[5:0] : OppAdrXSrc[5:0];
 assign adrXDst = xCopyDirectionIncr ? counterXDst[5:0] : OppAdrXDst[5:0];
 
+wire [3:0] rightPos;
 // wire  [6:0] fullX				= (useDest           ? adrXDst : adrXSrc)          + { 1'b0, useDest ? RegX1[9:4] : RegX0[9:4] };
+gpu_masking gpu_masking_inst(
+	.RegX0_4bit				(RegX0[3:0]),
+	.RegSizeW_4bit			(RegSizeW[3:0]),
+	
+	.i_adrXSrc				(adrXSrc),
+	.i_lengthBlkSrcHM1_6bit	(lengthBlockSrcHM1[5:0]),
+	
+	.o_rightPos				(rightPos),
+	.o_maskRead16			(maskRead16)
+);
 
+wire [3:0]  sxe16    		= rightPos + 4'b1111;
+wire dblLoadL2R				= RegX1[3:0] < RegX0[3:0];
 
-reg  [15:0] maskLeft;
-reg  [15:0] maskRight;
-wire [3:0]  rightPos = RegX0[3:0] + RegSizeW[3:0];
-wire [3:0]  sxe16    = rightPos + 4'b1111;
-always @(*)
-begin
-    case (RegX0[3:0])
-    4'h0: maskLeft = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
-    4'h1: maskLeft = 16'b1111_1111_1111_1110;
-    4'h2: maskLeft = 16'b1111_1111_1111_1100;
-    4'h3: maskLeft = 16'b1111_1111_1111_1000;
-    4'h4: maskLeft = 16'b1111_1111_1111_0000;
-    4'h5: maskLeft = 16'b1111_1111_1110_0000;
-    4'h6: maskLeft = 16'b1111_1111_1100_0000;
-    4'h7: maskLeft = 16'b1111_1111_1000_0000;
-    4'h8: maskLeft = 16'b1111_1111_0000_0000;
-    4'h9: maskLeft = 16'b1111_1110_0000_0000;
-    4'hA: maskLeft = 16'b1111_1100_0000_0000;
-    4'hB: maskLeft = 16'b1111_1000_0000_0000;
-    4'hC: maskLeft = 16'b1111_0000_0000_0000;
-    4'hD: maskLeft = 16'b1110_0000_0000_0000;
-    4'hE: maskLeft = 16'b1100_0000_0000_0000;
- default: maskLeft = 16'b1000_0000_0000_0000;
-    endcase
-    
-	case (rightPos)
-    // Special case : lastSegment is actually the PREVIOUS segment. Empty segment never occurs because of computation.
-    // The END (EXCLUDED) pixel from the segment is the beginning of a new chunk that will be never loaded.
-    // See computation of 'lengthBlockSrcHM1'
-    4'h0: maskRight = 16'b1111_1111_1111_1111; // Pixel order is ->, While bit are MSB <- LSB.
-    // Normal cases...
-    4'h1: maskRight = 16'b0000_0000_0000_0001;
-    4'h2: maskRight = 16'b0000_0000_0000_0011;
-    4'h3: maskRight = 16'b0000_0000_0000_0111;
-    4'h4: maskRight = 16'b0000_0000_0000_1111;
-    4'h5: maskRight = 16'b0000_0000_0001_1111;
-    4'h6: maskRight = 16'b0000_0000_0011_1111;
-    4'h7: maskRight = 16'b0000_0000_0111_1111;
-    4'h8: maskRight = 16'b0000_0000_1111_1111;
-    4'h9: maskRight = 16'b0000_0001_1111_1111;
-    4'hA: maskRight = 16'b0000_0011_1111_1111;
-    4'hB: maskRight = 16'b0000_0111_1111_1111;
-    4'hC: maskRight = 16'b0000_1111_1111_1111;
-    4'hD: maskRight = 16'b0001_1111_1111_1111;
-    4'hE: maskRight = 16'b0011_1111_1111_1111;
- default: maskRight = 16'b0111_1111_1111_1111;
-    endcase
-end
+wire [4:0] tmpidx			= { dblLoadL2R , RegX0[3:0] } + { 1'b1, ~RegX1[3:0] } + 5'd1;
+wire [3:0] cpyIdx			= tmpidx[3:0];
+
+wire dblLoadR2L				= sxe16 < cpyIdx;
+wire isDoubleLoad			= xCopyDirectionIncr ? dblLoadL2R : dblLoadR2L;
+
+wire  performSwitch			= |cpyIdx; // If ZERO, NO SWITCH !
 
 always @(posedge clk)
 begin
@@ -1339,34 +1278,16 @@ end
 
 reg  switchReadStoreBlock; // TODO this command will ALSO do loading the CACHE STENCIL locally (2x16 bit registers)
 
-wire emptySurface			= (RegSizeH == 10'd0) | (RegSizeW == 11'd0);
-
 // Needed for state machine.
-wire isLastSegment  		= (counterXSrc==lengthBlockSrcHM1);
-wire isLastSegmentDst		= (counterXDst==lengthBlockDstHM1);
+wire emptySurface				= (RegSizeH == 10'd0) | (RegSizeW == 11'd0);
+wire isLastSegment  			= (counterXSrc==lengthBlockSrcHM1);
+wire isLastSegmentDst			= (counterXDst==lengthBlockDstHM1);
 
-wire isFirstSegmentMask		= (adrXSrc    ==6'd0);
-wire isLastSegmentMask 		= (adrXSrc    ==lengthBlockSrcHM1[5:0]);
-
-wire [15:0] maskSegmentRead	= (isFirstSegmentMask ? maskLeft  : 16'hFFFF)
-                            & (isLastSegmentMask  ? maskRight : 16'hFFFF);
-
-assign maskRead16			= maskSegmentRead;
-
-wire dblLoadL2R				= RegX1[3:0] < RegX0[3:0];
 // RegX0 - RegX1 + (dblLoadL2R ? 16 : 0)
 
-assign  tmpidx = { dblLoadL2R , RegX0[3:0] } + { 1'b1, ~RegX1[3:0] } + 5'd1;
-assign  cpyIdx = tmpidx[3:0];
-
-assign   performSwitch	= |cpyIdx; // If ZERO, NO SWITCH !
-wire dblLoadR2L				= sxe16 < cpyIdx;
-wire isDoubleLoad			= xCopyDirectionIncr ? dblLoadL2R : dblLoadR2L;
 wire isLongLine				= RegSizeW[9] | RegSizeW[10]; // At least >= 512
 
-wire storeStencilRead = (memoryCommand == MEM_CMD_RDBURST);
 reg [31:0]	stencilReadCache;
-reg [31:0]  maskReadCache;
 
 reg pixelFound;
 // reg enteredTriangle;  								EARLY OPTIMIZATION REMOVED FOR NOW.
@@ -1416,45 +1337,10 @@ always @(posedge clk) begin
 end
 // -----------------------------------------------------------------------
 
-always @(posedge clk)
-begin
-    // BEFORE cpyBank UPDATE !!!
-    if (storeStencilRead) begin
-        if (cpyBank) begin
-            stencilReadCache[31:16] <= stencilReadValue16;
-            maskReadCache	[31:16] <= maskSegmentRead;
-            if (clearOtherBank) begin
-                maskReadCache	[15:0] <= 16'd0;
-            end
-        end else begin
-            stencilReadCache[15: 0] <= stencilReadValue16;
-            maskReadCache	[15: 0] <= maskSegmentRead;
-            if (clearOtherBank) begin
-                maskReadCache	[31:16] <= 16'd0;
-            end
-        end
-    end
-
-    if (clearBank0) begin // storeStencilRead is always False, no priority issues.
-        maskReadCache	[15: 0] <= 16'd0;
-    end
-
-    if (clearBank1) begin // storeStencilRead is always False, no priority issues.
-        maskReadCache	[31:16] <= 16'd0;
-    end
-
-    // AFTER cpyBank is used !!!!
-    if (resetBank) begin
-        cpyBank <= 1'b0;
-    end else begin
-        cpyBank <= cpyBank ^ switchBank;
-    end
-
-end
-
 reg  [15:0] stencilReadRemapped;
 reg  [15:0] maskReadRemapped;
 // Mask and [Full_selection_if_GPU_DRAW_ALWAYS or inverse_stencilRead_At_target]
+wire [31:0] maskReadCache;
 
 always @(*)
 begin
@@ -1513,41 +1399,12 @@ assign       scrDstY	= pixelY[8:0] + RegY1[8:0];
 // [Registers]
 // reg  [11:0]		currX;
 // reg  [ 9:0]		currY;
-reg				lastPair;
 reg		[2:0]	stencilMode;
 
 // [Control bit]
-reg setLastPair, resetLastPair;
-reg changeSwap;
-reg setSwap;
-reg readL;
-reg readM;
 
-always @(posedge clk)
-begin
-    if (setLastPair) begin
-        lastPair <= 1'b1;
-    end
-    if (resetLastPair) begin
-        lastPair <= 1'b0;
-    end
-    if (setSwap) begin
-        swap <= RegX0[0];
-    end else begin
-        swap <= swap ^ changeSwap;
-    end
-    if (readL | readM) begin
-        regSaveM <= readM;
-        regSaveL <= readL;
-    end
-    if (setStencilMode!=3'd0) begin
-        stencilMode <= setStencilMode;
-    end
-end
 wire isNewBlockPixel;
 
-assign readLFifo = readL;
-assign readMFifo = readM;
 // --------------------------------------------------------------------------------------------
 //   [END] CPU TO VRAM STATE SIGNALS & REGISTERS
 // --------------------------------------------------------------------------------------------
@@ -1562,74 +1419,52 @@ wire isPalettePrimitive = (!GPU_REG_TexFormat[1]) & bUseTexture;
 //   VRAM TO CPU : STATE SIGNALS & REGISTERS
 // --------------------------------------------------------------------------------------------
 
-wire copyVCActive = (currWorkState == COPYVC_TOCPU);
-wire exitSig;
-wire [2:0] cvs_nextX, cvs_nextY;
-
-wire [1:0] aSelABDX;
-wire       bSelAB;
-wire       wbSel;
-wire       pushNextCycle;
-
-wire       memReadPairValid;
+wire        memReadPairValid;
 wire [31:0] memReadPairValue;
 
-reg [31:0] pairPixelToCPU;
-reg [15:0] DPixelReg;
+wire [31:0] pairPixelToCPU;
+wire		writeFIFOOut;
 
 wire nextPairIsLineLast = (nextPixelX == XE);
 wire currPairIsLineLast = (pixelX     == XE);
 wire readPairFromVRAM;
 wire hasReadSpace;
 
+
 // [Sub State machine for VC Copy command]
-CVCopyState CVCopyState_Inst(
-	.clk			(clk),
-	.nRst			(i_nrst),
+gpu_SM_CopyVC gpu_SM_CopyVC_instance(
+	.clk				(clk),
+	.nRst				(i_nrst),
+
+	.i_activate			(activateCopy & bIsCopyVCCommand),
+	.o_active			(isCopyVCActive),
+	.o_exitSig			(inactiveCopyVCNextCycle),
 	
-	.active			(copyVCActive),
-	.isWidthNot1	(WidthNot1),
-	.xb_0			(RegX0[0]),
-	.wb_0			(RegSizeW[0]),
+	// Control
+	.isWidthNot1		(WidthNot1),
+	.xb_0				(RegX0[0]),
+	.wb_0				(RegSizeW[0]),
 	
-    .canNearPush(1'b0),
-	.canPush			(!outFIFO_full & hasReadSpace),
 	.endVertical		(endVertical),
 	.nextPairIsLineLast	(nextPairIsLineLast),
 	.currPairIsLineLast	(currPairIsLineLast),
-	.readACK			(memReadPairValid),
-	
-	.o_nextX		(cvs_nextX),
-	.o_nextY		(cvs_nextY),
-	.read			(readPairFromVRAM),
-	.exitSig		(exitSig),
-	.o_aSelABDX		(aSelABDX),
-	.o_bSelAB		(bSelAB),
-	.o_writeFIFOOut (pushNextCycle),
-	.o_wbSel		(wbSel)
-);
 
-reg pipeToFIFOOut;
-always @(posedge clk)
-begin
-	// A Part
-	case (aSelABDX)
-	/*SELA_A = */2'd0: pairPixelToCPU[15:0] <= memReadPairValue[15:0];
-	/*SELA_B = */2'd1: pairPixelToCPU[15:0] <= memReadPairValue[31:16];
-	/*SELA_D = */2'd2: pairPixelToCPU[15:0] <= DPixelReg;
-	/*SELA__ = */2'd3: begin /*Nothing*/ end
-	endcase
-	
-	// B Part
-	if (wbSel) begin
-		pairPixelToCPU[31:16] <= bSelAB ? memReadPairValue[31:16] : memReadPairValue[15:0];
-	end
-	
-	if (memReadPairValid) begin
-		DPixelReg <= memReadPairValue[31:16];
-	end
-	pipeToFIFOOut <= pushNextCycle;
-end
+	.o_nextX			(selNextX_VC),
+	.o_nextY			(selNextY_VC),
+	.o_memoryCommand	(memoryCommand_VC),
+
+	// From Memory System
+	.o_read				(readPairFromVRAM),	// To
+	.i_readACK			(memReadPairValid),	// From
+	.i_readPairValue	(memReadPairValue), // From
+
+	// To FIFO
+    .canNearPush		(1'b0),
+	.i_canPush			(!outFIFO_full & hasReadSpace),
+	.i_outFIFO_empty	(outFIFO_empty),
+	.o_writeFIFOOut 	(writeFIFOOut),
+	.o_pairPixelToCPU	(pairPixelToCPU)
+);
 
 SSCfifo
 #(
@@ -1642,7 +1477,7 @@ FifoPixOut_inst
     .rst			(rstInFIFO),
 
     .wr_data_i		(pairPixelToCPU),
-    .wr_en_i		(pipeToFIFOOut),
+    .wr_en_i		(writeFIFOOut),
 
     .rd_data_o		(outFIFO_readV),
     .rd_en_i		(outFIFO_read),
@@ -1657,838 +1492,229 @@ FifoPixOut_inst
 reg endClutLoading,decClutCount,requClutCacheUpdate;
 wire isLoadingPalette, stillRemainingClutPacket;
 
-always @(posedge clk)
-begin
-    if (rstGPU | rstCmd) begin
-        currWorkState	<= NOT_WORKING_DEFAULT_STATE;
-    end else begin
-        currWorkState	<= nextWorkState;
-    end
-end
+wire [2:0]	activateRender;
+wire		activateCopy;
 
-always @(*)
-begin
-    // -----------------------
-    // Default Value Section
-    // -----------------------
-    memoryCommand				= MEM_CMD_NONE;
-    nextWorkState				= currWorkState;
-    incrementXCounter			= 0;
-    resetXCounter				= 0;
-    switchReadStoreBlock		= 0;
-    useDest						= 0; // Source adr computation by default...
-    memorizeLineEqu				= 0;
-    loadNext					= 0;
-    setPixelFound				= 0;
-    resetPixelFound				= 0;
-	setDirectionComplete		= 0;
-    selNextX					= X_ASIS;
-    selNextY					= Y_ASIS;
-    switchDir					= 0;
-    resetDir					= 0;
-    writePixelL					= 0;
-    writePixelR					= 0;
-//	readStencil					= 0;
-//	writeStencil2				= 2'b00;
-    assignRectSetup				= 0;
+wire renderInactiveNextCycle,inactiveCopyCVNextCycle,inactiveCopyVCNextCycle,inactiveCopyVVNextCycle,waitWork;
 
-//  setEnteredTriangle			= 0; // Disabled due to optimization.
-//  resetEnteredTriangle		= 0;
+gpu_workDispatch gpu_workDispatch_instance(
+	.i_clk						(clk),
+	.i_rst						(rstGPU | rstCmd),
 
-//	resetBlockChange			= 0;
-    setFirstPixel				= 0;
-    setStencilMode				= 3'd0;
-    writeStencil				= 0;
-    stencilReadSig				= 0;
-    stencilReadSigW				= 0;
-    copyCVMode					= 0;
+	// ------------------------------------
+	//    Control sub states.
+	// ------------------------------------
+	// Set when starting new work.
+	.i_issuePrimitive			(issuePrimitive),
+	// Message to sub state machines...
+	.o_activateRender			(activateRender),
+	.o_activateCopy				(activateCopy),
+	// When sub complete
+	.i_renderInactiveNextCycle	(renderInactiveNextCycle),
+	.i_inactiveCopyCVNextCycle	(inactiveCopyCVNextCycle),
+	.i_inactiveCopyVCNextCycle	(inactiveCopyVCNextCycle),
+	.i_inactiveCopyVVNextCycle	(inactiveCopyVVNextCycle),
 
-    resetBank					= 0;
-    switchBank					= 0;
-    clearOtherBank				= 0;
-    clearBank0					= 0;
-    clearBank1					= 0;
+	// ------------------------------------
+	//   Parameters
+	// ------------------------------------
+	// Current Command type
+	.i_bIsPerVtxCol				(bIsPerVtxCol),
+	.i_bUseTexture				(bUseTexture),
+	.i_bIsCopyVVCommand			(bIsCopyVVCommand),
+	.i_bIsCopyCVCommand			(bIsCopyCVCommand),
+	
+	.o_StencilMode				(stencilMode),					// Control for Stencil Cache
+	.o_waitWork					(waitWork)						// Assign to ,, , , 
+);
 
-    // -----------------------
-    //  CPU TO VRAM SIGNALS
-    // -----------------------
-    setLastPair = 0; resetLastPair = 0; setSwap = 0; changeSwap = 1'b0;
-    readL				= 0;
-    readM				= 0;
-    flush				= 0;
-    // -----------------------
+assign setInterCounter		= waitWork;
+assign setFirstPixel		= waitWork;
+assign assignRectSetup		= waitWork;
+assign resetDir				= waitWork;
 
-    endClutLoading		= 0;
-    decClutCount		= 0;
-    requClutCacheUpdate	= 0;
+gpu_SM_CopyVV gpu_SM_CopyVV_instance(
+	.i_clk						(clk),
+	.i_rst						(rstGPU | rstCmd),
 
-// TODOSTENCIL	stencilWriteBitSelect	= 16'h0000;
-// TODOSTENCIL	stencilWriteBitValue	= 16'h0000;
-// TODOSTENCIL	stencilWordAdr	= 15'd0;
-	// Reset
-	setInterCounter			= (nextWorkState == NOT_WORKING_DEFAULT_STATE);
-	setInterTexOnly			= 0; // Default start value.
-	incrementInterpCounter	= 0; // Incr by 1 with single divide unit, 2 with two units.
+	.i_maskSegmentRead			(maskRead16),
+	.i_stencilReadValue16		(stencilReadValue16),
 
-    case (currWorkState)
-    NOT_WORKING_DEFAULT_STATE:
-    begin
-        setFirstPixel			= 1;
-        assignRectSetup			= !bIsPerVtxCol;
-        // resetEnteredTriangle	= 1;	// Put here, no worries about more specific cases. // Removed due to optimization enteredTriangle flag not used anymore.
-        resetDir				= 1;
+	.i_commandFIFOaccept		(commandFIFOaccept),
+	.i_allowNextRead			(allowNextRead),
+	.i_isDoubleLoad				(isDoubleLoad),
+	.i_performSwitch			(performSwitch),
+	.i_isLastSegment			(isLastSegment),
+	.i_isLastSegmentDst			(isLastSegmentDst),
+	.i_endVertical				(endVertical),
 
-        case (/*issue.*/issuePrimitive)
-        ISSUE_TRIANGLE:
-        begin
-            setStencilMode		= 3'd1;
-            if (bIsPerVtxCol) begin
-                nextWorkState = SETUP_INTERP;
-            end else begin
-				setInterTexOnly = bUseTexture;
-                nextWorkState   = (bUseTexture) ? SETUP_INTERP : TRIANGLE_START;
-            end
-        end
-        ISSUE_RECT:
-        begin
-            setStencilMode	= 3'd1;
-            assignRectSetup	= 1;
-            nextWorkState	= WAIT_3; // Force checking palette fully.
-        end
-        ISSUE_LINE:
-        begin
-            setStencilMode		= 3'd1;
-            if (bIsPerVtxCol) begin
-                nextWorkState = SETUP_INTERP;
-            end else begin
-                nextWorkState = /*(bUseTexture) ? SETUP_UX :*/ LINE_START;	// Impossible : bUseTexture always false with LINES.
-            end
-        end
-        ISSUE_FILL:
-        begin
-            setStencilMode		= 3'd2;
-            nextWorkState = FILL_START;
-        end
-        ISSUE_COPY:
-            if (bIsCopyVVCommand) begin
-                setStencilMode		= 3'd6;
-                nextWorkState		= COPY_INIT;
-            end else if (bIsCopyCVCommand) begin
-                setStencilMode		= 3'd3;
-                nextWorkState		= COPYCV_START;
-            end else begin
-                // bIsCopyVCCommandbegin obviously...
-                // STENCIL MODE NOT USED (no read, no write), BUT USED TO KNOW DIRECTION FOR CPU READ...
-                setStencilMode		= 3'd7;
-                nextWorkState		= COPYVC_START;
-            end
-        default:
-            nextWorkState = currWorkState;
-        endcase
-    end
-    // --------------------------------------------------------------------
-    //   FILL VRAM STATE MACHINE
-    // --------------------------------------------------------------------
-    FILL_START:	// Actually FILL LINE START.
-    begin
-        if (emptySurface) begin
-            nextWorkState = NOT_WORKING_DEFAULT_STATE;
-        end else begin
-            // Next Cycle H=H-1, and we can parse from H-1 to 0 for each line...
-            // Reset X Counter. + Now we fill from H-1 to ZERO... force decrement here.
-            loadNext		= 1;
-            selNextY		= Y_CV_ZERO;
-            resetXCounter	= 1;
-            nextWorkState	= FILL_LINE;
-        end
-    end
-    FILL_LINE:
-    begin
-        // Forced to decrement at each step in X
-        // [FILL COMMAND : [16 Bit 0BGR][16 bit empty][Adr 15 bit][4 bit empty][010]
-        if (commandFIFOaccept) begin // else it will wait...
-            memoryCommand		= MEM_CMD_FILL;
-            writeStencil		= 1;
-            if (isLastSegment) begin
-                loadNext      = 1;
-                selNextY      = Y_TRI_NEXT;
-                resetXCounter = 1;
-                nextWorkState = (endVertical) ? NOT_WORKING_DEFAULT_STATE : FILL_LINE;
-            end else begin
-                incrementXCounter	= 1;// SRC COUNTER
-            end
-        end
-    end
-    // --------------------------------------------------------------------
-    //   COPY VRAM STATE MACHINE
-    // --------------------------------------------------------------------
+	.i_activateCopyVV			(activateCopy & bIsCopyVVCommand),
+	.o_CopyInactiveNextCycle	(inactiveCopyVVNextCycle),
+	.o_active					(isCopyVVActive),
+	
+	.o_loadNext					(loadNext_VV),
+	.o_selNextX					(selNextX_VV),
+	.o_selNextY					(selNextY_VV),
+	.o_memoryCommand			(memoryCommand_VV),
+	
+	.o_resetXCounter			(resetXCounter_VV),
+	.o_incrementXCounter		(incrementXCounter_VV),
+	.o_stencilReadSig			(stencilReadSig_VV),
+	.o_writeStencil				(writeStencil_VV),
+	.o_cpyBank					(cpyBank),
+	.o_useDest					(useDest),
+	.o_clearOtherBank			(clearOtherBank),
+	.o_stencilReadSigW			(stencilReadSigW),
+	.o_clearBank0				(clearBank0),
+	.o_clearBank1				(clearBank1),
+	
+	.o_maskReadCache			(maskReadCache),
+	.o_stencilReadCache			(stencilReadCache)
+);
 
-    COPY_INIT:
-    begin
-        nextWorkState		= COPY_START_LINE;
-        selNextY = Y_CV_ZERO; loadNext = 1;
-    end
+wire lineStart;
+gpu_SM_render gpu_SM_render_instance(
+	.i_clk						(clk),
+	.i_rst						(rstGPU | rstCmd),
 
-    COPY_START_LINE:
-    begin
-        // [CPY_START] : Beginning of a line.
-        // Copy never have 'empty surfaces'
+	// Parameters
+	.i_bUseTexture				(bUseTexture),
+	.i_bIsRectCommand			(bIsRectCommand),
+	.i_bIsPolyCommand			(bIsPolyCommand),
+	
+	// Control
+	.i_activateRender			(activateRender),
+	.o_renderInactiveNextCycle	(renderInactiveNextCycle),
+	
+	.o_lineStart				(lineStart),
 
-        // Do start current line...
-        nextWorkState		= CPY_RS1;
-        resetBank			= 1;
-        resetXCounter		= 1; // No load loadNext here.
+	// Can we push memory commands ?
+	.i_commandFIFOaccept		(commandFIFOaccept),
 
-        // TODO resetStencilTmp		= 1;
-    end
-    CPY_RS1: // Read Stencil.
-    begin
-        stencilReadSig	= 1; // Adr setup auto.
-        if (commandFIFOaccept) begin
-            nextWorkState = CPY_R1;
-        // else nextWorkState stay the same
-        end
-    end
+	.i_saveLoadOnGoing			(saveLoadOnGoing),
+	.i_pixelInFlight			(pixelInFlight),
 
-    CPY_R1:
-    begin
-        // Here we know that commandFIFOaccept is 1 (Previous state)
-        // Store (Stencil & Mask) in temporary here
-        incrementXCounter	= 1; useDest = 0; // Increment Source.
-        // TODO storeStencilTmp		= 1;
-        // TODO switchBank			= 1;
-        clearOtherBank		= 1;
-        memoryCommand		= MEM_CMD_RDBURST;
+	.o_incrementInterpCounter	(incrementInterpCounter),
+	.i_endInterpCounter			(endInterpCounter),
 
-        if (allowNextRead) begin
-            if (isDoubleLoad) begin
-                nextWorkState	= CPY_RS2;
-            end else begin
-                nextWorkState	= CPY_LWS1;
-            end
-        end else begin
-            nextWorkState		= CPY_WS2;
-        end
+	.i_isLoadingPalette			(isLoadingPalette),
+	.i_stillRemainingClutPacket	(stillRemainingClutPacket),
+	.o_requClutCacheUpdate		(requClutCacheUpdate),
+	.o_decClutCount				(decClutCount),				// Same signal AS requClutCacheUpdate
+	.i_isPalettePrimitive		(isPalettePrimitive),		// Could just reset always ?
+	.o_endClutLoading			(endClutLoading),			// May be avoid using i_isPalettePrimitive ?
 
-        if (isDoubleLoad) begin
-            if (allowNextRead) begin
-                switchBank		= performSwitch;
-            end else begin
-                switchBank		= !performSwitch;
-            end
-        end else begin
-            switchBank		= performSwitch;
-        end
+	.o_writeStencil				(writeStencil_RDR),
+	.o_loadNext					(loadNext_RDR),
+	.o_selNextX					(selNextX_RDR),
+	.o_selNextY					(selNextY_RDR),
+	.o_memoryCommand			(memoryCommand_RDR),
+	
+	.o_resetXCounter			(resetXCounter_RDR),
+	.o_incrementXCounter		(incrementXCounter_RDR),
+	.o_stencilReadSig			(stencilReadSig_RDR),
+	.o_setPixelFound			(setPixelFound),
+	.o_memorizeLineEqu			(memorizeLineEqu),
+	.o_switchDir				(switchDir),
+	.o_writePixelL				(writePixelL),
+	.o_writePixelR				(writePixelR),
+	.o_setDirectionComplete		(setDirectionComplete),
+	.o_resetPixelFound			(resetPixelFound),
+	.o_flush					(flush_RDR),
 
-        //-------------------
-        /* OLD BUGGY CODE
-        if (allowNextRead) begin
-            if (isDoubleLoad) begin
-                switchBank		= performSwitch;
-                nextWorkState	= CPY_RS2;
-            end else begin
-                // If PerformSwitch = 1 => Double bank switch -> No Switch !
-                // If PerformSwitch = 0 => Single bank switch -> 1  Switch !
-                switchBank		= !performSwitch;
-                nextWorkState	= CPY_LWS1;
-            end
-        end else begin
-            switchBank			= performSwitch;
-            nextWorkState		= CPY_WS2;
-        end
-        */
-    end
-    CPY_RS2:
-    begin
-        stencilReadSig	= 1; // Adr setup auto.
-        if (commandFIFOaccept) begin
-            nextWorkState = CPY_R2;
-        // else nextWorkState stay the same
-        end
-    end
-    CPY_R2:
-    begin
-        incrementXCounter	= 1; useDest = 0; // Increment Source.
-        // TODO storeStencilTmp		= 1;
-        memoryCommand		= MEM_CMD_RDBURST;
-        switchBank			= performSwitch;
+	//-----------------------------------------
+	// Current pixel pair
+	//-----------------------------------------
+	.i_isValidPixelL			(isValidPixelL),
+	.i_isValidPixelR			(isValidPixelR),
+	
+	//-----------------------------------------
+	// Scan/Geometry feedback
+	//-----------------------------------------
+	// Fill
+	.i_emptySurface				(emptySurface),
+	.i_isLastSegment			(isLastSegment),
+	.i_endVertical				(endVertical),
 
-        if (allowNextRead) begin
-            nextWorkState	= CPY_LWS1;
-        end else begin
-            nextWorkState	= CPY_WS2;
-        end
-    end
+	// Triangles / Rect
+	.i_earlyTriangleReject		(earlyTriangleReject),		// Gather outside and make single input ?
+	.i_isNULLDET				(isNULLDET),
 
-    CPY_LWS1:
-    begin
-        stencilReadSigW		= 1;
+	// Check that TRIANGLE EDGE did not SWITCH between the LEFT and RIGHT side of the bounding box.
+	.i_outsideTriangle			(edgeDidNOTSwitchLeftRightBB && ((!maxTriDAX1[0] && !isValidPixelL) || (maxTriDAX1[0] && !isValidPixelR))),
 
-        if (commandFIFOaccept) begin
-            nextWorkState	= CPY_LW1;
-        // else nextWorkState stay the same
-        end
-    end
-    CPY_LW1:
-    begin
-        incrementXCounter	= 1; useDest = 1;
-        memoryCommand		= MEM_CMD_WRBURST;
-        writeStencil		= 1;
-        nextWorkState		= CPY_LRS;
-    end
-    CPY_LRS:
-    begin
-        stencilReadSig	= 1; // Adr setup auto.
-        if (commandFIFOaccept) begin
-            nextWorkState	= CPY_LR;
-        // else nextWorkState stay the same
-        end
-    end
-    CPY_LR:
-    begin
-        incrementXCounter	= 1; useDest = 0; // Increment Source.
+	.i_isNegXAxis				(isNegXAxis),
+	.i_isNegPreB				(isNegPreB),
+	.i_isValidHorizontalTriBbox	(isValidHorizontalTriBbox),
+	.i_isBottomInsideBBox		(isBottomInsideBBox),
+	.i_pixelFound				(pixelFound),
+	.i_requestNextPixel			(requestNextPixel),
+	.GPU_REG_CheckMaskBit		(GPU_REG_CheckMaskBit),
+	.stencilReadValue			(stencilReadValue),
+	.i_reachEdgeTriScan			(reachEdgeTriScan),
+	.i_completedOneDirection	(completedOneDirection),
 
-        memoryCommand		= MEM_CMD_RDBURST;
-        switchBank			= performSwitch;
+	.i_isInsideBBoxTriRectL		(isInsideBBoxTriRectL),
+	.i_isInsideBBoxTriRectR		(isInsideBBoxTriRectR),
+	.i_isRightPLXmaxTri			(isRightPLXmaxTri),
 
-        if (!isLastSegment/* = allowNextRead, do NOT check isLongLine ! */) begin
-            nextWorkState	= CPY_LWS1;
-        end else begin
-            nextWorkState	= CPY_WS2;
-        end
-    end
+	// NON INTERLACED OR INTERLACE BUT VALID AREA
+			
+	
+	.i_isValidLinePixel			(
+									(isLineInsideDrawArea 																			// VALID AREA
+									&& ((!InterlaceRender)    || (InterlaceRender && (GPU_REG_CurrentInterlaceField != pixelY[0])))	// NON INTERLACED OR INTERLACE BUT VALID AREA
+									&& ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit)))
+								),
 
-    CPY_WS2:
-    begin
-        stencilReadSigW		= 1;
+	.i_isLineLeftPix			(isLineLeftPix),
+	.i_isLineRightPix			(isLineRightPix),
+	.i_endPixelLine				((pixelX == RegX1) && (pixelY == RegY1))
+);
 
-        if (commandFIFOaccept) begin
-            nextWorkState	= CPY_W2;
-        // else nextWorkState stay the same
-        end
-    end
-    CPY_W2:
-    begin
-        // Here : at this cycle we receive value from stencil READ.
-        // And do now a STENCIL WRITE.
-        incrementXCounter	= 1; useDest = 1;
-        memoryCommand		= MEM_CMD_WRBURST;
-        writeStencil		= 1;
 
-        clearBank0			= !cpyBank;
-        clearBank1			= cpyBank;
-        switchBank			= performSwitch;
+gpu_SM_CopyCV gpu_SM_CopyCV_instance(
+	.i_clk						(clk),
+	.i_rst						(rstGPU | rstCmd),
 
-        if (!isLastSegmentDst) begin
-            nextWorkState	= CPY_WS3;
-        end else begin
-            nextWorkState	= CPY_ENDLINE;
-        end
-    end
-    CPY_WS3:
-    begin
-        stencilReadSigW		= 1;
+	.i_activateCopyCV			(activateCopy & bIsCopyCVCommand),
+	.o_CopyInactiveNextCycle	(inactiveCopyCVNextCycle),
+	.o_active					(isCopyCVActive),
+	
+	.i_RegX0_0					(RegX0[0]),
+	.i_pixelY_0					(pixelY[0]),
+	.i_nextPixelY_0				(nextPixelY[0]),
+	.i_RegSizeW_0				(RegSizeW[0]),
+	.i_RegSizeH_0				(RegSizeH[0]),
+	.i_WidthNot1				(WidthNot1),
+	.i_endVertical				(endVertical),
 
-        if (commandFIFOaccept) begin
-            nextWorkState	= CPY_W3;
-        // else nextWorkState stay the same
-        end
-    end
-    CPY_W3:
-    begin
-        memoryCommand		= MEM_CMD_WRBURST;
-        writeStencil		= 1;
-        nextWorkState		= CPY_ENDLINE;
-    end
-    CPY_ENDLINE:
-    begin
-        selNextY			= Y_TRI_NEXT; loadNext = 1;
-
-        if (endVertical) begin
-            // End of copy primitive...
-            nextWorkState	= NOT_WORKING_DEFAULT_STATE;
-        end else begin
-            nextWorkState	= COPY_START_LINE;
-        end
-    end
-
-    // --------------------------------------------------------------------
-    //   COPY CPU TO VRAM.
-    // --------------------------------------------------------------------
-    COPYCV_START:
-    begin
-        selNextX		= X_CV_START;
-        selNextY		= Y_CV_ZERO;
-        loadNext		= 1;
-        setSwap			= 1;
-        copyCVMode		= 1;
-        // Reset last pair by default, but if WIDTH == 1 -> different.
-        resetLastPair	= !((!WidthNot1) | nextPairIsLineLast);
-        setLastPair		=   (!WidthNot1) | nextPairIsLineLast;
-        // We set first pair read here, flag not need to be set for next state !
-        // No Zero Size W/H Test -> IMPOSSIBLE By definition.
-        if (canRead) begin
-            // Read ALL DATA 1 item in advance -> Remove FIFO LATENCY /*issue.*/
-            readL = 1'b1;
-            readM = !RegX0[0] & (WidthNot1);
-            nextWorkState = COPYCV_COPY;
-            stencilReadSig	= 1;
-        end
-    end
-    COPYCV_COPY:
-    begin
-//		stencilSourceAdr        = 0;
-        // TRICKY :
-        // -----------------------------
-        // At the current pixel X,Y we preload the FIFO for the NEXT X,Y coordinate.
-        // So setup of readL/readM are ONE PAIR in advance compare to the scanning...
-        // -----------------------------
-        stencilReadSig	= 1;
-        copyCVMode		= 1;
-		// Accept to process when :
-		// - Can write the memory transaction.
-		// - Has next data ready OR it is the LAST memory transaction.
-        if (commandFIFOaccept & (canRead | (lastPair & endVertical))) begin
-            memoryCommand = MEM_CMD_PIXEL2VRAM;
-            nextWorkState = COPYCV_COPY;
-            writeStencil  = 1;
-            loadNext	  = 1;
-
-            // [Last pair]
-            if (lastPair) begin
-                if (endVertical) begin
-                    nextWorkState	= NOT_WORKING_DEFAULT_STATE;
-                    // PURGE...
-                    readL		= 1'b0;
-                    readM		= RegSizeW[0] & RegSizeH[0]; // Pump out unused pixel in FIFO.
-                    flush		= 1'b1;
-                end else begin
-                    selNextY	= Y_TRI_NEXT;
-                    if (WidthNot1) begin
-                        // WIDTH != 1, standard case
-                        /* FIRST SEGMENT PATTERN
-                            W=0	W=0	W=1	W=1
-                            X=0	X=1	X=0	X=1
-                        L=	1	1	1	!currY[0]
-                        M=	1	0	1	currY[0]
-                        */
-                        case ({RegSizeW[0],RegX0[0]})
-                        2'b00: begin
-                            readL = 1'b1; readM = 1'b1;
-                        end
-                        2'b01: begin
-                            readL = 1'b1; readM = 1'b0;
-                        end
-                        2'b10: begin
-                            readL = 1'b1; readM = 1'b1;
-                        end
-                        2'b11: begin
-                            readL = !nextPixelY[0]; readM = nextPixelY[0];
-                        end
-                        endcase
-                        changeSwap  = RegSizeW[0] & WidthNot1; // If width=1, do NOT swap.
-                    end else begin
-                        // Only 1 pixel WIDTH pattern...
-                        // Alternate ODD/EVEN lines...
-                        readL		= !nextPixelY[0];
-                        readM		=  nextPixelY[0];
-                        changeSwap	= 1'b1;
-                    end
-                end
-                selNextX		= X_CV_START;
-                resetLastPair	= WidthNot1 & (!nextPairIsLineLast);
-            end else begin
-                // [MIDDLE OR FIRST SEGMENT]
-                //    PRELOAD NEXT SEGMENT...
-                if (nextPairIsLineLast) begin
-                    /* LAST SEGMENT PATTERN
-                        W=0	W=0	W=1		W=1
-                        X=0	X=1	X=0		X=1
-                    L = 1	0	!Y[0]	1
-                    M = 1	1	Y[0]	1	*/
-                    case ({RegSizeW[0],RegX0[0]})
-                    2'b00: begin
-                        readL = 1'b1; readM = 1'b1;
-                    end
-                    2'b01: begin
-                        readL = 1'b0; readM = 1'b1;
-                    end
-                    2'b10: begin
-                        // L on first line (even), M on second (odd)
-                        readL = !pixelY[0]; readM = pixelY[0];
-                    end
-                    2'b11: begin
-                        readL = 1'b1; readM = 1'b1;
-                    end
-                    endcase
-
-                    setLastPair	= 1'b1; // TODO : Rename FirstPair into LastPair.
-                end else begin
-                    readL = 1'b1;
-                    readM = 1'b1;
-                end
-                selNextX	= X_TRI_NEXT;
-            end
-        end
-    end
-    // --------------------------------------------------------------------
-    //   COPY VRAM TO CPU.
-    // --------------------------------------------------------------------
-    COPYVC_START:
-    begin
-        // [PREAD COMMAND: [100][Index 5 bit] -> Next cycle have 16 bit through special port.
-        // Use BSTORE Command for burst loading.
-//		stencilSourceAdr        = 0;
-        nextWorkState	= COPYVC_TOCPU;
-        selNextX		= X_CV_START;
-        selNextY		= Y_CV_ZERO;
-		loadNext		= 1;
-		
-        /*
-            Start : Request First Block. (X[3] is block ID (0/1))
-                    If ((XLeft & 7)==7)
-                        State = Start2
-                    else
-                        Wait
-            Start2:	Request 2nd block    (![X3])
-            Wait  : [Wait Command FIFO empty & Complete flag]
-                    If ok -> Wait CPU
-            WaitCPU:
-                    if ((NextXLeft & 7)==7 || ==0) {
-                        State = ReadNext
-                    else
-
-                    if (cpuReadValid) // Read GP0.
-                        incX += 2;
-                        Write pixel back.
-                            State = Start2
-                        } else {
-                            State = AsIs;
-                        }
-                    else
-                        wait cpu to read pixel...
-                        State = AsIs;
-                    end
-         */
-    end
-    COPYVC_TOCPU:
-    begin
-		if (exitSig) begin
-			nextWorkState = COPYVC_WAITFLUSH;
-		end
-		
-		//
-		// Done by sub state machine module...
-		//
-		
-		memoryCommand = readPairFromVRAM ? MEM_CMD_VRAM2CPU : MEM_CMD_NONE;
-
-		selNextX	= nextX_t'(cvs_nextX);
-		selNextY	= nextY_t'(cvs_nextY);
-		loadNext	= 1;
-		
-        // Detect edge transition... waiting for data received...
-        // Data already present -> Read from both buffer possible.
-        // Set gpuReadySendToCPU
-    end
-	COPYVC_WAITFLUSH:
-	begin
-		if (outFIFO_empty) begin
-			nextWorkState = NOT_WORKING_DEFAULT_STATE;
-		end
-	end
-    // --------------------------------------------------------------------
-    //   TRIANGLE STATE MACHINE
-    // --------------------------------------------------------------------
-    SETUP_INTERP:
-    begin
-		nextWorkState = (nextInterpolationCounter[4:2] == { 1'b1, bUseTexture , 1'b0 }) ? WAIT_3 : SETUP_INTERP;
-		incrementInterpCounter = 1;
-    end
-    WAIT_3: // 4 cycles to wait
-    begin
-        // Use this state to wait for end previous memory transaction...
-        nextWorkState = (saveLoadOnGoing == 0) ? WAIT_2 : WAIT_3;
-    end
-    WAIT_2: // 3 cycles to wait
-    begin
-		// [TODO] That test could be put outside and checked EARLY --> RECT could skip to RECT_START 3 cycle earlier. Safe for now.
-		//        Did that before but did not checked whole condition --> FF7 Station failed some tiles.
-		
-		// validCLUTLoad is when CLUT reloading was set
-		// isPalettePrimitive & rPalette4Bit & CLUTIs8BPP is when nothing changed, EXCEPT WE WENT FROM 4 BIT TO 8 BIT !
-        if (isLoadingPalette) begin
-            // Not using signal updateClutCacheComplete but could... rely on transaction only.
-            if (saveLoadOnGoing == 0) begin // Wait for an on going memory transaction to complete.
-                if (stillRemainingClutPacket) begin
-                    // And request ours.
-                    requClutCacheUpdate = 1;
-                    decClutCount		= 1;
-                    nextWorkState		= WAIT_2;
-                end else begin
-                    nextWorkState		= WAIT_1;
-                end
-            end else begin
-                // Just do nothing
-                nextWorkState = WAIT_2;
-            end
-        end else begin
-            nextWorkState = WAIT_1;
-        end
-    end
-    WAIT_1: // 2 cycles to wait
-    begin
-        endClutLoading	= isPalettePrimitive;	// Reset flag, even if it was already reset. Force 0.
-                                                // Force also to cache the current primitive pixel format (was it 4 bpp ?)
-        nextWorkState = SELECT_PRIMITIVE;
-    end
-    SELECT_PRIMITIVE: 	// 1 Cycle to wait... send to primitive (with 1 cycle wait too...)
-    begin				// Need 4 more cycle after that.
-        if (bIsRectCommand) begin
-            nextWorkState = RECT_START;
-        end else begin
-            if (bIsPolyCommand) begin
-                nextWorkState = TRIANGLE_START;
-            end else begin
-                nextWorkState = LINE_START; /* RECT NEVER REACH HERE : No Division setup */
-            end
-        end
-    end
-    TRIANGLE_START:
-    begin
-        loadNext = 1;
-        if (earlyTriangleReject || isNULLDET) begin	// Bounding box and draw area do not intersect at all.
-            nextWorkState	= NOT_WORKING_DEFAULT_STATE;
-        end else begin
-            nextWorkState	= START_LINE_TEST_LEFT;
-            selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
-            selNextY	= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
-        end
-
-        // Triangle use PSTORE COMMAND. (2 pix per clock)
-        //              BWRITE
-        //
-        // [CLOAD COMMAND : [111][Adress 17 bit] (Texture)
-        // Use C(ache)LOAD to load a cache line for TEXTURE with 8 BYTE. This command will be upgraded if cache design changes...
-        // Clut CACHE uses BSTORE command.
-    end
-    START_LINE_TEST_LEFT:
-    begin
-        if (isValidPixelL | isValidPixelR) begin // Line equation.
-            nextWorkState = SCAN_LINE;
-            stencilReadSig	= 1;
-        end else begin
-            memorizeLineEqu = 1;
-            nextWorkState	= START_LINE_TEST_RIGHT;
-            loadNext 		= 1;
-            selNextX		= X_TRI_BBRIGHT;// Set next X = BBox RIGHT intersected with DrawArea.
-        end
-    end
-    START_LINE_TEST_RIGHT:
-    begin
-        loadNext 	= 1;
-        selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
-        // Test Bbox left (included) has SAME line equation result as right (excluded) result of line equation.
-        // If so, mean that we are at the same area defined by the equation.
-        // We also test that we are NOT a valid pixel inside the triangle.
-        // We use L/R result based on RIGHT edge coordinate (odd/even).
-        if ( edgeDidNOTSwitchLeftRightBB	// Check that TRIANGLE EDGE did not SWITCH between the LEFT and RIGHT side of the bounding box.
-         && ((!maxTriDAX1[0] && !isValidPixelL) || (maxTriDAX1[0] && !isValidPixelR)))		// And that we are OUTSIDE OF THE TRIANGLE. (if odd/even pixel, select proper L/R validpixel.) (Could be also a clipped triangle with FULL LINE)
-        begin
-            selNextY		= Y_TRI_NEXT;
-            nextWorkState	= isValidHorizontalTriBbox ? START_LINE_TEST_LEFT : FLUSH_COMPLETE_STATE;
-        end else begin
-            resetPixelFound	= 1;
-            stencilReadSig	= 1;
-            nextWorkState	= SCAN_LINE;
-        end
-    end
-    SCAN_LINE:
-    begin
-        if (isBottomInsideBBox) begin
-            stencilReadSig	= 1;
-            //
-            // TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
-            //        Warning : Care of single pixel write logic + and non increment of X.
-
-            // TODO : Mask stuff here at IF level too.
-            if (isValidPixelL || isValidPixelR) begin // Line Equation.
-                // setEnteredTriangle = 1;  REMOVED, Optimization testing enteredTriangle not necessary anymore.
-
-                if (pixelFound == 0) begin
-                    setPixelFound	= 1;
-                end
-
-                // TODO Pixel writing logic
-                if (requestNextPixel) begin
-//					resetBlockChange = 1;
-
-                    // Write only if pixel pair is valid...
-
-                    writePixelL	= isValidPixelL  & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
-                    writePixelR	= isValidPixelR  & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
-
-                    // writeStencil2 = { writePixelR , writePixelL };
-
-                    // Go to next pair whatever, as long as request is asking for new pair...
-                    // normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
-                    loadNext	= 1;
-                    selNextX	= X_TRI_NEXT;
-                end
-            end else begin
-                // Makes GPU slower but fixed part of a bug (only a part !)
-                // When GPU is busy with some memory (like fetching Texture, write back BG, read BG for blending)
-                // I stop the triangle scanning...
-                // Logically I should not.
-                if (requestNextPixel) begin
-                    loadNext	= 1;
-                    if (pixelFound == 1) begin // Pixel Found.
-                        selNextY		= Y_TRI_NEXT;
-                        nextWorkState	= SCAN_LINE_CATCH_END;
-                    end else begin
-                        // Continue to search for VALID PIXELS...
-                        selNextX		= X_TRI_NEXT;
-
-                        // Trick : Due to FILL CONVENTION, we can reach a line WITHOUT A SINGLE PIXEL !
-                        // -> Need to detect that we scan too far and met nobody and avoid out of bound search.
-						// COMMENTED OUT enteredTriangle test : some triangle do write pixels sparsely when very thin !!!!
-						// No choice except scanning until Bbox edge, no early skip...
-						if (reachEdgeTriScan) begin
-							if (completedOneDirection) begin
-								selNextY				= Y_TRI_NEXT;
-								nextWorkState			= SCAN_LINE_CATCH_END;
-							end else begin
-								switchDir				= 1;
-								setDirectionComplete	= 1;
-								selNextY				= Y_ASIS;
-								nextWorkState			= SCAN_LINE;
-							end
-						end else begin
-							selNextY				= Y_ASIS;
-							nextWorkState			= SCAN_LINE;
-						end
-                    end
-                end // else do nothing.
-            end
-        end else begin
-            nextWorkState	= FLUSH_COMPLETE_STATE;
-        end
-    end
-    SCAN_LINE_CATCH_END:
-    begin
-        if (isValidPixelL || isValidPixelR) begin
-            loadNext		= 1;
-            selNextX		= X_TRI_NEXT;
-        end else begin
-            switchDir		= 1;
-            resetPixelFound	= 1;
-            nextWorkState	= SCAN_LINE;
-        end
-    end
-    // --------------------------------------------------------------------
-    //   RECT STATE MACHINE
-    // --------------------------------------------------------------------
-    RECT_START:
-    begin
-        // Rect use PSTORE COMMAND. (2 pix per clock)
-        nextWorkState	= RECT_SCAN_LINE;
-        stencilReadSig	= 1;
-        if (earlyTriangleReject | isNegXAxis | isNegPreB) begin // VALID FOR RECT TOO : Bounding box and draw area do not intersect at all, or NegativeSize => size = 0.
-            nextWorkState	= NOT_WORKING_DEFAULT_STATE;	// Override state.
-        end else begin
-            loadNext		= 1;
-            selNextX		= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
-            selNextY		= Y_TRI_START;	// Set currY = BBoxMinY intersect Y Draw Area.
-        end
-    end
-    RECT_SCAN_LINE:
-    begin
-        stencilReadSig	= 1;
-        if (isBottomInsideBBox) begin // Not Y end yet ?
-            if (isRightPLXmaxTri) begin // Work by pair. Is left side of pair is inside rendering area. ( < right border )
-                if (requestNextPixel) begin
-                    // Write only if pixel pair is valid...
-                    writePixelL   = isInsideBBoxTriRectL & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
-                    writePixelR   = isInsideBBoxTriRectR & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
-
-                    // Go to next pair whatever, as long as request is asking for new pair...
-                    // normally changeX = 1; selNextX = X_TRI_NEXT;  [!!! HERE !!!]
-                    loadNext	= 1;
-                    selNextX	= X_TRI_NEXT;
-                end
-            end else begin
-                loadNext	= 1;
-                selNextX	= X_TRI_BBLEFT;
-                selNextY	= Y_TRI_NEXT;
-                // No state change... Work on next line...
-            end
-            nextWorkState	= RECT_SCAN_LINE;
-        end else begin
-            nextWorkState	= FLUSH_COMPLETE_STATE;
-        end
-    end
-
-    // --------------------------------------------------------------------
-    //   LINE STATE MACHINE
-    // --------------------------------------------------------------------
-    LINE_START:
-    begin
-        /* Line Setup, Triangle setup may be... */
-        loadNext	= 1;
-        stencilReadSig	= 1;
-        selNextX	= X_LINE_START;
-        selNextY	= Y_LINE_START;
-        nextWorkState = LINE_DRAW;
-    end
-    LINE_DRAW:
-    begin
-        if (requestNextPixel) begin
-            stencilReadSig	= 1;
-            selNextX	= X_LINE_NEXT;
-            selNextY	= Y_LINE_NEXT;
-            loadNext	= 1;
-
-            if ((pixelX == RegX1) && (pixelY == RegY1)) begin
-                nextWorkState	= FLUSH_COMPLETE_STATE; // Override nextWorkState from setup in this.
-            end
-
-            // If pixel is valid and (no mask checking | mask check with value = 0)
-            if (isLineInsideDrawArea 																		// VALID AREA
-			&& ((!InterlaceRender)    || (InterlaceRender && (GPU_REG_CurrentInterlaceField != pixelY[0])))	// NON INTERLACED OR INTERLACE BUT VALID AREA
-			&& ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit))) begin	// Clipping DrawArea, TODO: Check if masking apply too.
-                writePixelL	 = isLineLeftPix;
-                writePixelR	 = isLineRightPix;
-            end
-        end
-    end
-    FLUSH_COMPLETE_STATE:
-    begin
-        // We stopped emitting pixels, now we have to check that :
-        // - No memory transaction is running anymore.
-        // - No pixel are in flight.
-        if (!saveLoadOnGoing && !pixelInFlight) begin
-            flush = 1'b1;
-            nextWorkState = NOT_WORKING_DEFAULT_STATE;
-        end
-    end
-    // --- TEMP DEBUG STUFF ---
-    TMP_2: begin nextWorkState = TMP_3; end
-    TMP_3: begin nextWorkState = TMP_4; end
-    TMP_4: begin nextWorkState = NOT_WORKING_DEFAULT_STATE; end
-    default:
-    begin
-        nextWorkState = NOT_WORKING_DEFAULT_STATE;
-    end
-    endcase
-end
-
+	.i_canRead					(canRead),
+	.i_nextPairIsLineLast		(nextPairIsLineLast),
+	.i_commandFIFOaccept		(commandFIFOaccept),
+                         
+	.o_loadNext					(loadNext_CV),
+	.o_selNextX					(selNextX_CV),
+	.o_selNextY					(selNextY_CV),
+	.o_memoryCommand			(memoryCommand_CV),
+                         
+	.o_swap						(swap),			// FIFO swap
+	.o_stencilReadSig			(stencilReadSig_CV),
+	.o_writeStencil				(writeStencil_CV),
+	.o_flush					(flush_CV),
+	.o_saveL					(saveL),
+	.o_saveM					(saveM),
+	
+	.o_readL					(readL),
+	.o_readM					(readM)
+);
 
 StencilCache StencilCacheInstance(
     .clk					(clk),
 
     .fullMode				(stencilFullMode),
-    .writeValue16			(stencilWriteValue16),
-    .writeMask16			(stencilWriteMask16),
+    .writeValue16			(stencilMode[2] ? stencilWValueCpy : 16'd0),	// For now... FILL ONLY.
+    .writeMask16			(stencilMode[2] ? stencilWMaskCpy  : 16'hFFFF),	// For now... FILL ONLY.
     .readValue16			(stencilReadValue16),
 
     // -------------------------------
@@ -2515,9 +1741,6 @@ wire	[15:0]	stencilWValueCpy  = stencilReadRemapped |  {16{GPU_REG_ForcePixel15M
 
 always @(*)
 begin
-    stencilWriteValue16	= stencilMode[2] ? stencilWValueCpy : 16'd0;	// For now... FILL ONLY.
-    stencilWriteMask16	= stencilMode[2] ? stencilWMaskCpy  : 16'hFFFF;	// For now... FILL ONLY.
-
     if (stencilMode[1:0] == 2'd2) begin
         // Work for FILL command OR VRAM<->VRAM Command.
         stencilFullMode		= 1;
@@ -2548,7 +1771,7 @@ end
 wire    [14:0]  VVReadAdrStencil = stencilReadSigW ? { scrDstY[8:0] , scrDstX } : { scrY[8:0] , scrSrcX };
 
 assign stencilReadAdr		= stencilMode[2] ? VVReadAdrStencil	// VRAM<->VRAM Mode Only
-                                             : { copyCVMode ? nextScrY[8:0] : nextPixelY[8:0], nextPixelX[9:4] };		// Other modes.
+                                             : { isCopyCVActive ? nextScrY[8:0] : nextPixelY[8:0], nextPixelX[9:4] };		// Other modes.
 assign stencilReadPair		= { nextPixelX[3:1] };						//
 // Select 11 for other primitives, or the correct pixel for the read for LINES.
 assign stencilReadSelect	= { !bIsLineCommand | nextPixelX[0] , !bIsLineCommand | (!nextPixelX[0]) };
@@ -2560,15 +1783,6 @@ assign stencilReadSelect	= { !bIsLineCommand | nextPixelX[0] , !bIsLineCommand |
 assign selectPixelWriteMaskLine = (!pixelX[0] & stencilReadValue[0]) | (pixelX[0] & stencilReadValue[1]);
 
 // TODO OPTIMIZE : can probably compute nextCondUseFIFO outside with : (nextLogicalState != WAIT_COMMAND_COMPLETE) & (nextLogicalState != DEFAULT_STATE)
-
-reg bPipeIssueTrianglePrimitive;
-always @(posedge clk)
-begin
-    bPipeIssueTrianglePrimitive <= (issuePrimitive == ISSUE_TRIANGLE);
-end
-
-
-
 /*
 // Compute diff :
     Y1-Y0
@@ -2822,19 +2036,19 @@ gpu_clutManager clutManagerInstance (
 
 // ------------------------------------------------
 CLUT_Cache CLUT_CacheInst(
-    .i_clk								(clk),
-    .i_nrst								(i_nrst),
+    .i_clk					(clk),
+    .i_nrst					(i_nrst),
 
-    .i_write							(ClutCacheWrite),
-    .i_writeBlockIndex					(currentClutBlockWrite),
-    .i_writeIdxInBlk					(ClutWriteIndex),
-    .i_Colors							(ClutCacheData),
+    .i_write				(ClutCacheWrite),
+    .i_writeBlockIndex		(currentClutBlockWrite),
+    .i_writeIdxInBlk		(ClutWriteIndex),
+    .i_Colors				(ClutCacheData),
 
-    .i_readIdxL							(indexPalL),
-    .o_colorEntryL						(dataClut_c2L),
+    .i_readIdxL				(indexPalL),
+    .o_colorEntryL			(dataClut_c2L),
 
-    .i_readIdxR							(indexPalR),
-    .o_colorEntryR						(dataClut_c2R)
+    .i_readIdxR				(indexPalR),
+    .o_colorEntryR			(dataClut_c2R)
 );
 
 // ------------------------------------------------

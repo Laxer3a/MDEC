@@ -27,7 +27,6 @@ module gpu_loadedRegs(
 	
 	// [From Command Decoder + GPU configuration]
 	input 				i_bUseTexture,
-	input				i_bIgnoreColor,
 	
 	//-----------------------------------------
 	// OPERATION (set when i_validData VALID)
@@ -82,7 +81,7 @@ module gpu_loadedRegs(
 //-------------------------------------------
 // [Command Decoder give control information]
 //-------------------------------------------
-wire bIsFillCommand,bIsCopyCommand,bIsBase0x;
+wire bIsFillCommand,bIsCopyCommand,bIsBase0x,bIgnoreColor;
 
 gpu_commandDecoder decoder(
 	.i_command				(i_command),
@@ -108,7 +107,8 @@ gpu_commandDecoder decoder(
 	.o_bSemiTransp			(),
 	.o_bOpaque				(),
 	.o_bIs4PointPoly		(),
-	.o_bIsPerVtxCol			()
+	.o_bIsPerVtxCol			(),
+	.o_bIgnoreColor			(bIgnoreColor)
 );
 
 // -------------------------------------------------------------------
@@ -178,9 +178,9 @@ wire [8:0] componentFuncRA			= componentFuncR + { 8'b00000000, fifoDataOutUR[7] 
 wire [8:0] componentFuncGA			= componentFuncG + { 8'b00000000, fifoDataOutVG[7] & bNoTexture };
 wire [8:0] componentFuncBA			= componentFuncB + { 8'b00000000, fifoDataOutB [7] & bNoTexture };
 // Finally force WHITE color(256) if no component RGB value are available.
-wire [8:0] loadComponentR			= i_bIgnoreColor   ? 9'b100000000 : componentFuncRA;
-wire [8:0] loadComponentG			= i_bIgnoreColor   ? 9'b100000000 : componentFuncGA;
-wire [8:0] loadComponentB			= i_bIgnoreColor   ? 9'b100000000 : componentFuncBA;
+wire [8:0] loadComponentR			= bIgnoreColor   ? 9'b100000000 : componentFuncRA;
+wire [8:0] loadComponentG			= bIgnoreColor   ? 9'b100000000 : componentFuncGA;
+wire [8:0] loadComponentB			= bIgnoreColor   ? 9'b100000000 : componentFuncBA;
 
 // TODO : SWAP bit. for loading 4th, line segment.
 //
