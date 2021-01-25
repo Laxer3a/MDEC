@@ -114,12 +114,13 @@ typedef enum logic[4:0] {
 	SCAN_LINE					= 5'd11,
 	SCAN_LINE_CATCH_END			= 5'd12,
 	SETUP_INTERP				= 5'd13,
-	RECT_SCAN_LINE				= 5'd14,
-	WAIT_3						= 5'd15,
-	WAIT_2						= 5'd16,
-	WAIT_1						= 5'd17,
-	SELECT_PRIMITIVE			= 5'd18,
-	FLUSH_COMPLETE_STATE		= 5'd19
+	SETUP_INTERP_REAL			= 5'd14,
+	RECT_SCAN_LINE				= 5'd15,
+	WAIT_3						= 5'd16,
+	WAIT_2						= 5'd17,
+	WAIT_1						= 5'd18,
+	SELECT_PRIMITIVE			= 5'd19,
+	FLUSH_COMPLETE_STATE		= 5'd20
 } workState_t;
 
 //----------------------------------------------------	
@@ -221,7 +222,15 @@ begin
 	// --------------------------------------------------------------------
 	SETUP_INTERP:
 	begin
-		nextWorkState			= i_endInterpCounter ? WAIT_3 : SETUP_INTERP;
+		// INSERT LATENCY TO ALLOW COLOR/UV REGISTER TO BE UPDATED
+		// BEFORE WE LAUNCH INTERPOLATION.
+		// INTERPOLATOR IS PIPELINED AND THIS INSERTION OF EMPTY STATE
+		// IS NECESSARY.
+		nextWorkState			= SETUP_INTERP_REAL;
+	end
+	SETUP_INTERP_REAL:
+	begin
+		nextWorkState			= i_endInterpCounter ? WAIT_3 : SETUP_INTERP_REAL;
 		incrementInterpCounter	= 1;
 	end
 	WAIT_3: // 4 cycles to wait

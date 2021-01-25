@@ -296,36 +296,28 @@ module gpu_setupunit(
 	wire signed [11:0]	negb	= -b;
 	wire signed [11:0]	nega	= -a;
 
-
-	reg signed [11:0]	pnegc;
-	reg signed [11:0]	pnega;
-	reg signed [11:0]	pnegb;
-	reg signed [11:0]	pa;
-	reg signed [11:0]	pb;
-	reg signed [11:0]	pd;
+	reg signed [11:0]	ra,rb,rd,rnegb,rnega,rnegc;
 	
-	/* PIPELINE
-	always @(posedge i_clk) begin
-		pnega <= nega;
-		pnegb <= negb;
-		pnegc <= negc;
-		pa    <= a;
-		pb    <= b;
-		pd    <= d;
-	end
-	*/
-
 	// Pipeline to do a,d,b,negc...
 	wire signed [21:0]	/*P*/ DET1	= a * d;
-	wire signed [21:0]	/*P*/ DET2	= b * negc;			// -b*c -> b*negc
-	wire signed [21:0]	DET			= /*P*/DET1 + /*P*/DET2;	// Same as (a*d) - (b*c)
+	wire signed [21:0]	/*P*/ DET2	= b * negc;		// -b*c -> b*negc
+	reg  signed [21:0]	/*P*/ rDET1,rDET2,rDET;
 
-	/* PIPELINE
-	reg  signed [21:0]	PDET;
+	// PIPELINE THAT SIDE OF THE DIVIDER INPUT.
 	always @(posedge i_clk) begin
-		PDET <= DET;
+		ra		<= a;
+		rb		<= b;
+		rd		<= d;
+		rnegb	<= negb;
+		rnega	<= nega;
+		rnegc	<= negc;
+		
+		// Warning order
+		rDET	<= rDET1 + rDET2;
+		
+		rDET1	<= DET1;
+		rDET2	<= DET2;
 	end
-	*/
 	
 	reg signed [11:0]	mulFA,mulFB;
 	reg  signed [9:0]	v0C,v1C,v2C;
@@ -333,30 +325,35 @@ module gpu_setupunit(
 	// ------------------------------------------------------------------
 	// 1st Step : Pipeline Compo/Vect from state machine, isolate.
 	// ------------------------------------------------------------------
-/*	PIPELINE
 	reg [2:0] compoID; // Normally = i_compoID
 	reg       vectID;
+	reg		  part;
 	always @(posedge i_clk) begin
 		compoID 	<= i_interpolationCounter[4:2];
 		vectID		<= i_interpolationCounter[1];
-	end
-*/
-	wire [2:0] compoID = i_interpolationCounter[4:2];
-	wire       vectID  = i_interpolationCounter[1];
-
-	reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6;
-	reg       vecID2,vecID3,vecID4,vecID5,vecID6;
 `ifndef DOUBLE_DIVUNIT
-	reg		  part2,part3,part4,part5,part6;
+		part		<= i_interpolationCounter[0];
+`endif
+	end
+
+//	wire [2:0] compoID = i_interpolationCounter[4:2];
+//	wire       vectID  = i_interpolationCounter[1];
+
+	reg [2:0] compoID2,compoID3,compoID4,compoID5,compoID6,compoID7;
+	reg       vecID2,vecID3,vecID4,vecID5,vecID6,vecID7;
+`ifndef DOUBLE_DIVUNIT
+	reg		  part2,part3,part4,part5,part6,part7;
 `endif
 	always @(posedge i_clk)
 	begin
+		compoID7 <= compoID6;
 		compoID6 <= compoID5;
 		compoID5 <= compoID4;
 		compoID4 <= compoID3;
 		compoID3 <= compoID2;
 		compoID2 <= compoID;
 
+		vecID7   <= vecID6;
 		vecID6   <= vecID5;
 		vecID5   <= vecID4;
 		vecID4   <= vecID3;
@@ -364,11 +361,12 @@ module gpu_setupunit(
 		vecID2   <= vectID;
 		
 `ifndef DOUBLE_DIVUNIT
+		part7	 <= part6;
 		part6	 <= part5;
 		part5	 <= part4;
 		part4	 <= part3;
 		part3	 <= part2;
-		part2	 <= i_interpolationCounter[0];
+		part2	 <= part;
 `endif
 	end
 
@@ -383,9 +381,9 @@ module gpu_setupunit(
 		endcase
 
 		if (vectID) begin
-			mulFA = negc;	mulFB = a;
+			mulFA = rnegc;	mulFB = ra;
 		end else begin
-			mulFA = d;   	mulFB = negb;
+			mulFA = rd;   	mulFB = rnegb;
 		end
 	end
 	wire signed [10:0]  negv0c  = -{1'b0,v0C};
@@ -403,37 +401,35 @@ module gpu_setupunit(
 	
 `ifdef DOUBLE_DIVUNIT
 	// Signed 21 bit << 11 bit => 32 bit signed value.
-	wire signed [31:0] inputDivAShft/*Pre*/= { 11'b0, inputDivA } << PREC; // PREC'd0
+	wire signed [31:0] inputDivAShftPre= { 11'b0, inputDivA } << PREC; // PREC'd0
 `else
-	wire signed [31:0] inputDivAShft/*Pre*/= { 11'b0, i_interpolationCounter[0] ? inputDivB : inputDivA } << PREC; // PREC'd0
+	wire signed [31:0] inputDivAShftPre= { 11'b0, i_interpolationCounter[0] ? inputDivB : inputDivA } << PREC; // PREC'd0
 `endif
 
-	/*
 	reg signed [31:0] inputDivAShft;
-	reg signed [31:0] inputDivBShft;
 	always @(posedge i_clk)
-	begin
 		inputDivAShft <= inputDivAShftPre;
-		inputDivBShft <= inputDivBShftPre;
-	end
-	*/
 		
 	wire signed [PREC+8:0] outputA;
 	wire signed [PREC+8:0] outputB;	
 	dividerWrapper #(.OUTSIZE(PREC+9)) instDivisorA(
 		.clock			( i_clk ),
 		.numerator		( inputDivAShft),
-		.denominator	( DET ),
+		.denominator	( rDET ),
 		.outputV		( outputA )
 	);
 
 `ifdef DOUBLE_DIVUNIT
-	wire signed [31:0] inputDivBShft/*Pre*/= { 11'b0, inputDivB } << PREC;
+	wire signed [31:0] inputDivBShftPre= { 11'b0, inputDivB } << PREC;
+
+	reg signed [31:0] inputDivBShft;
+	always @(posedge i_clk)
+		inputDivBShft <= inputDivBShftPre;
 	
 	dividerWrapper #(.OUTSIZE(PREC+9)) instDivisorB(
 		.clock			( i_clk ),
 		.numerator 		( inputDivBShft ),
-		.denominator 	( DET ),
+		.denominator 	( rDET ),
 		.outputV 		( outputB )
 	);
 
@@ -456,10 +452,10 @@ module gpu_setupunit(
 
 	reg signed [PREC+8:0] RSX,RSY,GSX,GSY,BSX,BSY,USX,USY,VSX,VSY; // 1..10 Write, 0:Do nothing.
 
-	wire /*reg*/ [3:0]	assignDivResult = { compoID6, vecID6 }; // 1..A, 0 none
+	wire /*reg*/ [3:0]	assignDivResult = { compoID7, vecID7 }; // 1..A, 0 none
 	always @(posedge i_clk) begin
 `ifndef DOUBLE_DIVUNIT
-		if (part6) begin
+		if (part7) begin
 `endif
 			if (assignDivResult == 4'd2) begin RSX <= perPixelComponentIncrement; end
 			if (assignDivResult == 4'd3) begin RSY <= perPixelComponentIncrement; end
