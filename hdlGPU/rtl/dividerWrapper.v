@@ -10,11 +10,14 @@ See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
 
-module dividerWrapper(
+module dividerWrapper#(
+	parameter OUTSIZE  = 20
+)
+(
 	input					clock,
 	input signed  [31:0]	numerator,
 	input signed  [21:0]	denominator,
-	output signed [19:0]	output20
+	output signed [OUTSIZE-1:0]	outputV
 );
 
 //-----------------------------------------------------------------
@@ -35,7 +38,7 @@ module dividerWrapper(
     end
     wire signed [31:0] divisor   = { {10{den5[21]}} ,den5 };
     wire signed [31:0] resultDiv = num5 / divisor;
-    assign output20 = resultDiv[19:0];
+    assign outputV = resultDiv[OUTSIZE-1:0];
 `else
 //-----------------------------------------------------------------
 // Altera
@@ -50,7 +53,7 @@ module dividerWrapper(
         .quotient ( quot ),
         .remain ( remain_sig )
     );
-    assign output20 = quot[19:0];
+    assign outputV = quot[OUTSIZE-1:0];
 `else
     //-----------------------------------------------------------------
     // Xilinx
@@ -69,7 +72,7 @@ module dividerWrapper(
         .quotient           (resultDiv)
     );
 
-    assign output20 = resultDiv[19:0];
+    assign outputV = resultDiv[OUTSIZE-1:0];
 
 `endif
 `endif

@@ -115,9 +115,6 @@ module gpu_setupunit(
 	output	signed [7:0] 		o_pixVR
 );
 	parameter EQUMSB		= 22; // 11bit signed * 11 bit signed.
-	parameter PREC			= 11;
-	parameter PRECM1		= PREC-1;
-	parameter ZERO_PREC 	= 20'd0, ONE_PREC = 20'h800;
 
 	// Alias
 	wire signed [11:0] pixelX = i_pixelX;
@@ -399,11 +396,16 @@ module gpu_setupunit(
 	wire signed [20:0] inputDivA	= mulFA * C20i; // -2048..+2047 x -512..+511 = Signed 21 bit.
 	wire signed [20:0] inputDivB	= mulFB * C10i;
 
+	parameter PREC				= 12;
+	wire [PREC+8:0] ZERO_PREC	= 0;
+	wire [PREC+8:0] ONE_PREC	= 20'h1 << PREC;
+	wire [PREC+8:0] HALF_PREC	= ONE_PREC >> 1;
+	
 `ifdef DOUBLE_DIVUNIT
 	// Signed 21 bit << 11 bit => 32 bit signed value.
-	wire signed [31:0] inputDivAShft/*Pre*/= { inputDivA, 11'b0 }; // PREC'd0
+	wire signed [31:0] inputDivAShft/*Pre*/= { 11'b0, inputDivA } << PREC; // PREC'd0
 `else
-	wire signed [31:0] inputDivAShft/*Pre*/= { i_interpolationCounter[0] ? inputDivB : inputDivA, 11'b0 }; // PREC'd0
+	wire signed [31:0] inputDivAShft/*Pre*/= { 11'b0, i_interpolationCounter[0] ? inputDivB : inputDivA } << PREC; // PREC'd0
 `endif
 
 	/*
@@ -418,21 +420,21 @@ module gpu_setupunit(
 		
 	wire signed [PREC+8:0] outputA;
 	wire signed [PREC+8:0] outputB;	
-	dividerWrapper instDivisorA(
+	dividerWrapper #(.OUTSIZE(PREC+9)) instDivisorA(
 		.clock			( i_clk ),
 		.numerator		( inputDivAShft),
 		.denominator	( DET ),
-		.output20		( outputA )
+		.outputV		( outputA )
 	);
 
 `ifdef DOUBLE_DIVUNIT
-	wire signed [31:0] inputDivBShft/*Pre*/= { inputDivB, 11'b0 };
+	wire signed [31:0] inputDivBShft/*Pre*/= { 11'b0, inputDivB } << PREC;
 	
-	dividerWrapper instDivisorB(
+	dividerWrapper #(.OUTSIZE(PREC+9)) instDivisorB(
 		.clock			( i_clk ),
 		.numerator 		( inputDivBShft ),
 		.denominator 	( DET ),
-		.output20 		( outputB )
+		.outputV 		( outputB )
 	);
 
 	// 11 bit prec + 9 bit = 20 bit.
@@ -549,7 +551,7 @@ module gpu_setupunit(
 	//
 	// [Component Interpolation Out]
 	//
-	wire signed [PREC+8:0] roundComp 	= { 9'd0, 1'b1, 10'd0}; // PRECM1'd0
+	wire signed [PREC+8:0] roundComp 	= HALF_PREC; // PRECM1'd0
 	wire signed [PREC+8:0] offR 		= (distXV0*RSX) + (distYV0*RSY) + roundComp;
 	wire signed [PREC+8:0] offG 		= (distXV0*GSX) + (distYV0*GSY) + roundComp;
 	wire signed [PREC+8:0] offB 		= (distXV0*BSX) + (distYV0*BSY) + roundComp;
