@@ -172,6 +172,7 @@ wire [8:0]  fifoDataOutHeight		= fifoDataOut[24:16];
 wire [8:0] componentFuncR			= i_bUseTexture    ? { fifoDataOutUR,1'b0 } : { 1'b0, fifoDataOutUR };
 wire [8:0] componentFuncG			= i_bUseTexture    ? { fifoDataOutVG,1'b0 } : { 1'b0, fifoDataOutVG };
 wire [8:0] componentFuncB			= i_bUseTexture    ? {  fifoDataOutB,1'b0 } : { 1'b0,  fifoDataOutB };
+/*
 // We also avoid to add +1 when using color for FILL command.
 wire bNoTexture						= (!i_bUseTexture) & (!bIsBase0x);
 wire [8:0] componentFuncRA			= componentFuncR + { 8'b00000000, fifoDataOutUR[7] & bNoTexture };
@@ -181,7 +182,10 @@ wire [8:0] componentFuncBA			= componentFuncB + { 8'b00000000, fifoDataOutB [7] 
 wire [8:0] loadComponentR			= bIgnoreColor   ? 9'b100000000 : componentFuncRA;
 wire [8:0] loadComponentG			= bIgnoreColor   ? 9'b100000000 : componentFuncGA;
 wire [8:0] loadComponentB			= bIgnoreColor   ? 9'b100000000 : componentFuncBA;
-
+*/
+wire [8:0] loadComponentR			= bIgnoreColor   ? 9'd256 : componentFuncR;
+wire [8:0] loadComponentG			= bIgnoreColor   ? 9'd256 : componentFuncG;
+wire [8:0] loadComponentB			= bIgnoreColor   ? 9'd256 : componentFuncB;
 // TODO : SWAP bit. for loading 4th, line segment.
 //
 wire [9:0] copyHeight = { !(|fifoDataOutHeight[8:0]), fifoDataOutHeight };
