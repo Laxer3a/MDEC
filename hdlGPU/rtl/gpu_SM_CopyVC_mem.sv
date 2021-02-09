@@ -3,19 +3,18 @@ module gpu_SM_CopyVC_mem(
     input                    i_rst,
     
     input                    i_activate,
-    output                    o_exitSig,    // End at next cycle
-    output                    o_active,
+    output                   o_exitSig,    // End at next cycle
+    output                   o_active,
     
-    input    signed [11:0]    RegX0,
-    input    signed [11:0]    RegY0,
-    input            [10:0]    RegSizeW,
-    input           [ 9:0]    RegSizeH,
+    input    signed [11:0]   RegX0,
+    input    signed [11:0]   RegY0,
+    input            [10:0]  RegSizeW,
+    input           [ 9:0]   RegSizeH,
 
     // FIFO
-    input                    i_canPush,
-    input                    i_outFIFO_empty,
-    output                    o_writeFIFOOut,
-    output    [31:0]            o_pairPixelToCPU,
+    input                    i_popPixelPair,
+    output                   o_writeFIFOOut,
+    output    [31:0]         o_pairPixelToCPU,
     
     // -----------------------------------
     // [DDR SIDE]
@@ -35,18 +34,28 @@ module gpu_SM_CopyVC_mem(
     output [255:0]           o_dataOut
 );
 
+// Delay acivate so that all signals are valid in the same cycle
+reg  activate_q;
+wire busy_w;
+
+always @ (posedge i_clk)
+if (i_rst)
+    activate_q <= 1'b0;
+else
+    activate_q <= i_activate;
+
 gpu_mem_vramcpu gpu_mem_vramcpu_inst
 (
     // Inputs
     .clk_i					(i_clk),
     .rst_i                  (i_rst),
-    .req_valid_i            (i_activate),
+    .req_valid_i            (activate_q),
     .req_x_i                ({{4{RegX0[11]}}, RegX0}),
     .req_y_i                ({{4{RegY0[11]}}, RegY0}),
     .req_sizex_i            ({5'b0, RegSizeW}),
     .req_sizey_i            ({6'b0, RegSizeH}),
 
-    .data_accept_i          (i_canPush),
+    .data_accept_i          (i_popPixelPair),
     
 	.gpu_busy_i             (i_busy),
     .gpu_data_in_valid_i    (i_dataInValid),
@@ -57,7 +66,7 @@ gpu_mem_vramcpu gpu_mem_vramcpu_inst
     .data_valid_o           (o_writeFIFOOut),
     .data_pair_o            (o_pairPixelToCPU),
 	
-    .busy_o                 (o_active),
+    .busy_o                 (busy_w),
     .done_o                 (o_exitSig),
     
 	.gpu_command_o          (o_command),
@@ -69,5 +78,7 @@ gpu_mem_vramcpu gpu_mem_vramcpu_inst
     .gpu_data_out_o         (o_dataOut)
 	
 );
+
+assign o_active = busy_w | activate_q;
 
 endmodule

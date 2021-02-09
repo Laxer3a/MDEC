@@ -19,6 +19,7 @@ module GPU_DDR
 	input			i_DIP_AllowDither,
 	input			i_DIP_ForceDither,
 	input			i_DIP_Allow480i,
+	input			i_DIP_ForceInterlaceField,
     // --------------------------------------
 
     output			o_IRQRequest,
@@ -41,8 +42,9 @@ module GPU_DDR
 	output  [ 31:0]  gpu_p2m_data_i,
 	input            gpu_p2m_accept_o,
 	
-	output	[31:0]	o_mydebugCnt,
-	output          o_dbg_canWrite,
+//	output	[31:0]	o_mydebugCnt,
+//	output	[15:0]	dbg_commmandCount,
+//	output          o_dbg_canWrite,
 
     // --------------------------------------
 	//   CPU Bus
@@ -103,7 +105,6 @@ module GPU_DDR
 //--------------------------------------
 // Plumbing between GPU and Memory System
 //--------------------------------------
-wire clkBus = clk;
 wire busy,memwrite,command,dataInValid;
 wire [1:0]   commandSize;
 wire [14:0]  adr32;
@@ -118,6 +119,7 @@ gpu	gpu_inst(
 	.DIP_AllowDither(i_DIP_AllowDither),
 	.DIP_ForceDither(i_DIP_ForceDither),
 	.DIP_Allow480i	(i_DIP_Allow480i),
+	.DIP_ForceInterlaceField(i_DIP_ForceInterlaceField),
 
 	.IRQRequest		(o_IRQRequest),
 
@@ -132,13 +134,13 @@ gpu	gpu_inst(
 	.gpu_p2m_accept_o	(gpu_p2m_accept_o),
 
     // Video output...
-	.mydebugCnt		(o_mydebugCnt),
-	.dbg_canWrite	(o_dbg_canWrite),
+//	.mydebugCnt		(o_mydebugCnt),
+//	.dbg_commmandCount(dbg_commmandCount),
+//	.dbg_canWrite	(o_dbg_canWrite),
 
     // --------------------------------------
     // Memory Interface
     // --------------------------------------
-	.clkBus			(clkBus),
     .o_command		(command),        // 0 = do nothing, 1 Perform a read or write to memory.
     .i_busy			(busy),           // Memory busy 1 => can not use.
     .o_commandSize	(commandSize),    // 0 = 8 byte, 1 = 32 byte. (Support for write ?)
@@ -194,7 +196,7 @@ gpu	gpu_inst(
 
 hdlPSXDDR hdlPSXDDR_Instance (
 	// Global Connections
-	.i_clk			(clkBus),
+	.i_clk			(clk),
 	.i_nRst			(i_nrst),
   
 	// Client (PSX) Connections

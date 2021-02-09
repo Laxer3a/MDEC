@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -84,10 +84,10 @@ module gpu_SM_render_mem(
 	input					i_bIsPerVtxCol,
 	input					i_bOpaque,
 	input					i_bSemiTransp, // !i_bOpaque ?
-	input					i_bDither,
 		
 	input	[2:0]			i_activateRender,
 	output					o_renderInactiveNextCycle,
+	output					o_active,
 
 	// -------------------------------
 	//   Stencil Cache Write/Read
@@ -96,15 +96,14 @@ module gpu_SM_render_mem(
 	
 	output 					o_stencilWriteSig,
 	output	[14:0]			o_stencilWriteAdr,
-	output	 [2:0]			o_stencilWritePair,
-	output	 [1:0]			o_stencilWriteSelect,
-	output	 [1:0]			o_stencilWriteValue,
+//	output	 [2:0]			o_stencilWritePair,
+//	output	 [1:0]			o_stencilWriteSelect,
+	output	[15:0]			o_stencilWriteValue,
+	output	[15:0]			o_stencilWriteMask,
 	
 	output 					o_stencilReadSig,
 	output	[14:0]			o_stencilReadAdr,
-	output	 [2:0]			o_stencilReadPair,
-	output	 [1:0]			o_stencilReadSelect,
-	input	 [1:0]			i_stencilReadValue,
+	input	[15:0]			i_stencilReadValue,
 
 	// -----------------------------------
 	// [DDR SIDE]
@@ -145,7 +144,8 @@ typedef enum logic[4:0] {
 	WAIT_2						= 5'd17,
 	WAIT_1						= 5'd18,
 	SELECT_PRIMITIVE			= 5'd19,
-	FLUSH_COMPLETE_STATE		= 5'd20
+	FLUSH_SEND					= 5'd20,
+	FLUSH_COMPLETE_STATE		= 5'd21
 } workState_t;
 
 //----------------------------------------------------	
@@ -162,13 +162,13 @@ wire signed [11:0]	nextLineY,nextLineX,nextPixelX,nextPixelY;
 wire signed [11:0]  minTriDAX0,minTriDAY0,maxTriDAX1;
 wire signed [11:0]  pixelX,pixelY;
 
-reg loadNext, resetXCounter,stencilReadSig,incrementXCounter,
+reg loadNext, stencilReadSig,
 	resetPixelFound,
 	setPixelFound,
 	memorizeLineEqu,
     incrementInterpCounter,
 	switchDir,
-	requClutCacheUpdate,decClutCount,	// Same signal
+	requClutCacheUpdate,incClutCount,
 	setDirectionComplete,
 	endClutLoading,
 	flush,
@@ -185,11 +185,10 @@ wire reachEdgeTriScan,isRightPLXmaxTri,isInsideBBoxTriRectL,isInsideBBoxTriRectR
 wire signed [8:0] pixRL,pixGL,pixBL,pixRR,pixGR,pixBR;
 wire signed [7:0] pixUL,pixVL,pixUR,pixVR;
 
-
-
+wire memArbOutputIdle;
+wire pausePipeline;
 	
 reg [2:0]	selNextX,selNextY;
-reg [2:0]	memoryCommand;
 
 wire waitingWork = (currWorkState == RENDER_WAIT);
 wire resetDir 	 = waitingWork;
@@ -198,7 +197,21 @@ wire dir,pixelFound,completedOneDirection;
 wire isNULLDET;
 
 wire isLineInsideDrawArea;
-wire selectPixelWriteMaskLine = (!pixelX[0] & i_stencilReadValue[0]) | (pixelX[0] & i_stencilReadValue[1]);
+reg [1:0] stencilReadValue;
+always @(*) begin
+	case (pixelX[3:1])
+	3'd0   : stencilReadValue = i_stencilReadValue[ 1: 0];
+	3'd1   : stencilReadValue = i_stencilReadValue[ 3: 2];
+	3'd2   : stencilReadValue = i_stencilReadValue[ 5: 4];
+	3'd3   : stencilReadValue = i_stencilReadValue[ 7: 6];
+	3'd4   : stencilReadValue = i_stencilReadValue[ 9: 8];
+	3'd5   : stencilReadValue = i_stencilReadValue[11:10];
+	3'd6   : stencilReadValue = i_stencilReadValue[13:12];
+	default: stencilReadValue = i_stencilReadValue[15:14];
+	endcase
+end
+
+wire selectPixelWriteMaskLine = (!pixelX[0] & stencilReadValue[0]) | (pixelX[0] & stencilReadValue[1]);
 wire isValidLinePixel =	(
 							(isLineInsideDrawArea 																			// VALID AREA
 							&& ((!InterlaceRender)    || (InterlaceRender && (GPU_REG_CurrentInterlaceField != pixelY[0])))	// NON INTERLACED OR INTERLACE BUT VALID AREA
@@ -448,7 +461,7 @@ gpu_clutManager clutManagerInstance (
 		.i_CLUTIs8BPP					(CLUTIs8BPP),
 
 	// --- Loop ---
-	.i_decClutCount					(decClutCount),
+	.i_incClutCount					(incClutCount),
 	.o_stillRemainingClutPacket 		(stillRemainingClutPacket),
 
 	// --- End
@@ -463,8 +476,7 @@ gpu_clutManager clutManagerInstance (
 );
 
 wire ClutCacheWrite;
-wire  [2:0]		ClutWriteIndex;
-wire [31:0]		ClutCacheData;
+wire [255:0]	ClutCacheData;
 wire [7:0]		indexPalL,indexPalR;
 wire [15:0]		dataClut_c2L,dataClut_c2R;
 
@@ -474,9 +486,8 @@ CLUT_Cache CLUT_CacheInst(
 		
     .i_write						(ClutCacheWrite),
     .i_writeBlockIndex				(currentClutBlockWrite),
-    .i_writeIdxInBlk				(ClutWriteIndex),
     .i_Colors						(ClutCacheData),
-		
+
     .i_readIdxL						(indexPalL),
     .o_colorEntryL					(dataClut_c2L),
 		
@@ -489,25 +500,24 @@ CLUT_Cache CLUT_CacheInst(
 // ------------------------------------------------
 
 wire missTC;
-wire writePixelOnNewBlock;
-wire pausePipeline = writePixelOnNewBlock | missTC;	// Busy to write the BG/read BG/TEX$/CLUT$ memory access.
-wire resetPipelinePixelStateSpike,resetMask;
-reg [1:0]	flagIsNewBlock;												// Register Flag set containing the change during SCANNING, it does NOT represent the PIXEL WRITE BACK OUTPUT ! (2 cycle latency)
 
 reg [14:0]  prevVRAMAdrBlock;
 wire [14:0] currVRAMAdrBlock = {     pixelY[8:0],     pixelX[9:4] };
 
 // ---- Local stuff ------
+/*
 parameter   IS_NOT_NEWBLOCK				= 2'b00,
             IS_NEW_BLOCK_IN_PRIMITIVE	= 2'b01,	// The first time we flush a 16 pixel block, there is NO WRITE of the previous block, but LOAD must be done if doing blending.
             IS_OTHER_BLOCK_IN_PRIMITIVE	= 2'b10,	// For other block we simply do WRITE the previous block, or WRITE + LOAD next block BG if doing blending.
             IS_FLUSH_LAST_PIXEL			= 2'b11;
-
+*/
 // [Set to TRUE each time a new pixel to write is going to a different block of 16 pixel in the target buffer]
-wire        differentBlock	 = (currVRAMAdrBlock != prevVRAMAdrBlock);	// Next Position is a different block.
+wire        differentBlock	= (currVRAMAdrBlock != prevVRAMAdrBlock);	// Next Position is a different block.
 // Each time we write VALID pixels, check if we need to push a new block state change spike.
-wire		doBlockWork 	= (differentBlock | (flagIsNewBlock==IS_NEW_BLOCK_IN_PRIMITIVE)) & (writePixelL | writePixelR);
+wire		doBlockWork 	= (differentBlock | flagIsNewBlock | flush) & (writePixelL | writePixelR);
+// TODO : FLUSH
 
+reg flagIsNewBlock;
 always @(posedge i_clk) begin
     if (writePixelL | writePixelR) begin
         prevVRAMAdrBlock <= currVRAMAdrBlock;
@@ -515,18 +525,41 @@ always @(posedge i_clk) begin
 
     // Give priority to SET over RESET, and ONLY when we write an EFFECTIVE PIXEL.
     if (waitingWork) begin
-        flagIsNewBlock <= IS_NEW_BLOCK_IN_PRIMITIVE;
+        flagIsNewBlock <= 1;
     end else begin
-        // [Inside the primitive, each time we emit a pixel]
-        if (doBlockWork) begin
-            if (flagIsNewBlock == IS_NEW_BLOCK_IN_PRIMITIVE) begin
-                flagIsNewBlock <= IS_OTHER_BLOCK_IN_PRIMITIVE;
-            end
+        // [Inside the primitive, each time we transition]
+        if (doBlockWork) begin	// If first block, then clear the first block.
+			flagIsNewBlock <= 0;
         end
     end
 end
+
 // -----------------------------------------------------------------------
-wire [1:0] pixelStateSpike	= doBlockWork ? flagIsNewBlock : IS_NOT_NEWBLOCK;
+// Case 00 : do nothing
+// Case 01 : READ
+// Case 10 : WRITE then READ
+// Case 11 : WRITE
+// -----------------------------------------------------------------------
+parameter	TRANSITION_NONE				= 2'b00,
+			TRANSITION_READ 			= 2'b01,
+			TRANSITION_WRITE_THEN_READ	= 2'b11,
+			TRANSITION_WRITE			= 2'b10;
+
+//
+// Transition is information associated with the FIRST NEW PIXEL OF A BLOCK
+//
+reg [1:0] transitionType;
+always @(*) begin
+	if (doBlockWork) begin
+		if (flagIsNewBlock) begin
+			transitionType = i_bSemiTransp ? TRANSITION_READ            : TRANSITION_NONE;
+		end else begin
+			transitionType = i_bSemiTransp ? TRANSITION_WRITE_THEN_READ : TRANSITION_WRITE;
+		end
+	end else begin
+		transitionType = TRANSITION_NONE;
+	end
+end
 
 wire ditherSetup			= ( GPU_REG_DitherOn & DIP_AllowDither ) | DIP_ForceDither;
 wire bDither				= ditherSetup & (i_bIsPerVtxCol | i_bIsLineCommand);
@@ -541,6 +574,9 @@ wire 			importBGBlockSingleClock;
 wire [255:0]	exportedBGBlock,importedBGBlock;
 wire [15:0]		exportedMSKBGBlock;
 wire			pixelInFlight;
+wire [1:0]		o_transitionType;
+
+wire savingBGNow;
 
 GPUBackend GPUBackendInstance(
     .clk							(i_clk),
@@ -549,12 +585,12 @@ GPUBackend GPUBackendInstance(
     // -------------------------------
     // Control line for state machine
     // -------------------------------
-    .i_pausePipeline				(pausePipeline),			// Freeze the data in the pipeline. Values stay as is.
-    .o_missTC						(missTC),					// Any Cache miss, stop going next pixels.
-    // Management on BG Block
-    .o_writePixelOnNewBlock			(writePixelOnNewBlock),	// Tells us that the current pixel WRITE to a new BG block, write to the REGISTER this clock if not paused (upper logic will use create the input pausePipeline with combinatorial to avoid write with this flag)
-    .i_resetPipelinePixelStateSpike	(resetPipelinePixelStateSpike),	// 1/ Clear 'o_writePixelOnNewBlock' flag.
-    .i_resetPixelMask				(resetMask),					// 2/ Clear MASK for new block.
+    .i_pausePipeline				(pausePipeline),				// Freeze the data in the pipeline. Values stay as is.
+    .o_missTC						(missTC),						// Any Cache miss, stop going next pixels.
+    .o_pixelInFlight				(pixelInFlight),
+	.o_PixelBlockTransition			(o_transitionType),
+	.i_flushClearMask				(savingBGNow & flush),
+	
     // -------------------------------
     // GPU Setup
     // -------------------------------
@@ -575,93 +611,154 @@ GPUBackend GPUBackendInstance(
     // -------------------------------
     // Input Pixels from FrontEnd
     // -------------------------------
-    .iPixelStateSpike				(pixelStateSpike), // Input Flag to the pipeline.
+	.i_PixelBlockTransition			(transitionType),
     .iScrX_Mul2						(pixelX[9:0]),
     .iScrY							(pixelY[8:0]),
 
     .iR_L							(pixRL),
     .iG_L							(pixGL),
     .iB_L							(pixBL),
-    .U_L 							(pixUL),
-    .V_L 							(pixVL),
-    .validPixel_L					(writePixelL),
-    .bgMSK_L						(i_stencilReadValue[0] | GPU_REG_ForcePixel15MaskSet),
+    .i_U_L 							(pixUL),
+    .i_V_L 							(pixVL),
+    .i_validPixel_L					(writePixelL),
+    .i_bgMSK_L						(stencilReadValue[0] | GPU_REG_ForcePixel15MaskSet),
 
     .iR_R							(pixRR),
     .iG_R							(pixGR),
     .iB_R							(pixBR),
-    .U_R 							(pixUR),
-    .V_R 							(pixVR),
-    .validPixel_R					(writePixelR),
-    .bgMSK_R						(i_stencilReadValue[1] | GPU_REG_ForcePixel15MaskSet),
+    .i_U_R 							(pixUR),
+    .i_V_R 							(pixVR),
+    .i_validPixel_R					(writePixelR),
+    .i_bgMSK_R						(stencilReadValue[1] | GPU_REG_ForcePixel15MaskSet),
 
     // -------------------------------
     //  Request to Cache system ?
     // -------------------------------
-    .requDataTex_c0L				(requDataTex_c0L),
-    .adrTexReq_c0L					(adrTexReq_c0L	),
-    .TexHit_c1L						(TexHit_c1L		),
-    .TexMiss_c1L					(TexMiss_c1L	),
-    .dataTex_c1L					(dataTex_c1L	),
+    .o_requDataTex_c0L				(requDataTex_c0L),
+    .o_adrTexReq_c0L				(adrTexReq_c0L	),
+    .i_TexHit_c1L					(TexHit_c1L		),
+    .i_TexMiss_c1L					(TexMiss_c1L	),
+    .i_dataTex_c1L					(dataTex_c1L	),
 
     // Request Cache Fill
-    .requTexCacheUpdate_c1L			(requTexCacheUpdateL),
-    .adrTexCacheUpdate_c0L			(adrTexCacheUpdateL),
-    .updateTexCacheCompleteL		(updateTexCacheCompleteL),
+    .o_requTexCacheUpdate_c1L		(requTexCacheUpdateL),
+    .o_adrTexCacheUpdate_c0L		(adrTexCacheUpdateL),
+    .i_updateTexCacheCompleteL		(updateTexCacheCompleteL),
 
     // Clut$ Side
-    .indexPalL						(indexPalL			),	// Temp
-    .dataClut_c2L					(dataClut_c2L		),
+    .o_indexPalL					(indexPalL			),	// Temp
+    .i_dataClut_c2L					(dataClut_c2L		),
 
     // --- Tex$ Side ---
-    .requDataTex_c0R				(requDataTex_c0R),
-    .adrTexReq_c0R					(adrTexReq_c0R	),
-    .TexHit_c1R						(TexHit_c1R		),
-    .TexMiss_c1R					(TexMiss_c1R	),
-    .dataTex_c1R					(dataTex_c1R	),
+    .o_requDataTex_c0R				(requDataTex_c0R),
+    .o_adrTexReq_c0R				(adrTexReq_c0R	),
+    .i_TexHit_c1R					(TexHit_c1R		),
+    .i_TexMiss_c1R					(TexMiss_c1R	),
+    .i_dataTex_c1R					(dataTex_c1R	),
 
     // Request Cache Fill
-    .requTexCacheUpdate_c1R			(requTexCacheUpdateR),
-    .adrTexCacheUpdate_c0R			(adrTexCacheUpdateR),
-    .updateTexCacheCompleteR		(updateTexCacheCompleteR),
+    .o_requTexCacheUpdate_c1R		(requTexCacheUpdateR),
+    .o_adrTexCacheUpdate_c0R		(adrTexCacheUpdateR),
+    .i_updateTexCacheCompleteR		(updateTexCacheCompleteR),
 
     // Clut$ Side
-    .indexPalR						(indexPalR			),	// Temp
-    .dataClut_c2R					(dataClut_c2R		),
-
+    .o_indexPalR					(indexPalR			),	// Temp
+    .i_dataClut_c2R					(dataClut_c2R		),
+	
     // -------------------------------
     //   Stencil Cache Write Back
     // -------------------------------
     // Write
-    .stencilWriteSig				(o_stencilWriteSig),
-    .stencilWriteAdr				(o_stencilWriteAdr),
-    .stencilWritePair				(o_stencilWritePair),
-    .stencilWriteSelect				(o_stencilWriteSelect),
-    .stencilWriteValue				(o_stencilWriteValue),
-
-    // -------------------------------
-    //   Flush until
-    // -------------------------------
-    .flushLastBlock					(flush),
-    .o_pixelInFlight				(pixelInFlight),
+    .o_stencilWriteSig				(o_stencilWriteSig),
+    .o_stencilWriteAdr				(o_stencilWriteAdr),
+//    .o_stencilWritePair			(o_stencilWritePair),
+//    .o_stencilWriteSelect			(o_stencilWriteSelect),
+    .o_stencilWriteValue			(o_stencilWriteValue),
+	.o_stencilWriteMask				(o_stencilWriteMask),
 
     // -------------------------------
     //   DDR
     // -------------------------------
 
     // Ask to write BG
-    .loadAdr						(loadAdr			),
-    .saveAdr						(saveAdr			),
-    .saveBGBlock					(saveBGBlock		),			// Stay 1 for long, should use 0->1 TRANSITION on user side.
-    .exportedBGBlock				(exportedBGBlock	),
-    .exportedMSKBGBlock				(exportedMSKBGBlock	),
+    .o_loadAdr						(loadAdr			),
+    .o_saveAdr						(saveAdr			),
+    .o_exportedBGBlock				(exportedBGBlock	),
+    .o_exportedMSKBGBlock			(exportedMSKBGBlock	),
 
     // BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
-    .importBGBlockSingleClock		(importBGBlockSingleClock),
-    .importedBGBlock				(importedBGBlock)
+    .i_importBGBlockSingleClock		(importBGBlockSingleClock),
+    .i_importedBGBlock				(importedBGBlock)
 );
 
+// TODO Handle Mask clearning locally
+reg saveBGBuffer;
 wire saveLoadOnGoing;
+wire saveBGDone;
+reg  loadBGBuffer;
+//wire saveLoadCompleteNextCycle;
+
+reg [2:0] currStateMemXAction,nextStateMemXAction;
+reg       pipeimportBGBlockSingleClock;
+always @(posedge i_clk) begin
+	if (!i_nrst) begin
+		currStateMemXAction <= 3'd0;
+		pipeimportBGBlockSingleClock <= 0;
+	end else begin
+		currStateMemXAction          <= nextStateMemXAction;
+		pipeimportBGBlockSingleClock <= importBGBlockSingleClock;
+	end
+end
+
+
+wire isDoubleTransition = (o_transitionType == TRANSITION_WRITE_THEN_READ);
+always @(*) begin
+	nextStateMemXAction = currStateMemXAction;
+//	memoryTransaction	= 0;
+	loadBGBuffer		= 0;
+	saveBGBuffer		= 0;
+
+	case (currStateMemXAction)
+	3'd0: begin
+		if (!missTC) begin
+			if (o_transitionType == TRANSITION_READ) begin
+				if (!saveLoadOnGoing) begin
+					nextStateMemXAction = 3'd1;
+				end
+				loadBGBuffer		= !saveLoadOnGoing;
+			end else if (o_transitionType[1] || flush) begin // TRANSITION_WRITE or WRITE THEN READ
+				// If not a WRITE but also a READ, once WRITE VALIDATED, GO TO THE READ WAIT.
+				if (!flush && !saveLoadOnGoing && o_transitionType[0]) begin
+					nextStateMemXAction = 3'd2;
+				end
+				saveBGBuffer		= !saveLoadOnGoing;
+			end
+		end
+	end
+	3'd1: begin // Wait END READ Operation.
+		if (pipeimportBGBlockSingleClock) begin
+			nextStateMemXAction = 3'd0;
+		end
+	end
+	3'd2: begin // Wait to push READ OPERATION.
+		if (!saveLoadOnGoing) begin
+			// READ Now...
+			nextStateMemXAction = 3'd1;
+		end
+		loadBGBuffer		= !saveLoadOnGoing;
+	end
+	3'd3: begin
+	end
+	default: begin
+	end
+	endcase
+//	memoryTransaction = 0;
+end
+
+wire memoryTransaction= ((o_transitionType != TRANSITION_NONE) & saveLoadOnGoing) | ((o_transitionType[0] | (currStateMemXAction != 3'd0)) & !pipeimportBGBlockSingleClock);
+wire requestNextPixel = (!missTC) & (!memoryTransaction);
+assign pausePipeline  = !requestNextPixel;	// Busy to write the BG/read BG/TEX$/CLUT$ memory access.
+
 MemArbRender MemArbRender_instance(
 	.gpuClk							(i_clk),
 	.i_nRst							(i_nrst),
@@ -682,24 +779,27 @@ MemArbRender MemArbRender_instance(
 	.adrClutCacheUpdate				(adrClutCacheUpdate),
 	
 	.ClutCacheWrite					(ClutCacheWrite),
-	.ClutWriteIndex					(ClutWriteIndex),
 	.ClutCacheData					(ClutCacheData),
 	
-	.isBlending						(i_bSemiTransp),
+//	.isBlending						(i_bSemiTransp),
+	.saveBGBlock					(saveBGBuffer/*saveBGBlock*/), // TODO : not that TWO BIT SIGNAL
 	.saveAdr						(saveAdr),
-	.saveBGBlock					(saveBGBlock),
-	
 	.exportedBGBlock				(exportedBGBlock),
 	.exportedMSKBGBlock				(exportedMSKBGBlock),
+	.o_blockSaved					(saveBGDone),
+	.o_blockSaving					(savingBGNow),
 	
+	.loadBGBlock					(loadBGBuffer),
 	.loadAdr						(loadAdr),
 	.importBGBlockSingleClock		(importBGBlockSingleClock),
 	.importedBGBlock				(importedBGBlock),
 	
 	.saveLoadOnGoing				(saveLoadOnGoing),
+//	.saveLoadCompleteNextCycle		(saveLoadCompleteNextCycle),
 
-	.resetPipelinePixelStateSpike	(resetPipelinePixelStateSpike),
-	.resetMask						(resetMask),
+//	.resetPipelinePixelStateSpike	(resetPipelinePixelStateSpike),
+
+	.o_outputIdle                   (memArbOutputIdle),
 	
 	.o_command						(o_command), 
 	.i_busy							(i_busy), 
@@ -715,22 +815,18 @@ MemArbRender MemArbRender_instance(
 	.o_dataOut						(o_dataOut)
 );
 
-wire requestNextPixel = (!missTC) & (!writePixelOnNewBlock) & (!saveLoadOnGoing) /* & (!commandFifoFull) <--- No more FIFOs */;
-
 always @(*)
 begin
 	nextWorkState				= currWorkState;
 	loadNext					= 0;
-	resetXCounter				= 0;
 	stencilReadSig				= 0;
-	incrementXCounter			= 0;
 	resetPixelFound				= 0;
 	setPixelFound				= 0;
 	memorizeLineEqu				= 0;
 	incrementInterpCounter		= 0;
 	switchDir					= 0;
 	requClutCacheUpdate			= 0;
-	decClutCount				= 0;	
+	incClutCount				= 0;	
 	setDirectionComplete		= 0;
 	endClutLoading				= 0;
 	writePixelL					= 0;
@@ -739,7 +835,6 @@ begin
 	
 	selNextX					= X_ASIS;
 	selNextY					= Y_ASIS;
-	memoryCommand				= MEM_CMD_NONE;
 	
     case (currWorkState)
 	RENDER_WAIT:
@@ -778,15 +873,14 @@ begin
 		// [TODO] That test could be put outside and checked EARLY --> RECT could skip to RECT_START 3 cycle earlier. Safe for now.
 		//		  Did that before but did not checked whole condition --> FF7 Station failed some tiles.
 		
-		// validCLUTLoad is when CLUT reloading was set
+		incClutCount = ClutCacheWrite;
 		// isPalettePrimitive & rPalette4Bit & CLUTIs8BPP is when nothing changed, EXCEPT WE WENT FROM 4 BIT TO 8 BIT !
 		if (isLoadingPalette) begin
 			// Not using signal updateClutCacheComplete but could... rely on transaction only.
 			if (!saveLoadOnGoing) begin // Wait for an on going memory transaction to complete.
 				if (stillRemainingClutPacket) begin
-					// And request ours.
-					requClutCacheUpdate = 1;
-					decClutCount		= 1;
+					// And request ours. (Making sure we request when counter is not updated)
+					requClutCacheUpdate = (!ClutCacheWrite);
 					nextWorkState		= WAIT_2;
 				end else begin
 					nextWorkState		= WAIT_1;
@@ -858,7 +952,7 @@ begin
 		if (outsideTriangle)		// And that we are OUTSIDE OF THE TRIANGLE. (if odd/even pixel, select proper L/R validpixel.) (Could be also a clipped triangle with FULL LINE)
 		begin
 			selNextY		= Y_TRI_NEXT;
-			nextWorkState	= isValidHorizontalTriBbox ? START_LINE_TEST_LEFT : FLUSH_COMPLETE_STATE;
+			nextWorkState	= isValidHorizontalTriBbox ? START_LINE_TEST_LEFT : FLUSH_SEND;
 		end else begin
 			resetPixelFound	= 1;
 			stencilReadSig	= 1;
@@ -887,8 +981,8 @@ begin
 
 					// Write only if pixel pair is valid...
 
-					writePixelL	= isValidPixelL	 & ((GPU_REG_CheckMaskBit && (!i_stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
-					writePixelR	= isValidPixelR	 & ((GPU_REG_CheckMaskBit && (!i_stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
+					writePixelL	= isValidPixelL	 & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
+					writePixelR	= isValidPixelR	 & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
 
 					// writeStencil2 = { writePixelR , writePixelL };
 
@@ -933,7 +1027,7 @@ begin
 				end // else do nothing.
 			end
 		end else begin
-			nextWorkState	= FLUSH_COMPLETE_STATE;
+			nextWorkState	= FLUSH_SEND;
 		end
 	end
 	SCAN_LINE_CATCH_END:
@@ -970,8 +1064,8 @@ begin
 			if (isRightPLXmaxTri) begin // Work by pair. Is left side of pair is inside rendering area. ( < right border )
 				if (requestNextPixel) begin
 					// Write only if pixel pair is valid...
-					writePixelL	  = isInsideBBoxTriRectL & ((GPU_REG_CheckMaskBit && (!i_stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
-					writePixelR	  = isInsideBBoxTriRectR & ((GPU_REG_CheckMaskBit && (!i_stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
+					writePixelL	  = isInsideBBoxTriRectL & ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
+					writePixelR	  = isInsideBBoxTriRectR & ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
 
 					// Go to next pair whatever, as long as request is asking for new pair...
 					// normally changeX = 1; selNextX = X_TRI_NEXT;	 [!!! HERE !!!]
@@ -986,7 +1080,7 @@ begin
 			end
 			nextWorkState	= RECT_SCAN_LINE;
 		end else begin
-			nextWorkState	= FLUSH_COMPLETE_STATE;
+			nextWorkState	= FLUSH_SEND;
 		end
 	end
 	// --------------------------------------------------------------------
@@ -1009,7 +1103,7 @@ begin
 			selNextY	= Y_LINE_NEXT;
 			loadNext	= 1;
 			if ((pixelX == RegX1) && (pixelY == RegY1)) begin
-				nextWorkState	= FLUSH_COMPLETE_STATE; // Override nextWorkState from setup in this.
+				nextWorkState	= FLUSH_SEND; // Override nextWorkState from setup in this.
 			end
 
 			// If pixel is valid and (no mask checking | mask check with value = 0)
@@ -1019,27 +1113,38 @@ begin
 			end
 		end
 	end
-    FLUSH_COMPLETE_STATE:
+    FLUSH_SEND:
     begin
         // We stopped emitting pixels, now we have to check that :
         // - No memory transaction is running anymore.
         // - No pixel are in flight.
         if (!saveLoadOnGoing && !pixelInFlight) begin
-            flush = 1'b1;
-            nextWorkState = RENDER_WAIT;
+			// Making sure that flush is done when texture read have completed and the pipeline has written all the pixel to the BG.
+			// NOT SURE ABOUT pixelInFlight alone condition to be OK.
+			// => Last value outside of pipeline may not be in registers yet.
+			flush = 1'b1;
+			if (savingBGNow) begin
+				nextWorkState = FLUSH_COMPLETE_STATE;
+			end
         end
     end
+    FLUSH_COMPLETE_STATE:
+	begin
+		// Output memory transactions drained
+		if (memArbOutputIdle)
+			nextWorkState = RENDER_WAIT;
+	end
 	default: begin
 		nextWorkState = RENDER_WAIT;
 	end
 	endcase
 end
 
-assign o_stencilFullMode		= 0;
+assign o_stencilFullMode		= 1;
 assign o_stencilReadSig			= stencilReadSig;
-assign o_stencilReadPair		= nextPixelX[3:1];
-assign o_stencilReadSelect		= { !i_bIsLineCommand | nextPixelX[0] , !i_bIsLineCommand | (!nextPixelX[0]) };
 assign o_stencilReadAdr			= { nextPixelY[8:0], nextPixelX[9:4] };
-assign o_renderInactiveNextCycle= (currWorkState != RENDER_WAIT) && (nextWorkState == RENDER_WAIT);
-endmodule
 
+assign o_active					= (currWorkState != RENDER_WAIT);
+assign o_renderInactiveNextCycle= o_active && (nextWorkState == RENDER_WAIT);
+
+endmodule

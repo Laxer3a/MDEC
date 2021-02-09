@@ -281,7 +281,7 @@ wire       line_final_w;
 // Last pixel from line consumed
 assign     resp_pop_w = pixels_pop_w & line_final_w;
 
-gpu_mem_vramcpu_fifo
+gpu_mem_fifo
 #(
      .WIDTH(4+5+1)
     ,.DEPTH(RESP_BUF_DEPTH)
@@ -383,7 +383,7 @@ assign avail_two_w    = (line_pixels_w >= 5'd2);
 //-----------------------------------------------------------------
 wire [255:0] fifo_data_w;
 
-gpu_mem_vramcpu_fifo
+gpu_mem_fifo
 #(
      .WIDTH(256)
     ,.DEPTH(RESP_BUF_DEPTH)
@@ -394,7 +394,7 @@ u_response_fifo
      .clk_i(clk_i)
     ,.rst_i(rst_i)
 
-    ,.push_i(gpu_data_in_valid_i)
+    ,.push_i(gpu_data_in_valid_i && busy_o)
     ,.data_in_i(gpu_data_in_i)
     ,.accept_o()
 

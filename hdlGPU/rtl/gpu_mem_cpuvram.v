@@ -452,7 +452,7 @@ assign pixel_r_pop_w = (state_q == STATE_FILL) && pixels_ready_w && (write_x_w >
 //-----------------------------------------------------------------
 // Memory Request
 //-----------------------------------------------------------------
-gpu_mem_cpuvram_fifo
+gpu_mem_fifo
 #(
      .WIDTH(256 + 16 + 15)
     ,.DEPTH(2)

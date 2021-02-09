@@ -99,6 +99,9 @@ parameter	CMD_32BYTE		= 2'd1,
 	reg   [1:0] blkCounterEmit;
 	reg   [1:0] blkCounterRecv;	
 	
+	wire useCommand = i_command & ~o_busyClient;
+
+	
 	// --------------- State Machine ------------------
 	typedef enum logic[2:0] {
 		DEFAULT_STATE		=3'd0,
@@ -126,7 +129,7 @@ parameter	CMD_32BYTE		= 2'd1,
 		//           don't care about the state of the DDR (busy or not)
 		//           just emit and change of state for a single clock.
 		default/*DEFAULT_STATE included*/: begin
-			if (i_command) begin
+			if (useCommand) begin
 				nextState	= i_writeElseRead ? WRITE_STATE1 : READ_STATE1;
 				// CANT DO readSigDDR => Adr not loaded YET !!!!
 			end
@@ -169,12 +172,12 @@ parameter	CMD_32BYTE		= 2'd1,
 	//-----------------------------------------------------
 	//  Load values when a PSX command is received.
 	//-----------------------------------------------------
-	wire bIs32Bit = i_command && (i_commandSize == CMD_4BYTE);
-	wire bUnalign = i_command && i_subAddr[0];
+	wire bIs32Bit = useCommand && (i_commandSize == CMD_4BYTE);
+	wire bUnalign = useCommand && i_subAddr[0];
 	always @(posedge i_clk)
 	begin
 		// Store the values for writing to DDR.
-		if (i_command) begin
+		if (useCommand) begin
 			is32Bit   <= bIs32Bit;
 			isUnAlign <= bUnalign;
 		end
@@ -183,7 +186,7 @@ parameter	CMD_32BYTE		= 2'd1,
 		dataToPSXValid = (currState == WAIT_RECEIVE_READ) && (nextState == DEFAULT_STATE);
 		
 		// Set Mask (we don't check isWrite to simplify logic but dataMask is used only with Write)
-		if ((currState == DEFAULT_STATE) && i_command) begin
+		if ((currState == DEFAULT_STATE) && useCommand) begin
 			if (i_writeElseRead) begin
 				if (i_commandSize == CMD_4BYTE) begin
 					dataMask   <= { 12'd0, i_subAddr[0] ? { i_writeMask[1:0], 2'b0} : { 2'b0,i_writeMask[1:0] } };
@@ -195,7 +198,7 @@ parameter	CMD_32BYTE		= 2'd1,
 			end
 		end
 		
-		if (i_command && i_writeElseRead) begin
+		if (useCommand && i_writeElseRead) begin
 			dataInOut[ 31: 0] <= i_dataClient[ 31: 0];
 			dataInOut[ 63:32] <= (bUnalign & bIs32Bit)? i_dataClient[31:0] : i_dataClient[63:32];
 			dataInOut[255:64] <= i_dataClient[255:64];
@@ -218,7 +221,7 @@ parameter	CMD_32BYTE		= 2'd1,
 	//-----------------------------------------------------
 	always @(posedge i_clk)
 	begin
-		if (i_command) begin
+		if (useCommand) begin
 			blkCounterEmit <= 2'd0;
 			blkCounterRecv <= 2'd0;
 			case (i_commandSize)
@@ -240,7 +243,6 @@ parameter	CMD_32BYTE		= 2'd1,
 	assign o_busyClient			= (currState != DEFAULT_STATE); // Can say NOT busy on the LAST CYCLE of current transaction.
 	assign o_dataValidClient	= dataToPSXValid;
 	assign o_dataClient			= dataInOut;
-	
 	//-----------------------------------------------------
 	// DDR OUT
 	//-----------------------------------------------------

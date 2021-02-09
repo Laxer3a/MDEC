@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -35,11 +35,10 @@ module GPUPipeCtrl2(
 	
 	// --- ALL STAGES : Just STOP ---
 	input			pause,
-	input			resetPipelinePixelStateSpike,
 	
 	// --- Stage 0 Input ---
 	// Left Side (All values stay the same from previous cycle if OkNext is FALSE)
-	input [1:0]		iPixelStateSpike, // Beginning of a new primitive.
+	input [1:0]		i_PixelBlockTransition, // Beginning of a new primitive.
 	input [9:0] 	iScrX,
 	input [8:0] 	iScrY,
 	input [8:0]		iR,
@@ -55,7 +54,7 @@ module GPUPipeCtrl2(
 	output			pixelInFlight,
 	
 	// --- Stage 2 Write back Control ---
-	output	[1:0]	oPixelStateSpike,
+	output	[1:0]	o_PixelBlockTransition,
 	output			oValidPixel,
 	output [ 9:0]	oScrx,
 	output [ 8:0]	oScry,
@@ -152,7 +151,7 @@ module GPUPipeCtrl2(
 	begin
 		if (!pause || (i_nrst==0)) begin
 			PisTrueColor_c1		<= isTrueColor;
-			PpixelStateSpike_c1	<= (i_nrst==0) ? 2'b00 : iPixelStateSpike; // Beginning of a new primitive.
+			PpixelStateSpike_c1	<= (i_nrst==0) ? 2'b00 : i_PixelBlockTransition; // Beginning of a new primitive.
 			PiScrX_c1			<= iScrX;
 			PiScrY_c1			<= iScrY;
 			PiR_c1				<= iR;
@@ -168,8 +167,8 @@ module GPUPipeCtrl2(
 	
 	always @ (posedge clk)
 	begin
-		if (!pause | resetPipelinePixelStateSpike | (i_nrst == 0)) begin
-			PPpixelStateSpike_c2 <= ((i_nrst==0) | resetPipelinePixelStateSpike) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
+		if (!pause | (i_nrst == 0)) begin
+			PPpixelStateSpike_c2 <= (i_nrst==0) ? 2'b00 : PpixelStateSpike_c1;	// Reset to ZERO if resetLineFlag
 		end
 		
 		if (!pause || (i_nrst==0)) begin
@@ -197,7 +196,7 @@ module GPUPipeCtrl2(
 	wire [15:0] pixelOut    = PPisTexturedPixel_c2 ?       selPix :   16'h7FFF;
 	
 	assign pixelInFlight	= PPValidPixel_c2 | PValidPixel_c1;
-	assign oPixelStateSpike	= PPpixelStateSpike_c2;
+	assign o_PixelBlockTransition = PPpixelStateSpike_c2;
 	assign oTransparent		= (!(|pixelOut[15:0])) & (!GPU_TEX_DISABLE); // If all ZERO, then 1., SET TO 0 if TEXTURE DISABLED.
 	assign oTexel			= pixelOut;
 	assign oValidPixel		= PPValidPixel_c2;

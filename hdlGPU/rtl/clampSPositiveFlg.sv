@@ -9,18 +9,24 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
-module gpu_irq (
-	input	i_clk,
-	input	i_rstIRQ,
-	input	i_setIRQ,
-	output	o_irq
+module clampSPositiveFlg
+#(	parameter INW  = 16,	// -32768..+32767
+	parameter OUTW = 8		//      0..+255
+)
+(
+	input  signed [ INW-1:0] valueIn,
+	output        [OUTW-1:0] valueOut,
+	output					 negClamp,
+	output					 posClamp
 );
-	reg irq_internal;
-	always @(posedge i_clk)
-		if (i_rstIRQ)
-			irq_internal <= 0;
-		else if (i_setIRQ)
-			irq_internal <= 1;
-			
-	assign o_irq = irq_internal;
+	// Neg Sign  => 0
+	wire isPos					= !valueIn[INW-1];
+	wire [OUTW-1:0] andStage	= {OUTW{isPos}};
+	
+	// Pos > 255 => 255
+	wire overF					= |valueIn[INW-2:OUTW];
+	
+	assign valueOut = ( valueIn[OUTW-1:0] | {OUTW{overF}} ) & andStage;
+	assign negClamp = !isPos;
+	assign posClamp = overF;
 endmodule

@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -39,26 +39,25 @@ module MemArbRender (
 
 	// CLUT$ feed updated $ data to cache.
 	output          ClutCacheWrite,
-	output  [2:0]   ClutWriteIndex,
-	output [31:0]   ClutCacheData,
+	output [255:0]  ClutCacheData,
 
-	input			isBlending,
+	input			saveBGBlock,
 	input  [14:0]	saveAdr,
-	input	[1:0]	saveBGBlock,			// 00:Do nothing, 01:First Block, 10 : Second and further blocks.
-											// First block does nothing if no blending (no BG load)
-											// Second block does LOAD/SAVE or LOAD only based on state.
 	input [255:0]	exportedBGBlock,
 	input  [15:0]	exportedMSKBGBlock,
+	output			o_blockSaving,
+	output			o_blockSaved,
 
 	// BG Loaded in different clock domain completed loading, instant transfer of 16 bit BG.
+	input			loadBGBlock,
 	input  [14:0]	loadAdr,
 	output			importBGBlockSingleClock,
 	output  [255:0]	importedBGBlock,
 
 	output			saveLoadOnGoing,
+//	output			saveLoadCompleteNextCycle,
 
-	output			resetPipelinePixelStateSpike,
-	output			resetMask,				// Reset the list of used pixel inside the block for next block processing.
+	output          o_outputIdle,           // All memory transactions drained
 
 	// -----------------------------------
 	// [DDR SIDE]
@@ -77,20 +76,6 @@ module MemArbRender (
     input            i_dataInValid,
     output [255:0]   o_dataOut
 );
-
-// --------------------------------------------------------------
-//   MANAGEMENT OF BATCH BETWEEN READ/WRITE TARGET BUFFER BLOCK.
-// --------------------------------------------------------------
-// Private/Local
-wire		doBGWork     = saveBGBlock[0] | saveBGBlock[1];
-reg			lastsaveBGBlock;
-always @(posedge gpuClk) begin lastsaveBGBlock <= doBGWork; end
-// --------------------------------------------------------------
-// PUBLIC SIGNAL IN DESIGN
-wire	isFirstBlockBlending	= ((saveBGBlock == 2'b01) & isBlending);
-wire	spikeBGBlock			= doBGWork & !lastsaveBGBlock;
-// --------------------------------------------------------------
-
 
 // ---------------------------------------
 // Stupid Alias to DDR Side data input
@@ -113,65 +98,37 @@ parameter   WAIT_CMD			= 3'd0,
 			READ_BG				= 3'd1,
 			READ_CLUT			= 3'd2,
 			READ_TEX_L			= 3'd3,
-			READ_TEX_R			= 3'd4,
-			WRITE_BG			= 3'd5,
-			READ_BG_START		= 3'd6;
+			READ_TEX_R			= 3'd4;
+			/*WRITE_BG			= 3'd5*/
+
+wire        fifo_space_w;
 
 reg [2:0]   state;
 reg [2:0]   nextState;
+wire	    isCLUT;
+
 // --------------------------------------------------------------
-assign resetMask						= ( state == WRITE_BG);
-wire isBlendingBlock					= (isBlending && (saveBGBlock != 2'd3));
-assign resetPipelinePixelStateSpike		= ((state == WRITE_BG) && (!isBlendingBlock)) || ((state == READ_BG) && validRead);
-assign importBGBlockSingleClock			= ( state == READ_BG ) && validRead;
 // Data Read. Straight into GPU.
+wire   askReadWrite						= (saveBGBlock | loadBGBlock);
 assign importedBGBlock					= res_data;
-assign saveLoadOnGoing					= (state != WAIT_CMD);
+assign saveLoadOnGoing					= ~fifo_space_w;
+// assign saveLoadCompleteNextCycle		= saveLoadOnGoing && (nextState == WAIT_CMD);
 assign isTexL							= (state == READ_TEX_L);
 assign isTexR							= (state == READ_TEX_R);
 assign isCLUT							= (state == READ_CLUT );
-wire   resetRead						= (nextState == WAIT_CMD  ) && (isTexL | isTexR | isCLUT | (state == READ_BG));
-
+assign importBGBlockSingleClock			= (state == READ_BG   ) && validRead;
 // --------------------------------------------------------------
 //   CLUT STUFF
 // --------------------------------------------------------------
-wire	isCLUT;
-reg [2:0] idxCnt;
-wire	lastCLUT				= (idxCnt==3'd7);
-// CLUT$ Load Request
-// assign updateClutCacheComplete	= lastCLUT; <--- Deprecated
-// CLUT$ feed updated $ data to cache.
-assign ClutCacheWrite			= validRead & isCLUT;
-assign ClutWriteIndex			= idxCnt; // 0..7
-reg [31:0] s_data32; 
-always @(*) begin 
-	case (idxCnt)
-	3'd0   : s_data32 = res_data[ 31:  0];
-	3'd1   : s_data32 = res_data[ 63: 32];
-	3'd2   : s_data32 = res_data[ 95: 64];
-	3'd3   : s_data32 = res_data[127: 96];
-	3'd4   : s_data32 = res_data[159:128];
-	3'd5   : s_data32 = res_data[191:160];
-	3'd6   : s_data32 = res_data[223:192];
-	default: s_data32 = res_data[255:224];
-	endcase
-end
-
-always @(posedge gpuClk)
-begin
-	if (state == WAIT_CMD) begin
-		idxCnt <= 3'd0;
-	end else begin
-		idxCnt <= idxCnt + {2'd0, ClutCacheWrite};
-	end
-end
-assign ClutCacheData					= s_data32;
+assign ClutCacheWrite	= validRead & isCLUT;
+assign ClutCacheData	= i_dataIn;
 
 // --------------------------------------------------------------
 
 wire [16:0] adrTexRead = requTexCacheUpdateL ? adrTexCacheUpdateL : adrTexCacheUpdateR;
 
 reg			command;
+reg 		pipeWrite;
 reg         writeMemory;
 reg			saveTexAdr;
 reg [1:0]	commandSize;
@@ -187,10 +144,17 @@ parameter	ADR_BGWRITE		= 2'd0,
 
 reg [1:0]	adrSelect;
 
+always @(posedge gpuClk) begin
+	if (!i_nRst)
+		pipeWrite <= 0;
+	else
+		pipeWrite <= writeMemory;
+end
+
 always @(*)
 begin
 	// By default create a command, we erase the flag in the ELSE.
-	command		= 1;
+	command		= 0;
 	writeMemory	= 0;
 	commandSize	= CMD_32BYTE;
 	
@@ -198,77 +162,60 @@ begin
 	saveTexAdr	= 0;
 	adrSelect	= ADR_BGWRITE; // Default
 	
-	if ((!i_busy) && ((state == WAIT_CMD) || (state == READ_BG_START))) begin
-		if (state == WAIT_CMD) begin
-			if (spikeBGBlock & (saveBGBlock[1] | isFirstBlockBlending)) begin
-				if (isFirstBlockBlending) begin
-					// READ BG
-					adrSelect	= ADR_BGREAD;
-					nextState	= READ_BG;
-				end else begin
-					// WRITE BG
-					writeMemory	= 1;
-					adrSelect	= ADR_BGWRITE;
-					nextState	= WRITE_BG;
-				end
+	case (state)
+	WAIT_CMD: begin
+		if (fifo_space_w) begin
+			if (requClutCacheUpdate) begin
+				adrSelect	= ADR_CLUTREAD;
+				nextState	= READ_CLUT;
+				command		= 1;
 			end else begin
-				if (requClutCacheUpdate) begin
-					adrSelect	= ADR_CLUTREAD;
-					nextState	= READ_CLUT;
-				end else begin
-					if (requTexCacheUpdateL  | requTexCacheUpdateR) begin
-						saveTexAdr	= 1;
-						commandSize = CMD_8BYTE;
-						adrSelect	= ADR_TEXREAD;
-						nextState	= requTexCacheUpdateL ? READ_TEX_L : READ_TEX_R;
+				if (requTexCacheUpdateL  | requTexCacheUpdateR) begin
+					saveTexAdr	= 1;
+					commandSize = CMD_8BYTE;
+					adrSelect	= ADR_TEXREAD;
+					nextState	= requTexCacheUpdateL ? READ_TEX_L : READ_TEX_R;
+					command		= 1;
+				end else if (askReadWrite) begin
+						// Read Higher Priority than write...
+					command		= 1;
+					if (loadBGBlock) begin
+						// READ BG
+						adrSelect	= ADR_BGREAD;
+						nextState	= READ_BG;
 					end else begin
-						//
-						// Nothing to do to the FIFO.
-						//
-						command	= 0;
+						// WRITE BG
+						writeMemory	= 1;
+						adrSelect	= ADR_BGWRITE; // Default value anyway
+						// nextState	= WAIT_CMD;		// No special State for WRITE !
+														// Write when valid
 					end
 				end
 			end
-		end else begin
-			adrSelect	= ADR_BGREAD;
-			nextState	= READ_BG;
 		end
-	end else begin
-		if (((state != WAIT_CMD) && (state != READ_BG_START))) begin
-			case (state)
-			READ_CLUT: begin
-				if (validRead) begin
-					nextState = (lastCLUT        ? WAIT_CMD      :    state);
-				end
-			end
-			WRITE_BG: begin
-				nextState = (isBlendingBlock ? READ_BG_START : WAIT_CMD);
-			end
-			READ_TEX_L: begin
-				if (validRead) begin
-					nextState = WAIT_CMD;
-				end
-			end
-			READ_TEX_R: begin
-				if (validRead) begin
-					nextState = WAIT_CMD;
-				end
-			end
-			READ_BG: begin
-				if (validRead) begin
-					nextState = WAIT_CMD;
-				end
-			end
-			/*
-			WAIT_CMD:			nextState = WAIT_CMD;
-			*/
-			// WAIT_CMD         NEVER REACH HERE
-			// READ_BG_START	NEVER REACH HERE  (MUST NEVER !!!)
-			default:			nextState = WAIT_CMD;
-			endcase
-		end
-		command	= 0;
 	end
+	READ_CLUT: begin
+		if (validRead) begin
+			nextState = WAIT_CMD;
+		end
+	end
+	READ_TEX_L: begin
+		if (validRead) begin
+			nextState = WAIT_CMD;
+		end
+	end
+	READ_TEX_R: begin
+		if (validRead) begin
+			nextState = WAIT_CMD;
+		end
+	end
+	READ_BG: begin
+		if (validRead) begin
+			nextState = WAIT_CMD;
+		end
+	end
+	default: nextState = WAIT_CMD;
+	endcase
 end
 
 always @(posedge gpuClk)
@@ -284,14 +231,15 @@ begin
 	end
 end
 
-assign o_command	= command;
-assign o_write		= writeMemory;
-assign o_commandSize= commandSize;
+assign o_blockSaved	= pipeWrite;
+assign o_blockSaving= writeMemory;
+assign o_outputIdle = ~o_command;
 
-assign o_dataOut	= exportedBGBlock;
-assign o_writeMask	= exportedMSKBGBlock;
-
+//-----------------------------------------------------------------
+// Memory Request
+//-----------------------------------------------------------------
 reg [14:0] outputAdr;
+
 always @(*) begin
 	case (adrSelect)
 	ADR_BGWRITE	:			outputAdr = saveAdr;
@@ -301,7 +249,53 @@ always @(*) begin
 	endcase
 end
 
-assign o_adr		= outputAdr;
-assign o_subadr		= (commandSize != CMD_32BYTE) ? {adrTexRead[1:0],1'b0} : 3'd0; // Not necessary problably but cleaner.
+wire [2:0] subadr_w = (commandSize != CMD_32BYTE) ? {adrTexRead[1:0],1'b0} : 3'd0; // Not necessary problably but cleaner.
 	
+gpu_mem_fifo
+#(
+     .WIDTH(256 + 16 + 2 + 1 + 15 + 3)
+    ,.DEPTH(2)
+    ,.ADDR_W(1)
+)
+u_mem_req
+(
+     .clk_i(gpuClk)
+    ,.rst_i(~i_nRst)
+
+    ,.push_i(command)
+    ,.data_in_i({subadr_w, outputAdr, writeMemory, commandSize, exportedMSKBGBlock, exportedBGBlock})
+    ,.accept_o(fifo_space_w)
+
+    // Outputs
+    ,.data_out_o({o_subadr, o_adr, o_write, o_commandSize, o_writeMask, o_dataOut})
+    ,.valid_o(o_command)
+    ,.pop_i(~i_busy)
+);
+
 endmodule
+
+/*
+wire isBlendingBlock					= (isBlending && (saveBGBlock != 2'd3));
+assign resetPipelinePixelStateSpike		= ((state == WRITE_BG) && (!isBlendingBlock)) || ((state == READ_BG) && validRead);
+	input	[1:0]	saveBGBlock,			// 00:Do nothing, 01:First Block, 10 : Second and further blocks.
+											// First block does nothing if no blending (no BG load)
+											// Second block does LOAD/SAVE or LOAD only based on state.
+	input			isBlending,
+
+// --------------------------------------------------------------
+//   MANAGEMENT OF BATCH BETWEEN READ/WRITE TARGET BUFFER BLOCK.
+// --------------------------------------------------------------
+	output			resetPipelinePixelStateSpike,
+	output			resetMask,				// Reset the list of used pixel inside the block for next block processing.
+assign resetMask						= ( state == WRITE_BG);
+// Private/Local
+wire		doBGWork     = saveBGBlock[0] | saveBGBlock[1];
+reg			lastsaveBGBlock;
+always @(posedge gpuClk) begin lastsaveBGBlock <= doBGWork; end
+// --------------------------------------------------------------
+// PUBLIC SIGNAL IN DESIGN
+wire	isFirstBlockBlending	= ((saveBGBlock == 2'b01) & isBlending);
+wire	spikeBGBlock			= doBGWork & !lastsaveBGBlock;
+// --------------------------------------------------------------
+				nextState = (isBlendingBlock ? READ_BG_START : WAIT_CMD);
+*/

@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -27,7 +27,6 @@ module gpu_parser(
 	output  [4:0]		o_issuePrimitive,
 
 	// Request data to parse
-	input				i_isFifoNotEmpty32,
 	output				o_readFIFO,
 	// Valid data from previous request
 	input				i_dataValid,		// i_dataValid IS o_readFIFO pipelined (FIFO = 1 CYCLE LATENCY) THAT'S SPECS (outside is just pipelining o_readFIFO)
@@ -83,15 +82,15 @@ typedef enum logic[3:0] {
     VERTEX_LOAD_GARAGE	=4'd10
 } state_t;
 
-state_t currState,nextLogicalState;
-state_t nextState;
+state_t currState;
+state_t nextLogicalState;
 
 always @(posedge i_clk)
 begin
     if (i_rstGPU) begin
         currState 		<= DEFAULT_STATE;
     end else begin
-        currState		<= nextState;
+        currState		<= nextLogicalState;
     end
 end
 
@@ -205,9 +204,6 @@ wire bNotFirstVert		= !isFirstVertex;		// Can NOT use counter == 0. Won't work i
 //------------------------------------------------
 always @(*)
 begin
-    // Read FIFO when fifo is NOT empty or that we can decode the next item in the FIFO.
-    // TODO : Assume that FIFO always output the same value as the last read, even if read signal is FALSE ! Simplify state machine a LOT.
-
     // NOT SUPPORTED WELL --->>>> issue = 0/*'{default:1'b0}*/;
     storeCommand  			= 0;
     loadRGB         		= 0;
@@ -236,12 +232,16 @@ begin
     nextCondUseFIFO			= 0;
     nextLogicalState		= DEFAULT_STATE;
 
-    case (currState)
+    // No data ready (which is required) - no transition...
+    if (~i_dataValid && o_readFIFO)
+        nextLogicalState = currState;
+    // Data ready - process state transition
+    else case (currState)
     DEFAULT_STATE:
     begin
         /*issue.*/resetVertexCounter = 1;
-        nextCondUseFIFO			= 1;
-        nextLogicalState		= LOAD_COMMAND; // Need FIFO
+        if (i_dataValid && canIssueWork)
+            nextLogicalState    = LOAD_COMMAND; // Need FIFO
     end
     // Step 0A
     LOAD_COMMAND:				// Here we do NOT check data validity : if we arrive in this state, we know the data is available from the FIFO, and GPU accepts commands.
@@ -494,13 +494,9 @@ end
 //        But anyway we can NOT PARSE WHILE RENDERING PRIMITIVE BECAUSE IT WILL MODIFY THE REGISTERS.
 //        So a full optimized system parsing the next command while rendering the first one is a lot more difficult anyway.
 //
-wire canReadFIFO			= i_isFifoNotEmpty32 & canIssueWork;
-wire authorizeNextState     = ((!nextCondUseFIFO) | o_readFIFO);
-// GENERATE WARNING : assign nextState			= authorizeNextState ? nextLogicalState : currState;
-always @(*) begin nextState = authorizeNextState ? nextLogicalState : currState; end
-
 assign o_issuePrimitive		= canIssueWork ? /*issue.*/issuePrimitive : NO_ISSUE;
-assign o_readFIFO			= (nextCondUseFIFO & canReadFIFO);
+
+assign o_readFIFO           = (currState != DEFAULT_STATE && currState != WAIT_COMMAND_COMPLETE && currState != COLOR_LOAD_GARAGE && currState != VERTEX_LOAD_GARAGE) & canIssueWork;
 assign o_vertexID 			= vertexID;
 
 // Vertex Register Side Load Signal
@@ -530,5 +526,23 @@ assign o_setIRQ					= setIRQ;
 assign o_loadClutPage			= loadClutPage;
 assign o_loadTexPage			= loadTexPage;
 assign o_waitingNewCommand		= (currState == DEFAULT_STATE);
+
+//-----------------------------------------------------------------
+// Checker Interface
+//-----------------------------------------------------------------
+`ifdef verilator
+function [0:0] command_accept; /*verilator public*/
+begin
+    command_accept = i_dataValid && (currState == LOAD_COMMAND) && o_readFIFO;
+end
+endfunction
+
+function [7:0] command; /*verilator public*/
+begin
+    command = i_command;
+end
+endfunction
+
+`endif
 
 endmodule

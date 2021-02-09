@@ -9,7 +9,7 @@ module gpu_clutManager (
 
 	input			i_setClutLoading,			// loadClutPage
 
-	input			i_decClutCount,
+	input			i_incClutCount,
 	output			o_stillRemainingClutPacket,
 	
 	input			i_endClutLoading,
@@ -32,23 +32,26 @@ reg [15:0]	RegCLUT;
 reg   		rClutLoading;
 reg	 [4:0]	rClutPacketCount;
 reg         rPalette4Bit;
+reg			lastBlockLoaded;
+wire [4:0]	nextClutPacket	= rClutPacketCount + 5'd1;
 
-wire [4:0]	nextClutPacket	= rClutPacketCount + 5'h1F;
-
+wire endCondition = (rClutPacketCount == (i_CLUTIs8BPP ? 5'd15 : 5'd0));
 always @(posedge i_clk)
 begin
 	if (i_rstGPU) begin
 		RegCLUT						<= 16'h8000;	// Invalid CLUT ADR on reset.
-		
+		lastBlockLoaded				<= 0;
 		rClutLoading				<= 1'b0;
 		rClutPacketCount			<= 5'd0;
 		rPalette4Bit				<= 1'b0;
 	end else begin
 		if (i_issuePrimitive) begin	// TODO OPTIMIZE : can not be same as 'i_setClutLoading' ?
-			rClutPacketCount		<= { i_CLUTIs8BPP , 3'b0, !i_CLUTIs8BPP }; // Load 1 packet or 16
+			rClutPacketCount		<= 5'd0; // i_CLUTIs8BPP ? 5'd15 : 5'd1; // { i_CLUTIs8BPP , 3'b0, !i_CLUTIs8BPP }; // Load 1 packet or 16
+			lastBlockLoaded			<= 0;
 		end
-		if (i_decClutCount) begin
-			rClutPacketCount		<= nextClutPacket; // Decrement -1.
+		if (i_incClutCount) begin
+			rClutPacketCount		<= nextClutPacket; // Increment+1
+			lastBlockLoaded			<= endCondition;
 		end
 		if (i_setClutLoading) begin
 			if (newClutValue[15] == 1'b0 && (newClutValue != RegCLUT)) begin
@@ -70,11 +73,11 @@ begin
     end
 end
 
-wire [5:0]  XPosClut		= {1'b0, nextClutPacket/*rClutPacketCount*/} + RegCLUT[5:0];
+wire [5:0]  XPosClut		= {1'b0, rClutPacketCount} + RegCLUT[5:0];
 assign o_adrClutCacheUpdate	= { RegCLUT[14:6] , XPosClut };
 
 assign o_isLoadingPalette   =  (rClutLoading & i_isPalettePrimitive) 
                             || (i_isPalettePrimitive & rPalette4Bit & i_CLUTIs8BPP);
-assign o_stillRemainingClutPacket = (rClutPacketCount != 5'd0);
+assign o_stillRemainingClutPacket = !lastBlockLoaded;
 assign o_currentClutBlock	= rClutPacketCount[3:0];
 endmodule

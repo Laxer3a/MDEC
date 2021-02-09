@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -68,7 +68,6 @@ module directCacheDoublePort(
 	// ------------- 2 KB Version ----------
 	// [20:11][10:3][2:0]		256 Entries x 8 Byte (4x2) = 2 KB.
 	//  10 bit 8bit  3bit
-	reg [72:0]	RAMStorage[255:0];
 	reg [255:0]	Active;
 	reg [7:0]	pRaddrA,pRaddrB;
 
@@ -77,19 +76,47 @@ module directCacheDoublePort(
 	
 	always @ (posedge i_clk)
 	begin
-		if (i_write)
-		begin
-			RAMStorage[swizzleAddr[7:0]]	<= { swizzleAddr[16:8], i_dataIn[63: 0] };
-		end
-		
 		pRaddrA	<= swizzleLookA[7:0];
 		pRaddrB	<= swizzleLookB[7:0];
 		pRTagA	<= swizzleLookA[16:8];
 		pRTagB	<= swizzleLookB[16:8];
 	end
 
-	wire  [72:0]	D0A = RAMStorage[pRaddrA];	// Latency 1 (Pipelined address : RAM read)
-	wire  [72:0]	D0B = RAMStorage[pRaddrB];
+	wire  [72:0]	D0A;
+	wire  [72:0]	D0B;
+
+	directCacheRAM
+	u_ram0
+	(
+	     .clk0_i(i_clk)
+	    ,.rst0_i(~i_nrst)
+	    ,.addr0_i(swizzleAddr[7:0])
+	    ,.data0_i({ swizzleAddr[16:8], i_dataIn[63: 0] })
+	    ,.wr0_i(i_write)
+
+	    ,.clk1_i(i_clk)
+	    ,.rst1_i(~i_nrst)
+	    ,.addr1_i(swizzleLookA[7:0])
+
+	    ,.data1_o(D0A)
+	);
+
+	directCacheRAM
+	u_ram1
+	(
+	     .clk0_i(i_clk)
+	    ,.rst0_i(~i_nrst)
+	    ,.addr0_i(swizzleAddr[7:0])
+	    ,.data0_i({ swizzleAddr[16:8], i_dataIn[63: 0] })
+	    ,.wr0_i(i_write)
+
+	    ,.clk1_i(i_clk)
+	    ,.rst1_i(~i_nrst)
+	    ,.addr1_i(swizzleLookB[7:0])
+
+	    ,.data1_o(D0B)
+	);	
+
 
 	wire       lookActiveA	= Active[pRaddrA];	// Latency 1 (Use pipelined adress to read register at same time as DOA)
 	wire       lookActiveB	= Active[pRaddrB];
@@ -169,3 +196,55 @@ module directCacheDoublePort(
 		pIndexB	<= i_adressLookB[1:0];
 	end
 endmodule
+
+module directCacheRAM
+(
+    // Inputs
+     input           clk0_i
+    ,input           rst0_i
+    ,input  [  7:0]  addr0_i
+    ,input  [ 72:0]  data0_i
+    ,input           wr0_i
+    ,input           clk1_i
+    ,input           rst1_i
+    ,input  [  7:0]  addr1_i
+
+    // Outputs
+    ,output [ 72:0]  data1_o
+);
+
+//-----------------------------------------------------------------
+// 1R1W RAM 2KB
+// Mode: Write First
+//-----------------------------------------------------------------
+/* verilator lint_off MULTIDRIVEN */
+reg [72:0]   ram [255:0] /*verilator public*/;
+/* verilator lint_on MULTIDRIVEN */
+
+reg [72:0] ram_read_q;
+
+// Synchronous write
+always @ (posedge clk0_i)
+begin
+    if (wr0_i)
+        ram[addr0_i][72:0] <= data0_i[72:0];
+
+    ram_read_q <= ram[addr1_i];
+end
+
+reg data_bypass_q;
+
+always @ (posedge clk0_i )
+if (rst0_i)
+    data_bypass_q <= 1'b0;
+else
+    data_bypass_q <= (|wr0_i) && (addr1_i == addr0_i);
+
+reg [72:0] data_q;
+always @ (posedge clk0_i)
+    data_q <= data0_i;
+
+assign data1_o = data_bypass_q ? data_q : ram_read_q;
+
+endmodule
+

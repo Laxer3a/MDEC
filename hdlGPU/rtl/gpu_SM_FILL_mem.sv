@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -18,9 +18,9 @@ module gpu_SM_FILL_mem(
 	// Setup
 	input					i_InterlaceRender,
 	input					GPU_REG_CurrentInterlaceField,
-	input			[ 7:0]	RegR0,
-	input			[ 7:0]	RegG0,
-	input			[ 7:0]	RegB0,
+	input			[ 8:0]	RegR0,
+	input			[ 8:0]	RegG0,
+	input			[ 8:0]	RegB0,
 	input	signed  [11:0]	RegX0,
 	input	signed  [11:0]	RegY0,
 	input			[10:0]	RegSizeW,
@@ -29,6 +29,7 @@ module gpu_SM_FILL_mem(
 	// State machine control
 	input					i_activateFILL,
 	output					o_FILLInactiveNextCycle,
+	output					o_active,
 
 	// Stencil Write
 	output					o_stencilWriteSig,
@@ -59,11 +60,13 @@ module gpu_SM_FILL_mem(
 );
 
 wire i_urgentExit = 0;
+wire fifo_space_w;
 
 typedef enum logic[1:0] {
 	RENDER_WAIT					= 2'd0,
 	FILL_START					= 2'd1,
-	FILL_LINE  					= 2'd2
+	FILL_LINE  					= 2'd2,
+	FILL_WAIT_COMPLETE			= 2'd3
 } workState_t;
 
 //----------------------------------------------------	
@@ -96,14 +99,18 @@ end
 
 always @(posedge i_clk)
 begin
-    if (loadNext) begin
-        pixelY <= nextPixelY;
-    end
+	if (i_rst) begin
+		pixelY <= 12'd0;
+	end else begin
+		if (loadNext) begin
+			pixelY <= nextPixelY;
+		end
+	end
 end
 
 always @(posedge i_clk)
 begin
-    counterXSrc <= (resetXCounter) ? 7'd0 : counterXSrc + { 6'd0 ,incrementXCounter };
+    counterXSrc <= (resetXCounter || i_rst) ? 7'd0 : counterXSrc + { 6'd0 ,incrementXCounter };
 end
 
 wire [10:0] fullSizeSrc			= RegSizeW + { 7'd0, RegX0[3:0] };
@@ -153,17 +160,25 @@ begin
 	begin
 		// Forced to decrement at each step in X
 		// [FILL COMMAND : [16 Bit 0BGR][16 bit empty][Adr 15 bit][4 bit empty][010]
-		if (!i_busy) begin // else it will wait...
+		if (fifo_space_w) begin // else it will wait...
 			memoryWrite			= 1;
 			writeStencil		= 1;
 			if (isLastSegment) begin
 				loadNext	  = 1;
 				selNextY	  = Y_TRI_NEXT;
 				resetXCounter = 1;
-				nextWorkState = (endVertical) ? RENDER_WAIT : FILL_LINE;
+				nextWorkState = (endVertical) ? FILL_WAIT_COMPLETE : FILL_LINE;
 			end else begin
 				incrementXCounter	= 1;// SRC COUNTER
 			end
+		end
+	end
+	FILL_WAIT_COMPLETE:
+	begin
+		// Output FIFO drained
+		if (!o_command)
+		begin
+			nextWorkState = RENDER_WAIT;
 		end
 	end
 	default: begin
@@ -172,13 +187,7 @@ begin
 	endcase
 end
 
-assign o_command				= memoryWrite;
-assign o_commandSize			= 2'd1;	// 1 = 32 byte.
-assign o_write					= memoryWrite;
-assign o_writeMask				= 16'hFFFF;
-assign o_adr					= { scrY[8:0], scrSrcX };
-assign o_subadr					= 3'd0;
-assign o_dataOut				= {16{ 1'b0,RegB0[7:3],RegG0[7:3],RegR0[7:3]}};
+assign o_active					= (currWorkState != RENDER_WAIT);
 
 assign o_stencilWriteSig		= writeStencil;
 assign o_stencilReadSig			= 0;
@@ -187,6 +196,41 @@ assign o_stencilWriteValue16	= 16'h0000;
 assign o_stencilWriteMask16		= 16'hFFFF;
 assign o_stencilWriteAdr		= o_adr;
 
-assign o_FILLInactiveNextCycle	= (currWorkState != RENDER_WAIT) && (nextWorkState == RENDER_WAIT);
+assign o_FILLInactiveNextCycle	= o_active && (nextWorkState == RENDER_WAIT);
+
+//-----------------------------------------------------------------
+// Memory Request
+//-----------------------------------------------------------------
+wire [4:0] out_r_w;
+wire [4:0] out_g_w;
+wire [4:0] out_b_w;
+
+gpu_mem_fifo
+#(
+     .WIDTH(15 + 15)
+    ,.DEPTH(2)
+    ,.ADDR_W(1)
+)
+u_mem_req
+(
+     .clk_i(i_clk)
+    ,.rst_i(i_rst)
+
+    ,.push_i(memoryWrite)
+    ,.data_in_i({ scrY[8:0], scrSrcX, RegB0[7:3],RegG0[7:3],RegR0[7:3]})
+    ,.accept_o(fifo_space_w)
+
+    // Outputs
+    ,.data_out_o({o_adr, out_b_w, out_g_w, out_r_w})
+    ,.valid_o(o_command)
+    ,.pop_i(~i_busy)
+);
+
+assign o_commandSize			= 2'd1;	// 1 = 32 byte.
+assign o_write					= 1'b1;
+assign o_writeMask				= 16'hFFFF;
+assign o_subadr					= 3'd0;
+assign o_dataOut                = {16{ 1'b0,out_b_w,out_g_w,out_r_w}};
 
 endmodule
+
