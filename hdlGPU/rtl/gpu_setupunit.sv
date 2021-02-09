@@ -296,7 +296,7 @@ module gpu_setupunit(
 	wire signed [11:0]	negb	= -b;
 	wire signed [11:0]	nega	= -a;
 
-	reg signed [11:0]	ra,rb,rd,rnegb,rnega,rnegc;
+	reg signed [11:0]	ra,rd,rnegb,rnegc;
 	
 	// Pipeline to do a,d,b,negc...
 	wire signed [21:0]	/*P*/ DET1	= a * d;
@@ -306,10 +306,8 @@ module gpu_setupunit(
 	// PIPELINE THAT SIDE OF THE DIVIDER INPUT.
 	always @(posedge i_clk) begin
 		ra		<= a;
-		rb		<= b;
 		rd		<= d;
 		rnegb	<= negb;
-		rnega	<= nega;
 		rnegc	<= negc;
 		
 		// Warning order
