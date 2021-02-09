@@ -302,6 +302,7 @@ gpu_setupunit gpu_setupunit_inst(
 	.i_clk							(i_clk),
 
 	.i_bIsLineCommand				(i_bIsLineCommand),
+	.i_bIsRectCommand				(i_bIsRectCommand),
 
 	// --------------------------
 	// Loaded register

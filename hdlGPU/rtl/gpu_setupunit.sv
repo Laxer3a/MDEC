@@ -15,6 +15,7 @@ module gpu_setupunit(
 	input						i_clk,
 
 	input						i_bIsLineCommand,
+	input						i_bIsRectCommand,
 
 	// --------------------------
 	// Vertex registers
@@ -453,7 +454,9 @@ module gpu_setupunit(
 	wire /*reg*/ [3:0]	assignDivResult = { compoID7, vecID7 }; // 1..A, 0 none
 	always @(posedge i_clk) begin
 `ifndef DOUBLE_DIVUNIT
-		if (part7) begin
+		if (part7 & !i_bIsRectCommand) begin
+`else
+		if (!i_bIsRectCommand) begin
 `endif
 			if (assignDivResult == 4'd2) begin RSX <= perPixelComponentIncrement; end
 			if (assignDivResult == 4'd3) begin RSY <= perPixelComponentIncrement; end
@@ -465,9 +468,7 @@ module gpu_setupunit(
 			if (assignDivResult == 4'd9) begin USY <= perPixelComponentIncrement; end
 			if (assignDivResult == 4'hA) begin VSX <= perPixelComponentIncrement; end
 			if (assignDivResult == 4'hB) begin VSY <= perPixelComponentIncrement; end
-`ifndef DOUBLE_DIVUNIT
 		end
-`endif
 
 		// Assign rasterization parameter for RECT mode.
 		if (i_assignRectSetup) begin
@@ -500,12 +501,12 @@ module gpu_setupunit(
 	//  [ Interpolator Compute Stage ]
 	// ---------------------------------------------------------------------------------------------------------------------
 
-	wire signed [11:0] distXV0 			= pixelX + nRegX0;
-	wire signed [11:0] distYV0 			= pixelY + nRegY0;
-	wire signed [11:0] distXV1 			= pixelX + nRegX1;
-	wire signed [11:0] distYV1 			= pixelY + nRegY1;
-	wire signed [11:0] distXV2 			= pixelX + nRegX2;
-	wire signed [11:0] distYV2 			= pixelY + nRegY2;
+	wire signed [11:0] distXV0 			= LPixelX + nRegX0;
+	wire signed [11:0] distYV0 			= pixelY  + nRegY0;
+	wire signed [11:0] distXV1 			= LPixelX + nRegX1;
+	wire signed [11:0] distYV1 			= pixelY  + nRegY1;
+	wire signed [11:0] distXV2 			= LPixelX + nRegX2;
+	wire signed [11:0] distYV2 			= pixelY  + nRegY2;
 
 	wire signed [EQUMSB:0] w0L,w1L,w2L,w0R,w1R,w2R;
 

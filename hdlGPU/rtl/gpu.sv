@@ -282,10 +282,10 @@ wire        writeFifo		= (!gpuAdrA2 & gpuSel & write & canWriteFIFO) || (gpu_m2p
 
 wire        isFifoEmpty32  = ~inst_fifo_ready_w;
 
-assign		dbg_canWrite	= canWriteFIFO;
-
 // Command parser / cpu2vram can pop FIFO
 assign      inst_fifo_pop_w = readFifo | accept_cv_data_w;
+
+assign dbg_canWrite = canWriteFIFO;
 
 // From OUTPUT Fifo (vram->cpu/dma)
 //---------------------------------------------------------------
