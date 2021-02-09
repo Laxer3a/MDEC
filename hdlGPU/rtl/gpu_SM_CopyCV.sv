@@ -27,7 +27,8 @@ module gpu_SM_CopyCV(
 	input				i_WidthNot1,
 	input				i_endVertical,
 	
-	input				i_canRead,
+	input				i_canReadL,
+	input				i_canReadM,
 	input				i_nextPairIsLineLast,
 	input				i_commandFIFOaccept,
 	
@@ -77,7 +78,18 @@ always @(posedge i_clk)
 reg	lastPair,swap,regSaveM,regSaveL;
 
 // Control Signals
-reg setSwap,resetLastPair,setLastPair,readL,readM,changeSwap;
+reg setSwap,resetLastPair,setLastPair,readL,readM,changeSwap,resetLM;
+
+//
+// Check the L,M,LM are BOTH VALID.
+// Checking EACH FIFO that it has data and we want to read is not enough.
+// Need to make sure that the OTHER FIFO we want to read is also able for our OWN READ
+// Because we read L, M, LM patterns ! If we allow M or L when we wanted to do LM, that's wrong !!!
+// And then we add another check that the memory system can receive the result from the FIFO read.
+//
+wire nextReadValid = ((readL | readM) & ((readL & i_canReadL) | !readL) & ((readM & i_canReadM) | !readM)) & (!flush) & i_commandFIFOaccept;
+
+reg currReadValid;
 always @(posedge i_clk)
 begin
 	if (i_rst) begin
@@ -85,6 +97,7 @@ begin
 		swap		<= 0;
 		regSaveL	<= 0;
 		regSaveM	<= 0;
+		currReadValid <= 0;
 	end else begin
 		if (setLastPair) begin
 			lastPair <= 1;
@@ -100,7 +113,11 @@ begin
 		if (readL | readM) begin
 			regSaveM <= readM;
 			regSaveL <= readL;
+		end else if (resetLM) begin
+			regSaveM <= 0;
+			regSaveL <= 0;
 		end
+		currReadValid <= nextReadValid;
 	end
 end
 
@@ -111,9 +128,12 @@ end
 reg [2:0]	memoryCommand;
 reg [2:0]	selNextX,selNextY;
 reg loadNext,stencilReadSig,writeStencil,flush;
+reg tmpResetLastPair;
+reg tmpSetLastPair;
+reg tmpChangeSwap;
 
 always @(*) begin
-	nextWorkState = currWorkState;
+	nextWorkState			= currWorkState;
 
 	// Common
 	selNextX				= X_ASIS;
@@ -130,6 +150,16 @@ always @(*) begin
 	readL					= 0;
 	readM					= 0;
 	changeSwap				= 0;
+	resetLM					= 0;
+
+	tmpResetLastPair		= 0;
+	tmpSetLastPair			= 0;
+	tmpChangeSwap			= 0;
+	
+	if (currReadValid) begin
+		memoryCommand = MEM_CMD_PIXEL2VRAM;
+		writeStencil  = 1;
+	end
 	
 	case (currWorkState)
 	COPYCV_WAIT:
@@ -144,16 +174,19 @@ always @(*) begin
 		selNextY		= Y_CV_ZERO;
 		loadNext		= 1;
 		setSwap			= 1;
+		resetLM			= 1;
 		// Reset last pair by default, but if WIDTH == 1 -> different.
 		resetLastPair	= !((!i_WidthNot1) | i_nextPairIsLineLast);
 		setLastPair		=	(!i_WidthNot1) | i_nextPairIsLineLast;
 		// We set first pair read here, flag not need to be set for next state !
 		// No Zero Size W/H Test -> IMPOSSIBLE By definition.
-		if (i_canRead) begin
+
+		// We always have a full word or not here, check is easy.
+		if (i_canReadL & i_canReadM) begin
 			// Read ALL DATA 1 item in advance -> Remove FIFO LATENCY /*issue.*/
 			readL = 1'b1;
 			readM = !i_RegX0_0 & (i_WidthNot1);
-			nextWorkState = COPYCV_COPY;
+			nextWorkState	= COPYCV_COPY;
 			stencilReadSig	= 1;
 		end
 	end
@@ -169,87 +202,87 @@ always @(*) begin
 		// Accept to process when :
 		// - Can write the memory transaction.
 		// - Has next data ready OR it is the LAST memory transaction.
-		if (i_commandFIFOaccept & (i_canRead | (lastPair & i_endVertical))) begin
-			memoryCommand = MEM_CMD_PIXEL2VRAM;
-			nextWorkState = COPYCV_COPY;
-			writeStencil  = 1;
-			loadNext	  = 1;
 
-			// [Last pair]
-			if (lastPair) begin
-				if (i_endVertical) begin
-					nextWorkState	= COPYCV_WAIT;
-					// PURGE...
-					readL		= 1'b0;
-					readM		= i_RegSizeW_0 & i_RegSizeH_0; // Pump out unused pixel in FIFO.
-					flush		= 1'b1;
-				end else begin
-					selNextY	= Y_TRI_NEXT;
-					if (i_WidthNot1) begin
-						// WIDTH != 1, standard case
-						/* FIRST SEGMENT PATTERN
-							W=0	W=0	W=1	W=1
-							X=0	X=1	X=0	X=1
-						L=	1	1	1	!currY[0]
-						M=	1	0	1	currY[0]
-						*/
-						case ({i_RegSizeW_0,i_RegX0_0})
-						2'b00: begin
-							readL = 1'b1; readM = 1'b1;
-						end
-						2'b01: begin
-							readL = 1'b1; readM = 1'b0;
-						end
-						2'b10: begin
-							readL = 1'b1; readM = 1'b1;
-						end
-						2'b11: begin
-							readL = !i_nextPixelY_0; readM = i_nextPixelY_0;
-						end
-						endcase
-						changeSwap	= i_RegSizeW_0 & i_WidthNot1; // If width=1, do NOT swap.
-					end else begin
-						// Only 1 pixel WIDTH pattern...
-						// Alternate ODD/EVEN lines...
-						readL		= !i_nextPixelY_0;
-						readM		=  i_nextPixelY_0;
-						changeSwap	= 1'b1;
-					end
-				end
-				selNextX		= X_CV_START;
-				resetLastPair	= i_WidthNot1 & (!i_nextPairIsLineLast);
+		// [Last pair]
+		if (lastPair) begin
+			if (i_endVertical) begin
+				// PURGE...
+				readL		= 1'b0;
+				readM		= i_RegSizeW_0 & i_RegSizeH_0; // Pump out unused pixel in FIFO.
+				flush		= 1'b1;
 			end else begin
-				// [MIDDLE OR FIRST SEGMENT]
-				//	  PRELOAD NEXT SEGMENT...
-				if (i_nextPairIsLineLast) begin
-					/* LAST SEGMENT PATTERN
-						W=0	W=0	W=1		W=1
-						X=0	X=1	X=0		X=1
-					L = 1	0	!Y[0]	1
-					M = 1	1	Y[0]	1	*/
+				selNextY	= Y_TRI_NEXT;
+				if (i_WidthNot1) begin
+					// WIDTH != 1, standard case
+					/* FIRST SEGMENT PATTERN
+						W=0	W=0	W=1	W=1
+						X=0	X=1	X=0	X=1
+					L=	1	1	1	!currY[0]
+					M=	1	0	1	currY[0]
+					*/
 					case ({i_RegSizeW_0,i_RegX0_0})
 					2'b00: begin
 						readL = 1'b1; readM = 1'b1;
 					end
 					2'b01: begin
-						readL = 1'b0; readM = 1'b1;
+						readL = 1'b1; readM = 1'b0;
 					end
 					2'b10: begin
-						// L on first line (even), M on second (odd)
-						readL = !i_pixelY_0; readM = i_pixelY_0;
-					end
-					2'b11: begin
 						readL = 1'b1; readM = 1'b1;
 					end
+					2'b11: begin
+						readL = !i_nextPixelY_0; readM = i_nextPixelY_0;
+					end
 					endcase
-
-					setLastPair	= 1'b1; // TODO : Rename FirstPair into LastPair.
+					tmpChangeSwap	= i_RegSizeW_0 & i_WidthNot1; // If width=1, do NOT swap.
 				end else begin
-					readL = 1'b1;
-					readM = 1'b1;
+					// Only 1 pixel WIDTH pattern...
+					// Alternate ODD/EVEN lines...
+					readL		= !i_nextPixelY_0;
+					readM		=  i_nextPixelY_0;
+					tmpChangeSwap	= 1'b1;
 				end
-				selNextX	= X_TRI_NEXT;
 			end
+			selNextX			= X_CV_START;
+			tmpResetLastPair	= i_WidthNot1 & (!i_nextPairIsLineLast);
+		end else begin
+			// [MIDDLE OR FIRST SEGMENT]
+			//	  PRELOAD NEXT SEGMENT...
+			if (i_nextPairIsLineLast) begin
+				/* LAST SEGMENT PATTERN
+					W=0	W=0	W=1		W=1
+					X=0	X=1	X=0		X=1
+				L = 1	0	!Y[0]	1
+				M = 1	1	Y[0]	1	*/
+				case ({i_RegSizeW_0,i_RegX0_0})
+				2'b00: begin
+					readL = 1'b1; readM = 1'b1;
+				end
+				2'b01: begin
+					readL = 1'b0; readM = 1'b1;
+				end
+				2'b10: begin
+					// L on first line (even), M on second (odd)
+					readL = !i_pixelY_0; readM = i_pixelY_0;
+				end
+				2'b11: begin
+					readL = 1'b1; readM = 1'b1;
+				end
+				endcase
+
+				tmpSetLastPair	= 1'b1; // TODO : Rename FirstPair into LastPair.
+			end else begin
+				readL = 1'b1;
+				readM = 1'b1;
+			end
+			selNextX	= X_TRI_NEXT;
+		end
+		if (nextReadValid | (lastPair & i_endVertical)) begin
+			loadNext	  = nextReadValid;
+			nextWorkState = lastPair & i_endVertical ? COPYCV_WAIT : COPYCV_COPY;
+			changeSwap    = tmpChangeSwap;
+			resetLastPair = tmpResetLastPair;
+			setLastPair   = tmpSetLastPair;
 		end
 	end
 	default: begin
@@ -273,7 +306,7 @@ assign o_flush					= flush;
 assign o_swap					= swap;
 assign o_saveL					= regSaveL;
 assign o_saveM					= regSaveM;
-assign o_readL					= readL;
-assign o_readM					= readM;
+assign o_readL					= readL &  nextReadValid; 
+assign o_readM					= readM & (nextReadValid | flush); // Allow FIFO read even if no write to command for LAST
 
 endmodule

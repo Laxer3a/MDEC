@@ -572,7 +572,7 @@ module gpu_setupunit(
 	assign o_pixUR 						= RegU0 + offUR[PREC+7:PREC];
 	assign o_pixVR 						= RegV0 + offVR[PREC+7:PREC];
 
-	assign o_isNULLDET					= (/*P*/DET == 22'd0);
+	assign o_isNULLDET					= (/*P*/rDET == 22'd0);
 	assign o_isNegXAxis					= isNegXAxis;
 	assign o_isValidPixelL				= (isCCWInsideL | isCWInsideL) & isInsideBBoxTriRectL;
 	assign o_isValidPixelR				= (isCCWInsideR | isCWInsideR) & isInsideBBoxTriRectR;

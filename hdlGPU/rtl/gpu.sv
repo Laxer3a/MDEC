@@ -1386,7 +1386,6 @@ end
 // --------------------------------------------------------------------------------------------
 
 // [Computation value needed for control setup]
-wire			canRead	= (!isFifoEmptyLSB) | (!isFifoEmptyMSB);
 //                          X       + WIDTH              - [1 or 2]
 wire [11:0]		XE		= { RegX0 } + { 1'b0, RegSizeW } + {{11{1'b1}}, RegX0[0] ^ RegSizeW[0]};		// We can NOT use 10:0 range, because we compare nextX with XE to find the END. Full width of 1024 equivalent to ZERO size.
 wire  [9:0]  nextScrY	= nextPixelY[9:0] + RegY0[9:0];
@@ -1689,7 +1688,8 @@ gpu_SM_CopyCV gpu_SM_CopyCV_instance(
 	.i_WidthNot1				(WidthNot1),
 	.i_endVertical				(endVertical),
 
-	.i_canRead					(canRead),
+	.i_canReadL					(!isFifoEmptyLSB),
+	.i_canReadM					(!isFifoEmptyMSB),
 	.i_nextPairIsLineLast		(nextPairIsLineLast),
 	.i_commandFIFOaccept		(commandFIFOaccept),
                          
