@@ -57,7 +57,7 @@ module gpu
 	input            gpu_p2m_accept_o,
 	
 //	output	[31:0]	mydebugCnt,
-//	output          dbg_canWrite,
+	output          dbg_canWrite,
 
     // --------------------------------------
     // Timing / Display
@@ -281,6 +281,8 @@ wire        canWriteFIFO	= inst_fifo_space_w;
 wire        writeFifo		= (!gpuAdrA2 & gpuSel & write & canWriteFIFO) || (gpu_m2p_valid_o && (GPU_REG_DMADirection == DMA_CPUtoGP0));
 
 wire        isFifoEmpty32  = ~inst_fifo_ready_w;
+
+assign		dbg_canWrite	= canWriteFIFO;
 
 // Command parser / cpu2vram can pop FIFO
 assign      inst_fifo_pop_w = readFifo | accept_cv_data_w;
