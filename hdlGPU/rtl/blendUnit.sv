@@ -24,7 +24,7 @@ module blendUnit(
 //	input			checkMask,
 	
 	input			px_STP,
-	input			px_transparent,
+//	input			px_transparent,
 	
 	input			noblend,
 	input	[1:0]	modeGPU,
@@ -45,15 +45,17 @@ module blendUnit(
 	reg tblTransp;
 	always @(*)
 	begin
-		case ({px_transparent,px_STP,!noblend})
-		3'd0: tblTransp = OPAQUE;				// x,x,x | STP 0 | Transparency OFF
-		3'd1: tblTransp = OPAQUE;				// x,x,x | STP 0 | Transparency ON
-		3'd2: tblTransp = OPAQUE;				// x,x,x | STP 1 | Transparency OFF
-		3'd3: tblTransp = TRANSPARENT;			// x,x,x | STP 1 | Transparency ON
+		case ({/*px_transparent,*/px_STP,!noblend})
+		2'd0: tblTransp = OPAQUE;				// x,x,x | STP 0 | Transparency OFF
+		2'd1: tblTransp = OPAQUE;				// x,x,x | STP 0 | Transparency ON
+		2'd2: tblTransp = OPAQUE;				// x,x,x | STP 1 | Transparency OFF
+		2'd3: tblTransp = TRANSPARENT;			// x,x,x | STP 1 | Transparency ON
+		/*
 		3'd4: tblTransp = TRANSPARENT;			// 0,0,0 | STP 0 | Transparency OFF
 		3'd5: tblTransp = TRANSPARENT;          // 0,0,0 | STP 0 | Transparency ON
 		3'd6: tblTransp = OPAQUE;               // 0,0,0 | STP 1 | Transparency OFF
 		3'd7: tblTransp = OPAQUE;               // 0,0,0 | STP 1 | Transparency ON
+		*/
 		endcase
 	end
 	

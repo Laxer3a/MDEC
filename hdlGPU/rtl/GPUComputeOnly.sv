@@ -24,8 +24,8 @@ module GPUComputeOnly(
 	// Texture Output
 	input [15:0]	texelL,
 	input [15:0]	texelR,
-	input			iTransparentL,
-	input			iTransparentR,
+//	input			iTransparentL,
+//	input			iTransparentR,
 	
 	// Gouraud Side output
 	input [8:0]		iR_L,
@@ -104,7 +104,7 @@ module GPUComputeOnly(
 		.px_b								(bShaded_L),
 
 		.px_STP								(texelL[15] | noTexture),
-		.px_transparent						(iTransparentL),
+//		.px_transparent						(iTransparentL),
 
 		.noblend							(noblend),
 		.modeGPU							(GPU_REG_Transparency),
@@ -124,7 +124,7 @@ module GPUComputeOnly(
 		.px_b								(bShaded_R),
 
 		.px_STP								(texelR[15] | noTexture),
-		.px_transparent						(iTransparentR),
+//		.px_transparent						(iTransparentR),
 
 		.noblend							(noblend),
 		.modeGPU							(GPU_REG_Transparency),

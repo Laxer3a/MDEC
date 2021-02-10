@@ -346,8 +346,8 @@ module GPUBackend(
 		// Texture Output
 		.texelL						(oTexelL),
 		.texelR						(oTexelR),
-		.iTransparentL				(oTransparentL),
-		.iTransparentR				(oTransparentR),
+//		.iTransparentL				(oTransparentL),
+//		.iTransparentR				(oTransparentR),
 		.iBGMskL					(oBGMSK_L),
 		.iBGMskR					(oBGMSK_R),
 		
