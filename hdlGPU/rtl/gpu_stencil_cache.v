@@ -246,9 +246,6 @@ module stencil_cache_ram_8k
 	,output          error_o
 );
 
-reg [15:0] ram_read0_q;
-reg [15:0] ram_read1_q;
-
 // --- Write Signal ---
 wire isStraight			= (mask0_i == 16'hFFFF);
 wire straight_wr		= isStraight & wr0_i;
@@ -275,21 +272,64 @@ always @ (posedge clk_i)
 	end
 // --------------------
 
+wire [15:0] ram_read0_q;
 wire [15:0] feedValue	= delayed_wr ? ((pipeData0 & pipeMask) | (ram_read0_q & ~pipeMask)) : data0_i;
 wire [11:0] feedAdr     = delayed_wr ? delayedAdr : addr0_i;
+
+// Synchronous write
+wire writeSig = straight_wr | delayed_wr;
+
+doubleport_ram_8k inst_dpRAM_8k
+(
+     .clk_i		(clk_i)
+    ,.rst_i		(rst_i)
+
+    ,.addr0_i	(feedAdr)
+    ,.data0_i	(feedValue)
+    ,.wr0_i		(writeSig)
+    ,.data0_o	(ram_read0_q)
+
+	,.rd1_i		(rd1_i)
+    ,.addr1_i	(addr1_i)
+    ,.data1_o	(data1_o)
+);
+
+// ERROR Back to back Write operation.
+// ERROR Read while Write (Straight or Masked).
+// Proove we should be able to use SINGLE PORT MEMORY.
+assign error_o = (pipeWr & wr0_i) | (rd1_i & (wr0_i | pipeWr));
+
+
+endmodule
+
+module doubleport_ram_8k
+(
+     input           clk_i
+    ,input           rst_i
+
+    ,input  [ 11:0]  addr0_i
+    ,input  [ 15:0]  data0_i
+    ,input           wr0_i
+    ,output [ 15:0]  data0_o
+
+	,input           rd1_i
+    ,input  [ 11:0]  addr1_i
+    ,output [ 15:0]  data1_o
+);
 
 /* verilator lint_off MULTIDRIVEN */
 reg [15:0]   ram [4095:0] /*verilator public*/;
 /* verilator lint_on MULTIDRIVEN */
 
-// Synchronous write
-wire writeSig = straight_wr | delayed_wr;
+reg [15:0] ram_read0_q;
+reg [15:0] ram_read1_q;
+
 always @ (posedge clk_i)
 begin
-    if (writeSig)
-        ram[feedAdr] <= feedValue;
+    if (wr0_i)
+        ram[addr0_i] <= data0_i;
 
-    ram_read0_q <= ram[feedAdr];
+    ram_read0_q <= ram[addr0_i];
 end
 
 always @ (posedge clk_i)
@@ -298,11 +338,7 @@ begin
 		ram_read1_q <= ram[addr1_i];
 end
 
-// assign data0_o = /* data0_wr_q  ? data0_bypass_q : */ ram_read0_q;
-assign data1_o = /* wr_rd_byp_q ? data0_bypass_q : */ ram_read1_q;
+assign data1_o = ram_read1_q;
+assign data0_o = ram_read0_q;
 
-// ERROR Back to back Write operation.
-// ERROR Read while Write (Straight or Masked).
-// Proove we should be able to use SINGLE PORT MEMORY.
-assign error_o = (pipeWr & wr0_i) | (rd1_i & (wr0_i | pipeWr));
 endmodule
