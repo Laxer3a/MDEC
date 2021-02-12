@@ -198,16 +198,26 @@ wire isNULLDET;
 
 wire isLineInsideDrawArea;
 reg [1:0] stencilReadValue;
+reg [15:0] stencilReadValueStore;
+reg  pReadStencil;
+always @(posedge i_clk) begin
+	if (pReadStencil) begin
+		stencilReadValueStore <= i_stencilReadValue;
+	end
+	pReadStencil <= stencilReadSig;
+end
+wire [15:0] stencilReadMux = pReadStencil ? i_stencilReadValue : stencilReadValueStore;
 always @(*) begin
 	case (pixelX[3:1])
-	3'd0   : stencilReadValue = i_stencilReadValue[ 1: 0];
-	3'd1   : stencilReadValue = i_stencilReadValue[ 3: 2];
-	3'd2   : stencilReadValue = i_stencilReadValue[ 5: 4];
-	3'd3   : stencilReadValue = i_stencilReadValue[ 7: 6];
-	3'd4   : stencilReadValue = i_stencilReadValue[ 9: 8];
-	3'd5   : stencilReadValue = i_stencilReadValue[11:10];
-	3'd6   : stencilReadValue = i_stencilReadValue[13:12];
-	default: stencilReadValue = i_stencilReadValue[15:14];
+	// May need to read as soon as the data arrives.
+	3'd0   : stencilReadValue = stencilReadMux[ 1: 0];
+	3'd1   : stencilReadValue = stencilReadMux[ 3: 2];
+	3'd2   : stencilReadValue = stencilReadMux[ 5: 4];
+	3'd3   : stencilReadValue = stencilReadMux[ 7: 6];
+	3'd4   : stencilReadValue = stencilReadMux[ 9: 8];
+	3'd5   : stencilReadValue = stencilReadMux[11:10];
+	3'd6   : stencilReadValue = stencilReadMux[13:12];
+	default: stencilReadValue = stencilReadMux[15:14];
 	endcase
 end
 
@@ -956,14 +966,13 @@ begin
 			nextWorkState	= isValidHorizontalTriBbox ? START_LINE_TEST_LEFT : FLUSH_SEND;
 		end else begin
 			resetPixelFound	= 1;
-			stencilReadSig	= 1;
 			nextWorkState	= SCAN_LINE;
 		end
 	end
 	SCAN_LINE:
 	begin
+		stencilReadSig	= 1;
 		if (isBottomInsideBBox) begin
-			stencilReadSig	= 1;
 			//
 			// TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
 			//		  Warning : Care of single pixel write logic + and non increment of X.
@@ -1033,6 +1042,7 @@ begin
 	end
 	SCAN_LINE_CATCH_END:
 	begin
+		stencilReadSig	= 1;
 		if (isValidPixelL || isValidPixelR) begin
 			loadNext		= 1;
 			selNextX		= X_TRI_NEXT;
@@ -1141,9 +1151,14 @@ begin
 	endcase
 end
 
+reg pipeChangeBlockRead;
+wire [14:0] rasterCurrentBlock	= { pixelY[8:0], pixelX[9:4] };
+wire [14:0] nextPixRasterBlock	= i_bIsLineCommand ? { nextLineY[8:0] , nextLineX[9:4] }: { nextPixelY[8:0], nextPixelX[9:4] }; // TODO : FIX FOR LINES !!!
+wire changeBlockRead			= (rasterCurrentBlock != nextPixRasterBlock);
+
 assign o_stencilFullMode		= 1;
-assign o_stencilReadSig			= stencilReadSig;
-assign o_stencilReadAdr			= { nextPixelY[8:0], nextPixelX[9:4] };
+assign o_stencilReadSig			= stencilReadSig & changeBlockRead;
+assign o_stencilReadAdr			= nextPixRasterBlock;
 
 assign o_active					= (currWorkState != RENDER_WAIT);
 assign o_renderInactiveNextCycle= o_active && (nextWorkState == RENDER_WAIT);

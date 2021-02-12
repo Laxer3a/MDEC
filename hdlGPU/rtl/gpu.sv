@@ -58,6 +58,7 @@ module gpu
 	
 //	output	[31:0]	mydebugCnt,
 	output          dbg_canWrite,
+	output			dbg_error,
 
     // --------------------------------------
     // Timing / Display
@@ -344,6 +345,8 @@ wire		activateFill;
 // From Stencil Cache
 //---------------------------------------------------------------
 wire [15:0]	stencilReadValue16;
+wire stencilError;
+assign dbg_error = stencilError; // TODO : should be sticky bit for LED ? done outside I guess...
 
 // From Render Block
 //---------------------------------------------------------------
@@ -1190,8 +1193,6 @@ always @(*) begin
 	stencilReadSig  = srcReadSig;						// Always desactivated for VC case.
 end
 
-wire o_stencilError = stencilWriteSig & stencilReadSig & (stencilWriteAdr == stencilReadAdr);
-
 gpu_stencil_cache
 StencilCacheInstance
 (
@@ -1206,6 +1207,8 @@ StencilCacheInstance
     ,.stencil_wr_addr_i(stencilWriteAdr)
     ,.stencil_wr_mask_i(stencilWriteMask16)
     ,.stencil_wr_value_i(stencilWriteValue16)
+	
+	,.stencil_error_o(stencilError)
 );
 
 // Render

@@ -45,6 +45,7 @@ module GPU_DDR
 //	output	[31:0]	o_mydebugCnt,
 //	output	[15:0]	dbg_commmandCount,
 	output          o_dbg_canWrite,
+	output			o_dbg_error,
 
     // --------------------------------------
 	//   CPU Bus
@@ -137,6 +138,7 @@ gpu	gpu_inst(
 //	.mydebugCnt		(o_mydebugCnt),
 //	.dbg_commmandCount(dbg_commmandCount),
 	.dbg_canWrite	(o_dbg_canWrite),
+	.dbg_error		(o_dbg_error),
 
     // --------------------------------------
     // Memory Interface

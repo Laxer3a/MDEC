@@ -442,7 +442,7 @@ module GPUBackend(
 		end
 	end
 
-	assign	o_stencilWriteMask = { cacheBG[255],cacheBG[239],cacheBG[223],cacheBG[207],cacheBG[191],cacheBG[175],cacheBG[159],cacheBG[143] ,
-								   cacheBG[127],cacheBG[111],cacheBG[ 95],cacheBG[ 79],cacheBG[ 63],cacheBG[ 47],cacheBG[ 31],cacheBG[ 15] };
-	assign	o_stencilWriteValue	= cacheBGMsk;
+	assign	o_stencilWriteMask	= cacheBGMsk;
+	assign	o_stencilWriteValue	= { cacheBG[255],cacheBG[239],cacheBG[223],cacheBG[207],cacheBG[191],cacheBG[175],cacheBG[159],cacheBG[143] ,
+								    cacheBG[127],cacheBG[111],cacheBG[ 95],cacheBG[ 79],cacheBG[ 63],cacheBG[ 47],cacheBG[ 31],cacheBG[ 15] };
 endmodule
