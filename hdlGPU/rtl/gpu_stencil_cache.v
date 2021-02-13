@@ -57,8 +57,6 @@ always @(posedge clk_i)
 // 
 // Each unit send error pin :
 // - ERROR Back to back Write operation.
-// - ERROR Read while Write (Straight or Masked).
-// Proove we should be able to use SINGLE PORT MEMORY.
 assign stencil_error_o = (|errU);
 
 wire [15:0] rd_data_r0,rd_data_r1,rd_data_r2,rd_data_r3,rd_data_r4,rd_data_r5,rd_data_r6,rd_data_r7;
@@ -339,7 +337,27 @@ begin
 		ram_read1_q <= ram[addr1_i];
 end
 
-assign data1_o = ram_read1_q;
-assign data0_o = ram_read0_q;
+// --- Read/Write Bypass
+reg data0_wr_q;
+always @ (posedge clk_i )
+if (rst_i)
+    data0_wr_q <= 1'b0;
+else
+    data0_wr_q <= wr0_i;
+
+reg wr_rd_byp_q;
+always @ (posedge clk_i )
+if (rst_i)
+    wr_rd_byp_q <= 1'b0;
+else
+    wr_rd_byp_q <= wr0_i && (addr0_i == addr1_i);
+
+reg [15:0] data0_bypass_q;
+
+always @ (posedge clk_i)
+    data0_bypass_q <= data0_i;
+
+assign data0_o = data0_wr_q  ? data0_bypass_q : ram_read0_q;
+assign data1_o = wr_rd_byp_q ? data0_bypass_q : ram_read1_q;
 
 endmodule
