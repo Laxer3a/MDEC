@@ -295,9 +295,10 @@ doubleport_ram_8k inst_dpRAM_8k
 );
 
 // ERROR Back to back Write operation.
-// ERROR Read while Write (Straight or Masked).
+// DEPRECATED / COMMENTED OUT => ERROR Read while Write (Straight or Masked).
+// TODO : Add rules about wrong usage of Double port memory.
 // Proove we should be able to use SINGLE PORT MEMORY.
-assign error_o = (pipeWr & wr0_i) | (rd1_i & (wr0_i | pipeWr));
+assign error_o = (pipeWr & wr0_i) /* | (rd1_i & (wr0_i | pipeWr))*/;
 
 
 endmodule

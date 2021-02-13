@@ -589,6 +589,8 @@ wire [1:0]		o_transitionType;
 
 wire savingBGNow;
 
+assign o_stencilWriteSig = saveBGBuffer;
+
 GPUBackend GPUBackendInstance(
     .clk							(i_clk),
     .i_nrst							(i_nrst),
@@ -680,7 +682,7 @@ GPUBackend GPUBackendInstance(
     //   Stencil Cache Write Back
     // -------------------------------
     // Write
-    .o_stencilWriteSig				(o_stencilWriteSig),
+    .o_stencilWriteSig				(/*Not used*/),
     .o_stencilWriteAdr				(o_stencilWriteAdr),
 //    .o_stencilWritePair			(o_stencilWritePair),
 //    .o_stencilWriteSelect			(o_stencilWriteSelect),
@@ -943,7 +945,7 @@ begin
 	START_LINE_TEST_LEFT:
 	begin
 		if (isValidPixelL | isValidPixelR) begin // Line equation.
-			nextWorkState = SCAN_LINE;
+			nextWorkState	= SCAN_LINE;
 			stencilReadSig	= 1;
 		end else begin
 			memorizeLineEqu = 1;
@@ -954,8 +956,9 @@ begin
 	end
 	START_LINE_TEST_RIGHT:
 	begin
-		loadNext	= 1;
-		selNextX	= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
+		stencilReadSig	= 1;
+		loadNext		= 1;
+		selNextX		= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
 		// Test Bbox left (included) has SAME line equation result as right (excluded) result of line equation.
 		// If so, mean that we are at the same area defined by the equation.
 		// We also test that we are NOT a valid pixel inside the triangle.
@@ -971,7 +974,6 @@ begin
 	end
 	SCAN_LINE:
 	begin
-		stencilReadSig	= 1;
 		if (isBottomInsideBBox) begin
 			//
 			// TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
@@ -1000,6 +1002,7 @@ begin
 					// normally changeX = 1; selNextX = X_TRI_NEXT;	 [!!! HERE !!!]
 					loadNext	= 1;
 					selNextX	= X_TRI_NEXT;
+					stencilReadSig	= 1;
 				end
 			end else begin
 				// Makes GPU slower but fixed part of a bug (only a part !)
@@ -1007,7 +1010,8 @@ begin
 				// I stop the triangle scanning...
 				// Logically I should not.
 				if (requestNextPixel) begin
-					loadNext	= 1;
+					stencilReadSig	= 1;
+					loadNext		= 1;
 					if (pixelFound) begin // Pixel Found.
 						selNextY		= Y_TRI_NEXT;
 						nextWorkState	= SCAN_LINE_CATCH_END;
@@ -1042,8 +1046,8 @@ begin
 	end
 	SCAN_LINE_CATCH_END:
 	begin
-		stencilReadSig	= 1;
 		if (isValidPixelL || isValidPixelR) begin
+			stencilReadSig	= 1;
 			loadNext		= 1;
 			selNextX		= X_TRI_NEXT;
 		end else begin
@@ -1070,7 +1074,6 @@ begin
 	end
 	RECT_SCAN_LINE:
 	begin
-		stencilReadSig	= 1;
 		if (isBottomInsideBBox) begin // Not Y end yet ?
 			if (isRightPLXmaxTri) begin // Work by pair. Is left side of pair is inside rendering area. ( < right border )
 				if (requestNextPixel) begin
@@ -1081,10 +1084,12 @@ begin
 					// Go to next pair whatever, as long as request is asking for new pair...
 					// normally changeX = 1; selNextX = X_TRI_NEXT;	 [!!! HERE !!!]
 					loadNext	= 1;
+					stencilReadSig	= 1;
 					selNextX	= X_TRI_NEXT;
 				end
 			end else begin
 				loadNext	= 1;
+				stencilReadSig	= 1;
 				selNextX	= X_TRI_BBLEFT;
 				selNextY	= Y_TRI_NEXT;
 				// No state change... Work on next line...
