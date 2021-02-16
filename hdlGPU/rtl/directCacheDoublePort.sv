@@ -29,17 +29,17 @@ module directCacheDoublePort(
 	input			i_textureFormatTrueColor,
 	input			i_write,
 //	input			update,		// If update 32 bit.
-	input	[16:0]	i_adressIn,
+	input	[16:0]	i_adressIn,		// Adr in 64 bit/8 Byte block
 	input	[63:0]	i_dataIn,		// Upper module responsability to make 64 bit atomic write.
 	
 	input			i_requLookupA,
-	input	[18:0]	i_adressLookA,
+	input	[18:0]	i_adressLookA,	// Adr in Word
 	output	[15:0]	o_dataOutA,
 	output			o_isHitA,
 	output			o_isMissA,
 
 	input			i_requLookupB,
-	input	[18:0]	i_adressLookB,
+	input	[18:0]	i_adressLookB,	// Adr in Word
 	output	[15:0]	o_dataOutB,
 	output			o_isHitB,
 	output			o_isMissB
@@ -141,8 +141,8 @@ module directCacheDoublePort(
 
 	always @ (posedge i_clk)
 	begin
-		pRequLookupA = i_requLookupA;
-		pRequLookupB = i_requLookupB;
+		pRequLookupA <= i_requLookupA;
+		pRequLookupB <= i_requLookupB;
 		
 		if (o_isHitA) begin
 			stickyMissA <= 0;

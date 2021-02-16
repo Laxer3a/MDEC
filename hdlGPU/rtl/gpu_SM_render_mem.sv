@@ -924,10 +924,10 @@ begin
 			end
 		end
 	end
-	TRIANGLE_START:
+	TRIANGLE_START: // 7
 	begin
 		loadNext = 1;
-		if (earlyTriangleReject || isNULLDET) begin	// Bounding box and draw area do not intersect at all.
+		if (earlyTriangleReject) begin	// Bounding box and draw area do not intersect at all.
 			nextWorkState	= RENDER_WAIT;
 		end else begin
 			nextWorkState	= START_LINE_TEST_LEFT;
@@ -942,8 +942,9 @@ begin
 		// Use C(ache)LOAD to load a cache line for TEXTURE with 8 BYTE. This command will be upgraded if cache design changes...
 		// Clut CACHE uses BSTORE command.
 	end
-	START_LINE_TEST_LEFT:
+	START_LINE_TEST_LEFT: // 9
 	begin
+		// Put test here, because DET may not be computed before of pipeline.
 		if (isValidPixelL | isValidPixelR) begin // Line equation.
 			nextWorkState	= SCAN_LINE;
 			stencilReadSig	= 1;
@@ -954,7 +955,7 @@ begin
 			selNextX		= X_TRI_BBRIGHT;// Set next X = BBox RIGHT intersected with DrawArea.
 		end
 	end
-	START_LINE_TEST_RIGHT:
+	START_LINE_TEST_RIGHT: // 10
 	begin
 		stencilReadSig	= 1;
 		loadNext		= 1;
@@ -972,9 +973,9 @@ begin
 			nextWorkState	= SCAN_LINE;
 		end
 	end
-	SCAN_LINE:
+	SCAN_LINE: // 11
 	begin
-		if (isBottomInsideBBox) begin
+		if (isBottomInsideBBox && (!isNULLDET)) begin // DET not used before because of pipeline latency.
 			//
 			// TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
 			//		  Warning : Care of single pixel write logic + and non increment of X.
@@ -1041,10 +1042,10 @@ begin
 				end // else do nothing.
 			end
 		end else begin
-			nextWorkState	= FLUSH_SEND;
+			nextWorkState	= isNULLDET ? RENDER_WAIT : FLUSH_SEND;
 		end
 	end
-	SCAN_LINE_CATCH_END:
+	SCAN_LINE_CATCH_END: // 12
 	begin
 		if (isValidPixelL || isValidPixelR) begin
 			stencilReadSig	= 1;
