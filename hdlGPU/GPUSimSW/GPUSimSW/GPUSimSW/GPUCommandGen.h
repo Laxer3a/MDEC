@@ -1,7 +1,7 @@
 #ifndef GPUCommandGen_h
 #define GPUCommandGen_h
 
-struct Vertex {
+struct VertexCmdGen {
 	int x;
 	int y;
 };
@@ -71,6 +71,7 @@ struct Rect {
 class GPUCommandGen {
 public:
 	GPUCommandGen();
+	~GPUCommandGen();
 	
 	// (2)
 	// MonoChrome    			Triangle/Quad(1)
@@ -116,10 +117,10 @@ public:
 
 	void createTriangle		();
 	void createQuad			();
-	void createRectangle	(Vertex& v, unsigned int width, unsigned int height);
+	void createRectangle	(VertexCmdGen& v, unsigned int width, unsigned int height);
 	void createLine			(int count);
 	
-	void setVertices		(Vertex* arrayVertice);
+	void setVertices		(VertexCmdGen* arrayVertice);
 
 	bool writeGP1			(u32 word);
 
@@ -137,6 +138,10 @@ public:
 		size = writeCounter - readCounter;
 		return &commands[readCounter];
 	}
+	u8* getGP1Args			() {
+		return &commandGP1[readCounter];
+	}
+
 private:
 	void genParams			(int cnt, bool NOTEX);
 	static const int SIZE_ARRAY = 10000000;
@@ -154,7 +159,9 @@ private:
 	u32				singleColorFlag,colorFlag,semiFlag,textureFlag,clutFlag,pageFlag;
 	Color*			srcColors;
 	TextureCoord*	srcTexture;
-	Vertex*			srcVertex;
+	VertexCmdGen*	srcVertex;
 };
+
+GPUCommandGen* getCommandGen();
 
 #endif // GPUCommandGen_h

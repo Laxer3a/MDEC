@@ -303,6 +303,9 @@ module gpu_setupunit(
 	wire signed [21:0]	/*P*/ DET1	= a * d;
 	wire signed [21:0]	/*P*/ DET2	= b * negc;		// -b*c -> b*negc
 	reg  signed [21:0]	/*P*/ rDET1,rDET2,rDET;
+	reg						  rDETZERO;
+
+	wire signed [21:0]		  sumDet = rDET1 + rDET2;
 
 	// PIPELINE THAT SIDE OF THE DIVIDER INPUT.
 	always @(posedge i_clk) begin
@@ -312,7 +315,8 @@ module gpu_setupunit(
 		rnegc	<= negc;
 		
 		// Warning order
-		rDET	<= rDET1 + rDET2;
+		rDET		<= sumDet;
+		rDETZERO	<= (sumDet == 0);
 		
 		rDET1	<= DET1;
 		rDET2	<= DET2;
@@ -571,7 +575,7 @@ module gpu_setupunit(
 	assign o_pixUR 						= RegU0 + offUR[PREC+7:PREC];
 	assign o_pixVR 						= RegV0 + offVR[PREC+7:PREC];
 
-	assign o_isNULLDET					= (/*P*/rDET == 22'd0);
+	assign o_isNULLDET					= rDETZERO;
 	assign o_isNegXAxis					= isNegXAxis;
 	assign o_isValidPixelL				= (isCCWInsideL | isCWInsideL) & isInsideBBoxTriRectL;
 	assign o_isValidPixelR				= (isCCWInsideR | isCWInsideR) & isInsideBBoxTriRectR;

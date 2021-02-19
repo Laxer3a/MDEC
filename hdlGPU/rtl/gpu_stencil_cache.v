@@ -221,6 +221,55 @@ end
 
 assign stencil_rd_value_o = selOut;
 
+`ifdef verilator
+function write; /* verilator public */
+input  [31:0]   addr;
+input  [15:0]   data;
+reg  [2:0] block;
+reg [11:0] addrBlk;
+begin
+    block   = { addr[7:6]  , addr[0]   };
+    addrBlk = { addr[14:8] , addr[5:1] };
+
+    case (block)
+    3'd0 : u_ram0.inst_dpRAM_8k.ram[addrBlk] = data;
+    3'd1 : u_ram1.inst_dpRAM_8k.ram[addrBlk] = data;
+    3'd2 : u_ram2.inst_dpRAM_8k.ram[addrBlk] = data;
+    3'd3 : u_ram3.inst_dpRAM_8k.ram[addrBlk] = data;
+    3'd4 : u_ram4.inst_dpRAM_8k.ram[addrBlk] = data;
+    3'd5 : u_ram5.inst_dpRAM_8k.ram[addrBlk] = data;
+    3'd6 : u_ram6.inst_dpRAM_8k.ram[addrBlk] = data;
+    3'd7 : u_ram7.inst_dpRAM_8k.ram[addrBlk] = data;
+    default : ;
+    endcase
+end
+endfunction
+`endif
+
+`ifdef verilator
+function [15:0] read; /* verilator public */
+input  [14:0]   addr;
+reg  [2:0] block;
+reg [11:0] addrBlk;
+begin
+    block   = { addr[7:6]  , addr[0]   };
+    addrBlk = { addr[14:8] , addr[5:1] };
+
+    case (block)
+    3'd0 : read = u_ram0.inst_dpRAM_8k.ram[addrBlk];
+    3'd1 : read = u_ram1.inst_dpRAM_8k.ram[addrBlk];
+    3'd2 : read = u_ram2.inst_dpRAM_8k.ram[addrBlk];
+    3'd3 : read = u_ram3.inst_dpRAM_8k.ram[addrBlk];
+    3'd4 : read = u_ram4.inst_dpRAM_8k.ram[addrBlk];
+    3'd5 : read = u_ram5.inst_dpRAM_8k.ram[addrBlk];
+    3'd6 : read = u_ram6.inst_dpRAM_8k.ram[addrBlk];
+    3'd7 : read = u_ram7.inst_dpRAM_8k.ram[addrBlk];
+    default : ;
+    endcase
+end
+endfunction
+`endif
+
 endmodule
 
 //-----------------------------------------------------------------
@@ -333,8 +382,7 @@ end
 
 always @ (posedge clk_i)
 begin
-	if (rd1_i)
-		ram_read1_q <= ram[addr1_i];
+	ram_read1_q <= ram[addr1_i];
 end
 
 // --- Read/Write Bypass

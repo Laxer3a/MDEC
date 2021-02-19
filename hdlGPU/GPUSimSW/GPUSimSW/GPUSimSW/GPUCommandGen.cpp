@@ -2,9 +2,29 @@
 
 GPUCommandGen::GPUCommandGen():readCounter(0),writeCounter(0)
 {
-	commandsHead	= new bool[10000000];
-	commandGP1      = new u8  [10000000];
-	commands        = new u32 [10000000];
+	commandsHead	= new bool[SIZE_ARRAY];
+	commandGP1      = new u8  [SIZE_ARRAY];
+	commands        = new u32 [SIZE_ARRAY];
+	diff			= 0;
+	colorsV[0].r	= 0; colorsV[0].g = 0; colorsV[0].b = 0;
+	noColor			= true;
+	baseColor		= 0;
+	singleColorFlag	= 0;
+	colorFlag		= 0;
+	semiFlag		= 0;
+	textureFlag		= 0;
+	srcColors		= 0;
+	srcTexture		= 0;
+	srcVertex		= 0;
+	clutFlag		= 0;
+	pageFlag		= 0;
+}
+
+GPUCommandGen::~GPUCommandGen()
+{
+	delete[] commandsHead;
+	delete[] commandGP1;
+	delete[] commands;
 	diff			= 0;
 	colorsV[0].r	= 0; colorsV[0].g = 0; colorsV[0].b = 0;
 	noColor			= true;
@@ -34,7 +54,10 @@ bool GPUCommandGen::writeRaw			(u32 word, bool isCommand, u8 isGP1) {
 	}
 }
 
+#include <stdio.h>
+
 bool GPUCommandGen::writeRaw			(u32 word) {
+	// printf("WriteGP0(0x%08x);\n",word);
 	return writeRaw(word,false,0);
 }
 
@@ -171,7 +194,7 @@ void GPUCommandGen::setMultiTexture	(TextureCoord* arrayTextureCoords, DrawModeS
 	clutFlag	= ((clutY512 & 0x1FF) << (6+16)) | ((clutX64 & 0x3F) << 16);
 }
 
-void GPUCommandGen::setVertices		(Vertex* arrayVertice) {
+void GPUCommandGen::setVertices		(VertexCmdGen* arrayVertice) {
 	srcVertex = arrayVertice;
 }
 
@@ -216,7 +239,7 @@ void GPUCommandGen::createQuad		() {
 	genParams(4, false);
 }
 
-void GPUCommandGen::createRectangle	(Vertex& v, unsigned int width, unsigned int height) {
+void GPUCommandGen::createRectangle	(VertexCmdGen& v, unsigned int width, unsigned int height) {
 	int  size = 0;
 	if (width == 1 && height == 1)		{ size = 1; }
 	if (width == 8 && height == 8) 		{ size = 2; }

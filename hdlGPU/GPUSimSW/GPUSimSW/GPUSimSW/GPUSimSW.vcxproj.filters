@@ -24,9 +24,6 @@
     <ClCompile Include="GPUCommandGen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="MiniFB\MiniFB_common.c">
       <Filter>Source Files\MiniFB</Filter>
     </ClCompile>
@@ -45,26 +42,31 @@
     <ClCompile Include="MiniFB\WinMiniFB.c">
       <Filter>Source Files\MiniFB</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Verilator\verilator\include\verilated_vcd_c.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\rtl\obj_dir\VGPUVideo.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\rtl\obj_dir\VGPUVideo__Syms.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="HelperFunc.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="VerilatedIntoVCD.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR.cpp">
+    <ClCompile Include="C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include\verilated.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\rtl\obj_dir\VGPU_DDR__Syms.cpp">
+    <ClCompile Include="C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include\verilated_vcd_c.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="buildVeri.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="gpu_ref.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\laxer3a\Documents\testSuite.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="gpu_ref.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

@@ -196,22 +196,75 @@ gpu	gpu_inst(
     .validDataOut	(o_validDataOut)
 );
 
+wire          s_busy;
+wire          s_dataInValid;
+wire [255:0]  s_dataIn;
+wire          s_command;
+wire [  1:0]  s_commandSize;
+wire          s_memwrite;
+wire [ 14:0]  s_adr32;
+wire [  2:0]  s_subAdr;
+wire [ 15:0]  s_mask;
+wire [255:0]  s_dataOut;
+
+assign busy			       = s_busy;
+assign dataInValid         = s_dataInValid;
+assign dataIn              = s_dataIn;
+assign s_command           = command;
+assign s_commandSize       = commandSize;
+assign s_memwrite          = memwrite;
+assign s_adr32             = adr32;
+assign s_subAdr            = subAdr;
+assign s_mask              = mask;
+assign s_dataOut           = dataOut;
+
+/*
+gpu_mem_cache bitFatCache (
+    // Inputs
+    .clk_i					(clk),
+    .rst_i					(!i_nrst),
+    .gpu_command_i			(command),
+    .gpu_size_i				(commandSize),
+    .gpu_write_i			(memwrite),
+    .gpu_addr_lin_i			(adr32),
+    .gpu_sub_addr_i         (subAdr),
+    .gpu_write_mask_i       (mask),
+    .gpu_data_out_i         (dataOut),
+    .gpu_busy_o				(busy),
+    .gpu_data_in_valid_o    (dataInValid),
+    .gpu_data_in_o          (dataIn),
+	
+
+    // Outputs
+    .mem_busy_i             (s_busy),
+    .mem_data_in_valid_i    (s_dataInValid),
+    .mem_data_in_i          (s_dataIn),
+    .mem_command_o          (s_command),
+    .mem_size_o             (s_commandSize),
+    .mem_write_o            (s_memwrite),
+    .mem_addr_o             (s_adr32),
+    .mem_sub_addr_o         (s_subAdr),
+    .mem_write_mask_o       (s_mask),
+    .mem_data_out_o         (s_dataOut)
+);
+*/
+
 hdlPSXDDR hdlPSXDDR_Instance (
 	// Global Connections
 	.i_clk			(clk),
 	.i_nRst			(i_nrst),
   
 	// Client (PSX) Connections
-	.i_command		(command),			// 0 = do nothing, 1 = read/write operation
-	.i_writeElseRead(memwrite),			// 0 = read, 1 = write
-	.i_commandSize	(commandSize),		// 
-	.i_targetAddr	(adr32),			// 1 MB memory splitted into 32768 block of 32 byte.
-	.i_subAddr		(subAdr),
-	.i_writeMask	(mask),
-	.i_dataClient	(dataOut),
-	.o_busyClient	(busy),
-	.o_dataValidClient(dataInValid),	// When 1, PSX makes no request.
-	.o_dataClient	(dataIn),
+	.i_command		(s_command),			// 0 = do nothing, 1 = read/write operation
+	.i_writeElseRead(s_memwrite),			// 0 = read, 1 = write
+	.i_commandSize	(s_commandSize),		// 
+	.i_targetAddr	(s_adr32),			// 1 MB memory splitted into 32768 block of 32 byte.
+	.i_subAddr		(s_subAdr),
+	.i_writeMask	(s_mask),
+	.i_dataClient	(s_dataOut),
+	.o_busyClient	(s_busy),
+	.o_dataValidClient(s_dataInValid),	// When 1, PSX makes no request.
+	.o_dataClient	(s_dataIn),
 
 	// DDR (Memory) Connections
 	.o_targetAddr	(o_targetAddr	),

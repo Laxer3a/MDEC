@@ -1,6 +1,6 @@
 class Vgpu; // Help 
 
-#include "../../../refactor_rtl/obj_dir/VGPU_DDR.h"
+#include "project.h"
 #include "VCScanner.h"
 
 #define MODULE mod
@@ -10,6 +10,12 @@ class Vgpu; // Help
 // TRICK WITH MACRO TO REGISTER THE MEMBERS OF THE VERILATED INSTANCE INTO MY VCD SCANNER...
 // ----------
 
+void addEnumIntoScanner(VCScanner* pScan) {
+}
+void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
+}
+
+#if 0
 #define VL_IN(NAME,size,s2)			SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
 #define VL_OUT(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
 #define VL_SIG(NAME,size,s2)		SCAN->addMemberFullPath( VCScanner_PatchName(#NAME), WIRE, BIN,size+1,& MODULE ->## NAME );
@@ -2770,3 +2776,4 @@ void registerVerilatedMemberIntoScanner(VGPU_DDR* mod, VCScanner* pScan) {
     VL_SIG64(GPU_DDR__DOT__hdlPSXDDR_Instance__DOT__i_dataMem,63,0);
     VL_SIG64(GPU_DDR__DOT__hdlPSXDDR_Instance__DOT__dataOutDDR,63,0);
 }
+#endif

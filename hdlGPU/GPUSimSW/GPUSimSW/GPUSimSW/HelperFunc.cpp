@@ -1,5 +1,7 @@
 class Vgpu;
 
+#include "project.h"
+
 // PNG READ
 #include "stb_image.h"
 // PNG WRITE
@@ -11,7 +13,7 @@ class Vgpu;
 // Just as array to store commands for GPU. (Sequence of 32 bit to write)
 #include "GPUCommandGen.h"
 
-#include "../../../rtl/obj_dir/VGPU_DDR.h"
+
 
 void drawCheckedBoard(unsigned char* buffer) {
 	for (int y=0; y < 512; y++) {
@@ -30,11 +32,30 @@ void drawCheckedBoard(unsigned char* buffer) {
 	}
 }
 
-
 bool ReadStencil(VGPU_DDR* mod, int x, int y) {
+#if  defined(SOURCE_ULTRA) || defined(SOURCE_OLDME)
+	int addr = (x >> 4) + (y * 64);
+
+	// Interleaving of blocks.
+	int block = (addr & 1) | (((addr>>6) & 3)<<1);
+	addr  = ((addr>>1) & 0x1F) | ((addr>>8)<<5);
+
+    u16 v;
+	switch (block) {
+	case 0: v = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram0__inst_dpRAM_8k.ram[addr]; break;
+	case 1: v = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram1__inst_dpRAM_8k.ram[addr]; break;
+	case 2: v = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram2__inst_dpRAM_8k.ram[addr]; break;
+	case 3: v = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram3__inst_dpRAM_8k.ram[addr]; break;
+	case 4: v = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram4__inst_dpRAM_8k.ram[addr]; break;
+	case 5: v = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram5__inst_dpRAM_8k.ram[addr]; break;
+	case 6: v = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram6__inst_dpRAM_8k.ram[addr]; break;
+	case 7: v = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram7__inst_dpRAM_8k.ram[addr]; break;
+	}
+	return v & (1<<(x & 0xF));
+#endif
+#if  defined(SOURCE_LASTME)
 	int adrMem = 0;
 	unsigned char valMem;
-
 	adrMem = (x>>4) + ((y>>1)<<6);
 
 	if (y & 1) {
@@ -80,9 +101,46 @@ bool ReadStencil(VGPU_DDR* mod, int x, int y) {
 	}
 
 	return (valMem&1) == 1;
+#else
+	return true;
+#endif
 }
 
 void setStencil(VGPU_DDR* mod, int x,int y, bool v) {
+#if  defined(SOURCE_ULTRA) || defined(SOURCE_OLDME)
+	int addr = (x >> 4) + (y * 64);
+
+	// Interleaving of blocks.
+	int block = (addr & 1) | (((addr>>6) & 3)<<1);
+	addr  = ((addr>>1) & 0x1F) | ((addr>>8)<<5);
+
+    u16 va;
+	switch (block) {
+	case 0: va = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram0__inst_dpRAM_8k.ram[addr]; break;
+	case 1: va = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram1__inst_dpRAM_8k.ram[addr]; break;
+	case 2: va = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram2__inst_dpRAM_8k.ram[addr]; break;
+	case 3: va = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram3__inst_dpRAM_8k.ram[addr]; break;
+	case 4: va = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram4__inst_dpRAM_8k.ram[addr]; break;
+	case 5: va = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram5__inst_dpRAM_8k.ram[addr]; break;
+	case 6: va = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram6__inst_dpRAM_8k.ram[addr]; break;
+	case 7: va = mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram7__inst_dpRAM_8k.ram[addr]; break;
+	}
+
+	u16 orp = (v?1:0) << (x&0xF);
+	va = (va & (~(1<<(x & 0xF)))) | orp;
+
+	switch (block) {
+	case 0: mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram0__inst_dpRAM_8k.ram[addr] = va; break;
+	case 1: mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram1__inst_dpRAM_8k.ram[addr] = va; break;
+	case 2: mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram2__inst_dpRAM_8k.ram[addr] = va; break;
+	case 3: mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram3__inst_dpRAM_8k.ram[addr] = va; break;
+	case 4: mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram4__inst_dpRAM_8k.ram[addr] = va; break;
+	case 5: mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram5__inst_dpRAM_8k.ram[addr] = va; break;
+	case 6: mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram6__inst_dpRAM_8k.ram[addr] = va; break;
+	case 7: mod->__VlSymsp->TOP__GPU_DDR__gpu_inst__StencilCacheInstance__u_ram7__inst_dpRAM_8k.ram[addr] = va; break;
+	}
+#endif
+#if  defined(SOURCE_LASTME)
 	int adrMem = 0;
 	unsigned char valMem = v ? 1 : 0;
 
@@ -129,9 +187,11 @@ void setStencil(VGPU_DDR* mod, int x,int y, bool v) {
 		case 15: mod->GPU_DDR__DOT__gpu_inst__DOT__StencilCacheInstance__DOT__RAMCache15B__DOT__mem[adrMem] = valMem; break;
 		}
 	}
+#endif
 }
 
 void backupFromStencil(VGPU_DDR* mod, u8* refStencil) {
+#if  defined(SOURCE_LASTME)
 	u8* pBuff= refStencil;
 	for (int n=0; n < 32; n++) {
 		u8* src = NULL;
@@ -179,9 +239,11 @@ void backupFromStencil(VGPU_DDR* mod, u8* refStencil) {
 		memcpy(pBuff,src,16384);
 		pBuff+=16384;
 	}
+#endif
 }
 
 void backupToStencil(VGPU_DDR* mod, u8* refStencil) {
+#if  defined(SOURCE_LASTME)
 	u8* pBuff= refStencil;
 	for (int n=0; n < 32; n++) {
 		u8* dst = NULL;
@@ -229,6 +291,7 @@ void backupToStencil(VGPU_DDR* mod, u8* refStencil) {
 		memcpy(dst,pBuff,16384);
 		pBuff+=16384;
 	}
+#endif
 }
 
 void loadImageRGB888ToVRAMAsMask(VGPU_DDR* mod, const char* filename, unsigned char* target, int x, int y) {
@@ -334,7 +397,7 @@ void loadImageToVRAMAsCommand(GPUCommandGen& commandGenerator, const char* fileN
 	delete[] src;
 }
 
-void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask) {
+int dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned char* buffer, int clockCounter, bool saveMask) {
 	static bool first = true;
 	static unsigned char* font = NULL;
 	if (first) {
@@ -344,6 +407,8 @@ void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned c
 		int n;
 		font = stbi_load("Font.png", &x, &y, &n, 0);	
 	}
+
+	int errorCount = 0;
 
 	unsigned char* data = new unsigned char[1024*4*512];
 	for (int y=0; y < 512; y++) {
@@ -355,6 +420,11 @@ void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned c
 			int r   = (     c16  & 0x1F);
 			int g   = ((c16>>5)  & 0x1F);
 			int b   = ((c16>>10) & 0x1F);
+
+			if (x==1 && y==1) { printf("1,1 = %04x\n",c16); }
+			if (x==64 && y==1) { printf("64,1 = %04x\n",c16); }
+			if (x==1 && y==64) { printf("1,64 = %04x\n",c16); }
+
 			r = (r >> 2) | (r << 3);
 			g = (g >> 2) | (g << 3);
 			b = (b >> 2) | (b << 3);
@@ -395,10 +465,14 @@ void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned c
 				int adr = (x*2 + y*2048);
 				int base = (x + y*1024)*3;
 				bool flag  = buffer[adr+1] & 0x80 ? true : false;
-				bool flag2 = ReadStencil(mod,x,y);
+				bool flag2 = false;
+				if (mod) { flag2 = ReadStencil(mod,x,y); }
 				data[base  ] = flag  ? 0xFF:0x00; // Red  = Is in VRAM but NOT in Stencil !!!
 				data[base+1] = flag2 ? 0xFF:0x00;
 				data[base+2] = flag2 ? 0xFF:0x00; // Cyan = Is in Stencil but NOT in VRAM Buffer.
+				if (flag != flag2) {
+					errorCount++;
+				}
 			}
 		}
 
@@ -422,4 +496,6 @@ void dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned c
 		stbi_write_png(maskName, 1024, 512, 3, data, 1024*3);
 	}
 	delete [] data;
+
+	return errorCount;
 }
