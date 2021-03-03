@@ -41,9 +41,9 @@ module GPUPipeCtrl2(
 	input [1:0]		i_PixelBlockTransition, // Beginning of a new primitive.
 	input [9:0] 	iScrX,
 	input [8:0] 	iScrY,
-	input [8:0]		iR,
-	input [8:0]		iG,
-	input [8:0]		iB,
+	input [7:0]		iR,
+	input [7:0]		iG,
+	input [7:0]		iB,
 	input			iBGMSK,
 	input			validPixel_c0,
 	input  [1:0]	UCoordLSB,
@@ -52,6 +52,7 @@ module GPUPipeCtrl2(
 	// --- Stage 1 Output Control ---
 	output			missT_c1,			// TRUE garantee it is about VALID pixel/request.
 	output			pixelInFlight,
+	output			o_finalValid,
 	
 	// --- Stage 2 Write back Control ---
 	output	[1:0]	o_PixelBlockTransition,
@@ -61,9 +62,9 @@ module GPUPipeCtrl2(
 	output [15:0]	oTexel,
 	output 			oTransparent,
 	output			oBGMSK,
-	output  [8:0]	oR,
-	output  [8:0]	oG,
-	output  [8:0]	oB,
+	output  [7:0]	oR,
+	output  [7:0]	oG,
+	output  [7:0]	oB,
 
 	// --------------------------------------------
 	//  Memory Side
@@ -107,9 +108,9 @@ module GPUPipeCtrl2(
 	reg	[1:0]	PpixelStateSpike_c1;
 	reg [9:0] 	PiScrX_c1;
 	reg [8:0] 	PiScrY_c1;
-	reg [8:0]	PiR_c1;
-	reg [8:0]	PiG_c1;
-	reg [8:0]	PiB_c1;
+	reg [7:0]	PiR_c1;
+	reg [7:0]	PiG_c1;
+	reg [7:0]	PiB_c1;
 	reg			PiBGMSK;
 	reg			PValidPixel_c1;
 	reg [1:0]	PUCoordLSB_c1;
@@ -139,9 +140,9 @@ module GPUPipeCtrl2(
 	reg	[1:0]	PPpixelStateSpike_c2;
 	reg [9:0] 	PPiScrX_c2;
 	reg [8:0] 	PPiScrY_c2;
-	reg [8:0]	PPiR_c2;
-	reg [8:0]	PPiG_c2;
-	reg [8:0]	PPiB_c2;
+	reg [7:0]	PPiR_c2;
+	reg [7:0]	PPiG_c2;
+	reg [7:0]	PPiB_c2;
 	reg			PPiBGMSK;
 	reg			PPValidPixel_c2;
 	reg [15:0]	PPdataTex_c2;
@@ -206,4 +207,5 @@ module GPUPipeCtrl2(
 	assign oG 				= PPiG_c2;
 	assign oB 				= PPiB_c2;
 	assign oBGMSK			= PPiBGMSK;
+	assign o_finalValid		= PValidPixel_c1;
 endmodule

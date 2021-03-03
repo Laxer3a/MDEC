@@ -32,8 +32,8 @@ module GPUBackend(
 	input			ditherActive,
 	input	 [3:0]	GPU_REG_TexBasePageX,
 	input			GPU_REG_TexBasePageY,
-	input			GPU_REG_TextureXFlip,
-	input			GPU_REG_TextureYFlip,
+//	input			GPU_REG_TextureXFlip,
+//	input			GPU_REG_TextureYFlip,
 	input 	[4:0]	GPU_REG_WindowTextureMaskX,
 	input 	[4:0]	GPU_REG_WindowTextureMaskY,
 	input 	[4:0]	GPU_REG_WindowTextureOffsetX,
@@ -46,17 +46,17 @@ module GPUBackend(
 	input [9:0] 	iScrX_Mul2,
 	input [8:0] 	iScrY,
 	
-	input [8:0]		iR_L,
-	input [8:0]		iG_L,
-	input [8:0]		iB_L,
+	input [7:0]		iR_L,
+	input [7:0]		iG_L,
+	input [7:0]		iB_L,
 	input [7:0]		i_U_L,
 	input [7:0]		i_V_L,
 	input			i_validPixel_L,
 	input			i_bgMSK_L,
 	
-	input [8:0]		iR_R,
-	input [8:0]		iG_R,
-	input [8:0]		iB_R,
+	input [7:0]		iR_R,
+	input [7:0]		iG_R,
+	input [7:0]		iB_R,
 	input [7:0]		i_U_R,
 	input [7:0]		i_V_R,
 	input			i_validPixel_R,
@@ -139,7 +139,7 @@ module GPUBackend(
 	wire [ 8:0]	oScryL,oScryR;
 	wire [15:0]	oTexelL,oTexelR;
 	wire oTransparentL,oTransparentR;
-	wire [8:0]	oRL,oRR,oGL,oGR,oBL,oBR;
+	wire [7:0]	oRL,oRR,oGL,oGR,oBL,oBR;
 	wire oBGMSK_L,oBGMSK_R;
 
 	wire [31:0] writeBack32;
@@ -165,8 +165,8 @@ module GPUBackend(
 		// Register SETUP
 		.GPU_REG_TexBasePageX				(GPU_REG_TexBasePageX),
 		.GPU_REG_TexBasePageY				(GPU_REG_TexBasePageY),
-		.GPU_REG_TextureXFlip				(GPU_REG_TextureXFlip),
-		.GPU_REG_TextureYFlip				(GPU_REG_TextureYFlip),
+//		.GPU_REG_TextureXFlip				(GPU_REG_TextureXFlip),
+//		.GPU_REG_TextureYFlip				(GPU_REG_TextureYFlip),
 		.GPU_REG_TexFormat					(GPU_REG_TexFormat),
 		.GPU_REG_WindowTextureMaskX			(GPU_REG_WindowTextureMaskX),
 		.GPU_REG_WindowTextureMaskY			(GPU_REG_WindowTextureMaskY),
@@ -187,7 +187,8 @@ module GPUBackend(
 	wire [9:0] rightX	= {iScrX_Mul2[9:1],1'b1};
 	
 	assign o_pixelInFlight = pixelInFlightL | pixelInFlightR;
-	
+	wire validPixelL1,validPixelR1;
+
 	GPUPipeCtrl2 GPUPipeCtrl2L(
 		.clk				(clk),
 		.i_nrst				(i_nrst),
@@ -216,6 +217,7 @@ module GPUBackend(
 
 		// --- Stage 1 Output Control ---
 		.missT_c1			(missT_c1L),			// TRUE garantee it is about VALID pixel/request.
+		.o_finalValid		(validPixelL1),
 		
 		// --- Stage 2 Write back Control ---
 		.o_PixelBlockTransition(o_PixelBlockTransition),
@@ -275,6 +277,7 @@ module GPUBackend(
 
 		// --- Stage 1 Output Control ---
 		.missT_c1			(missT_c1R),			// TRUE garantee it is about VALID pixel/request.
+		.o_finalValid		(validPixelR1),
 		
 		// --- Stage 2 Write back Control ---
 		.o_PixelBlockTransition(/*Unused*/),
@@ -374,18 +377,24 @@ module GPUBackend(
 	// ---------------------------------------------
 	// WRITE PACK TO BACKGROUND
 	// ---------------------------------------------	
-	reg PTexHit_c1R,PTexHit_c1L;
+	reg validTextureL,validTextureR;
 	always @(posedge clk)
 	begin
-		if (!i_pausePipeline && i_TexHit_c1R && i_TexHit_c1L) begin
-			PTexHit_c1R <= i_TexHit_c1R;
-			PTexHit_c1L <= i_TexHit_c1L;
+		if (!i_pausePipeline && ((i_TexHit_c1R && i_TexHit_c1L) || (!i_TexHit_c1R && i_TexHit_c1L) || (i_TexHit_c1R && !i_TexHit_c1L))) begin
+			validTextureL <= i_TexHit_c1L;
+			validTextureR <= i_TexHit_c1R;
 		end
+		/* FIX THAT DOES NOT WORK	
+		if (!i_pausePipeline) begin
+			validTextureL <= i_TexHit_c1L & validPixelL1;
+		end
+		if (!i_pausePipeline) begin
+			validTextureR <= i_TexHit_c1R & validPixelR1;
+		end
+		*/
 	end
 	
 	wire writeCacheLine			= o_PixelBlockTransition[1] & (!i_pausePipeline);
-	wire validTextureL			= PTexHit_c1L;
-	wire validTextureR			= PTexHit_c1R;
 	wire writeSigL				= finalValidL & ((validTextureL & !noTexture) | noTexture);
 	wire writeSigR				= finalValidR & ((validTextureR & !noTexture) | noTexture);
 	

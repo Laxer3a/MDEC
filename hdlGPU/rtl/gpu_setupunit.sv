@@ -27,19 +27,19 @@ module gpu_setupunit(
 	input signed [11:0] 		RegX2,
 	input signed [11:0] 		RegY2,
 
-	input         [8:0] 		RegR0,
-	input         [8:0] 		RegG0,
-	input         [8:0] 		RegB0,
+	input         [7:0] 		RegR0,
+	input         [7:0] 		RegG0,
+	input         [7:0] 		RegB0,
 	input         [7:0] 		RegU0,
 	input         [7:0] 		RegV0,
-	input         [8:0] 		RegR1,
-	input         [8:0] 		RegG1,
-	input         [8:0] 		RegB1,
+	input         [7:0] 		RegR1,
+	input         [7:0] 		RegG1,
+	input         [7:0] 		RegB1,
 	input         [7:0] 		RegU1,
 	input         [7:0] 		RegV1,
-	input         [8:0] 		RegR2,
-	input         [8:0] 		RegG2,
-	input         [8:0] 		RegB2,
+	input         [7:0] 		RegR2,
+	input         [7:0] 		RegG2,
+	input         [7:0] 		RegB2,
 	input         [7:0] 		RegU2,
 	input         [7:0] 		RegV2,
 
@@ -50,6 +50,8 @@ module gpu_setupunit(
 	input         [9:0]			GPU_REG_DrawAreaY0,
 	input         [9:0]			GPU_REG_DrawAreaX1,
 	input         [9:0]			GPU_REG_DrawAreaY1,
+	input						GPU_REG_TextureXFlip,
+	input						GPU_REG_TextureYFlip,
 
 	// --------------------------
 	// State machine Control signal when setup
@@ -82,6 +84,7 @@ module gpu_setupunit(
 	output						o_isValidPixelL,
 	output						o_isValidPixelR,
 	output						o_earlyTriangleReject,
+	output						o_earlyLineReject,
 	output						o_edgeDidNOTSwitchLeftRightBB,
 	output						o_reachEdgeTriScan,
 	
@@ -103,15 +106,15 @@ module gpu_setupunit(
 	
 	// ------------------------------------------
 	// Output RGBUV per pixel (Left / Right pipeline)
-	output	signed [8:0] 		o_pixRL,
-	output	signed [8:0] 		o_pixGL,
-	output	signed [8:0] 		o_pixBL,
+	output	signed [7:0] 		o_pixRL,
+	output	signed [7:0] 		o_pixGL,
+	output	signed [7:0] 		o_pixBL,
 	output	signed [7:0] 		o_pixUL,
 	output	signed [7:0] 		o_pixVL,
 
-	output	signed [8:0] 		o_pixRR,
-	output	signed [8:0] 		o_pixGR,
-	output	signed [8:0] 		o_pixBR,
+	output	signed [7:0] 		o_pixRR,
+	output	signed [7:0] 		o_pixGR,
+	output	signed [7:0] 		o_pixBR,
 	output	signed [7:0] 		o_pixUR,
 	output	signed [7:0] 		o_pixVR
 );
@@ -217,25 +220,25 @@ module gpu_setupunit(
 	wire signed [11:0]	maxYTri = RegY2 > maxY0Y1 ? RegY2 : maxY0Y1;
 
 	// Primitive Size
-	wire invalidX2X0   = !((preA13[12:10]==  3'b000) | (preA13[12:10]==  3'b111));
-	wire invalidX1X0   = !((   c13[12:10]==  3'b000) | (   c13[12:10]==  3'b111));
-	wire invalidY2Y0   = !((preB13[12: 9]== 4'b0000) | (preB13[12: 9]== 4'b1111));
-	wire invalidY1Y0   = !((   d13[12: 9]== 4'b0000) | (   d13[12: 9]== 4'b1111));
-	wire rejectTriSize = invalidX1X0 | invalidX2X0 | invalidY1Y0 | invalidY2Y0; // 1023 pixel in --> direction, 1024 pixel in <-- direction, 511 pixel in V direction, -512 pixel in ^ direction.
+	wire signed [11:0] distXBBox = maxXTri - minXTri;
+	wire signed [11:0] distYBBox = maxYTri - minYTri;
+	wire invalidXAxis  = distXBBox >= 12'd1024;
+	wire invalidYAxis  = distYBBox >= 12'd512;
+	
 	// Bounding box vs Draw Area.
+	wire earlyTriangleReject = invalidXAxis | invalidYAxis | earlyTriRejectLeft | earlyTriRejectRight | earlyTriRejectTop | earlyTriRejectBottom;
 
 	// [Setup]
 	wire				earlyTriRejectLeft   = maxXTri  < extDAX0;
 	wire				earlyTriRejectTop    = maxYTri  < extDAY0;
 	wire				earlyTriRejectRight  = minXTri  > extDAX1; // PIXEL IS INCLUSIVE, so reject must test AFTER last pixel in X DRAW AREA.
 	wire				earlyTriRejectBottom = minYTri  > extDAY1; // PIXEL IS INCLUSIVE, so reject must test AFTER last pixel in Y DRAW AREA.
-	/* PERFORMANCE OPTIMIZATION
-	wire				earlyLineReject      = invalidX1X0 | invalidY1Y0; // | earlyLineRejectLeft | earlyLineRejectTop | earlyLineRejectRight | earlyLineRejectBottom;
-	wire				earlyLineRejectLeft  = maxX0X1  < extDAX0;
-	wire				earlyLineRejectTop   = maxY0Y1  < extDAY0;
-	wire				earlyLineRejectRight = minX0X1 >= extDAX1;
-	wire				earlyLineRejectBottom= minY0Y1 >= extDAY1;
-	*/
+
+	wire				earlyLineRejectLeft  = maxX0X1 < extDAX0;
+	wire				earlyLineRejectTop   = maxY0Y1 < extDAY0;
+	wire				earlyLineRejectRight = minX0X1 > extDAX1;
+	wire				earlyLineRejectBottom= minY0Y1 > extDAY1;
+	wire				earlyLineReject      = invalidXAxis | invalidYAxis | earlyLineRejectLeft | earlyLineRejectTop | earlyLineRejectRight | earlyLineRejectBottom;
 
 	// Thanks to earlyTriangleReject, we know the box are intersecting.
 	// We know that Box is properly oriented (Min < Max), we assume that DrawArea X0 < X1 too.
@@ -303,9 +306,6 @@ module gpu_setupunit(
 	wire signed [21:0]	/*P*/ DET1	= a * d;
 	wire signed [21:0]	/*P*/ DET2	= b * negc;		// -b*c -> b*negc
 	reg  signed [21:0]	/*P*/ rDET1,rDET2,rDET;
-	reg						  rDETZERO;
-
-	wire signed [21:0]		  sumDet = rDET1 + rDET2;
 
 	// PIPELINE THAT SIDE OF THE DIVIDER INPUT.
 	always @(posedge i_clk) begin
@@ -315,8 +315,7 @@ module gpu_setupunit(
 		rnegc	<= negc;
 		
 		// Warning order
-		rDET		<= sumDet;
-		rDETZERO	<= (sumDet == 0);
+		rDET	<= rDET1 + rDET2;
 		
 		rDET1	<= DET1;
 		rDET2	<= DET2;
@@ -376,9 +375,9 @@ module gpu_setupunit(
 	always @(*)
 	begin
 		case (compoID)
-		default:	begin v0C = { 1'b0, RegR0 }; v1C = { 1'b0, RegR1 }; v2C = { 1'b0, RegR2 }; end
-		3'd2:		begin v0C = { 1'b0, RegG0 }; v1C = { 1'b0, RegG1 }; v2C = { 1'b0, RegG2 }; end
-		3'd3:		begin v0C = { 1'b0, RegB0 }; v1C = { 1'b0, RegB1 }; v2C = { 1'b0, RegB2 }; end
+		default:	begin v0C = { 2'b0, RegR0 }; v1C = { 2'b0, RegR1 }; v2C = { 2'b0, RegR2 }; end
+		3'd2:		begin v0C = { 2'b0, RegG0 }; v1C = { 2'b0, RegG1 }; v2C = { 2'b0, RegG2 }; end
+		3'd3:		begin v0C = { 2'b0, RegB0 }; v1C = { 2'b0, RegB1 }; v2C = { 2'b0, RegB2 }; end
 		3'd4:		begin v0C = { 2'b0, RegU0 }; v1C = { 2'b0, RegU1 }; v2C = { 2'b0, RegU2 }; end
 		3'd5:		begin v0C = { 2'b0, RegV0 }; v1C = { 2'b0, RegV1 }; v2C = { 2'b0, RegV2 }; end
 		endcase
@@ -399,7 +398,8 @@ module gpu_setupunit(
 
 	parameter PREC				= 12;
 	wire [PREC+8:0] ZERO_PREC	= 0;
-	wire [PREC+8:0] ONE_PREC	= 20'h1 << PREC;
+	wire [PREC+8:0] ONE_PREC	= 21'h1      << PREC;
+	wire [PREC+8:0] MONE_PREC	= 21'h1FFFFF << PREC;
 	wire [PREC+8:0] HALF_PREC	= ONE_PREC >> 1;
 	
 `ifdef DOUBLE_DIVUNIT
@@ -482,10 +482,10 @@ module gpu_setupunit(
 			GSY <= ZERO_PREC;
 			BSX <= ZERO_PREC;
 			BSY <= ZERO_PREC;
-			USX <= ONE_PREC;
+			USX <= GPU_REG_TextureXFlip ? MONE_PREC : ONE_PREC;
 			USY <= ZERO_PREC;
 			VSX <= ZERO_PREC;
-			VSY <= ONE_PREC;
+			VSY <= GPU_REG_TextureYFlip ? MONE_PREC : ONE_PREC;
 		end
 	end
 
@@ -563,24 +563,25 @@ module gpu_setupunit(
 	wire signed [PREC+8:0] offUR 		= offU + USX;
 	wire signed [PREC+8:0] offVR 		= offV + VSX;
 	
-	assign o_pixRL 						= RegR0 + offR[PREC+8:PREC]; // TODO Here ?
-	assign o_pixGL 						= RegG0 + offG[PREC+8:PREC];
-	assign o_pixBL 						= RegB0 + offB[PREC+8:PREC];
+	assign o_pixRL 						= RegR0 + offR[PREC+7:PREC]; // TODO Here ?
+	assign o_pixGL 						= RegG0 + offG[PREC+7:PREC];
+	assign o_pixBL 						= RegB0 + offB[PREC+7:PREC];
 	assign o_pixUL 						= RegU0 + offU[PREC+7:PREC];
 	assign o_pixVL 						= RegV0 + offV[PREC+7:PREC];
 
-	assign o_pixRR 						= RegR0 + offRR[PREC+8:PREC];
-	assign o_pixGR 						= RegG0 + offGR[PREC+8:PREC];
-	assign o_pixBR 						= RegB0 + offBR[PREC+8:PREC];
+	assign o_pixRR 						= RegR0 + offRR[PREC+7:PREC];
+	assign o_pixGR 						= RegG0 + offGR[PREC+7:PREC];
+	assign o_pixBR 						= RegB0 + offBR[PREC+7:PREC];
 	assign o_pixUR 						= RegU0 + offUR[PREC+7:PREC];
 	assign o_pixVR 						= RegV0 + offVR[PREC+7:PREC];
 
-	assign o_isNULLDET					= rDETZERO;
+	assign o_isNULLDET					= (/*P*/rDET == 22'd0);
 	assign o_isNegXAxis					= isNegXAxis;
 	assign o_isValidPixelL				= (isCCWInsideL | isCWInsideL) & isInsideBBoxTriRectL;
 	assign o_isValidPixelR				= (isCCWInsideR | isCWInsideR) & isInsideBBoxTriRectR;
-	assign o_earlyTriangleReject		= earlyTriRejectLeft | earlyTriRejectRight | earlyTriRejectTop | earlyTriRejectBottom | rejectTriSize;
-
+	assign o_earlyTriangleReject		= earlyTriangleReject;
+	assign o_earlyLineReject			= earlyLineReject;
+	
 	// Check that TRIANGLE EDGE did not SWITCH between the LEFT and RIGHT side of the bounding box.
 	assign o_edgeDidNOTSwitchLeftRightBB = (memW0 == tstRightEqu0) && (memW1 == tstRightEqu1) && (memW2 == tstRightEqu2);
 	

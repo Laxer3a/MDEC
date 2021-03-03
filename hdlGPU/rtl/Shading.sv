@@ -15,9 +15,9 @@ module Shading(
 	input	[4:0] bTex,
 	input		  noTexture,
 	
-	input   [8:0] rGouraud,
-	input   [8:0] gGouraud,
-	input   [8:0] bGouraud,
+	input   [7:0] rGouraud,
+	input   [7:0] gGouraud,
+	input   [7:0] bGouraud,
 	
 	output  [7:0] rOut,
 	output  [7:0] gOut,
@@ -59,10 +59,10 @@ module Shading(
 	wire [4:0] tG = gTex;
 	wire [4:0] tB = bTex;
 
-	// Gouraud between 0..510, RAW=256.
-	wire [13:0] mR = rGouraud * tR;
-	wire [13:0] mG = gGouraud * tG;
-	wire [13:0] mB = bGouraud * tB;
+	// Gouraud between 0..510, RAW=255 (510)
+	wire [13:0] mR = { rGouraud, 1'b0 } * tR;
+	wire [13:0] mG = { gGouraud, 1'b0 } * tG;
+	wire [13:0] mB = { bGouraud, 1'b0 } * tB;
 	
 	wire [7:0]  mROut,mGOut,mBOut;
 
@@ -71,7 +71,7 @@ module Shading(
 	clampUPositive #(.INW(9),.OUTW(8)) ClampPosG(.valueIn(mG[13:5]),.valueOut(mGOut));
 	clampUPositive #(.INW(9),.OUTW(8)) ClampPosB(.valueIn(mB[13:5]),.valueOut(mBOut));
 
-	assign rOut = noTexture ? rGouraud[7:0] : mROut; // No shift happened, no pb.
-	assign gOut = noTexture ? gGouraud[7:0] : mGOut; // No shift happened, no pb.
-	assign bOut = noTexture ? bGouraud[7:0] : mBOut; // No shift happened, no pb.
+	assign rOut = noTexture ? rGouraud : mROut; // No shift happened, no pb.
+	assign gOut = noTexture ? gGouraud : mGOut; // No shift happened, no pb.
+	assign bOut = noTexture ? bGouraud : mBOut; // No shift happened, no pb.
 endmodule

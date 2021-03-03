@@ -199,10 +199,64 @@ void dumpInclude(const char* inputFile, const char* outputFile) {
 	fclose(srcF);
 }
 
+void compareBuffers(u8* buffer, u8* refBuffer) {
+	u16* pM = (u16*)refBuffer;
+	u16* pR = (u16*)buffer;
+	int count = 0;
+
+	for (int y=0; y < 512; y++) {
+		for (int x=0; x < 1024; x++) {
+			int idx = x + y*1024;
+			if (pM[idx] != pR[idx]) {
+				printf("%04x <-> %04x (%i,%i)\n",pR[idx],pM[idx],x,y);
+				count++;
+			}
+		}
+	}
+
+	if (count) {
+		printf("SW vs RTL : %i pixels.",count);
+	}
+}
+
+
 #include <Windows.h>
+
+void cacheMapping() {
+	u8* buffer = new u8[1024*512*3];
+	
+	for (int y=0; y < 512; y++) {
+		for (int x=0; x < 64; x++) {
+			int idxUnique = x+(y*64);
+			int idxClmp   = idxUnique & 0x3FF;
+			// A[19:18],A[10:7],A[17:11],A[6:0]
+
+			int idxByte   = (x+y*64)*32;
+			
+			int idxCache  = (x & 3) | ((y & 0x7F)<<2);
+//				idxCache>>=5; // Byte to adr line (32 byte)
+//                idxCache &= 0x3FF;
+
+			for (int p=0; p<16; p++) {
+				int r = idxCache & 0xF;
+				int b = (idxCache>>6) & 0xF;
+				int g = (idxCache>>4) & 0x3;
+				buffer[idxUnique*16*3 + p*3 + 0] = r<<4;
+				buffer[idxUnique*16*3 + p*3 + 1] = g<<6;
+				buffer[idxUnique*16*3 + p*3 + 2] = b<<4;
+			}
+		}
+	}
+
+	stbi_write_png("cache2D.png", 1024, 512, 3, buffer, 1024*3);
+	delete[] buffer;
+}
 
 int main(int argcount, char** args)
 {
+	cacheMapping();
+	return 0;
+
 //	return mainTestVRAMVRAM();
 //	return mainTestDMAUpload(true);
 
@@ -249,9 +303,11 @@ int main(int argcount, char** args)
 		TEST_A,
 	};
 
-	DEMO manual		= TEST_A;
-//	DEMO manual		= USE_AVOCADO_DATA;
+//	DEMO manual		= TEST_A;
+	DEMO manual		= USE_AVOCADO_DATA;
 //	DEMO manual		= TESTSUITE;
+
+	bool compare     = false;
 
 	FILE* binSrc = NULL;
 	bool useHeatMap  = true;
@@ -261,22 +317,22 @@ int main(int argcount, char** args)
 
 	// HW
 	bool useScanRT   = false;
-	int  lengthCycle = 50000;
+	int  lengthCycle = 1250000;
 
 	// 9,17,12 = Very good test for stencil.
-	int source = 25; // ,5 : SW Namco Logo wrong, Score
+	int source = 1; // ,5 : SW Namco Logo wrong, Score
 
 	switch (source) {
-	case 0:  binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station","rb");				break; // GOOD COMPLETE
-	case 1:  binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");				break; // GOOD COMPLETE
-	case 2:  binSrc = fopen("E:\\JPSX\\Avocado\\FF7Fight","rb");				break; // GOOD COMPLETE
-	case 3:  binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerMenu","rb");			break; // GOOD COMPLETE
-	case 4:  binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerGame","rb");			break; // GOOD COMPLETE
-	case 5:  binSrc = fopen("E:\\JPSX\\Avocado\\RidgeScore","rb");				break; // GOOD COMPLETE
-	case 6:  binSrc = fopen("E:\\JPSX\\Avocado\\StarOceanMenu","rb");			break; // GOOD COMPLETE But gbreak; litch. Happen also in SW Raster => Bad data most likely.
-	case 7:  binSrc = fopen("E:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");	break; // GOOD COMPLEbreak; TE.
-	case 8:  binSrc = fopen("E:\\JPSX\\Avocado\\Rectangles","rb");				break; // GOOD COMPLETE
-	case 9:  binSrc = fopen("E:\\JPSX\\Avocado\\MegamanInGame","rb");			break; // GOOD COMPLETE
+	case  0:  binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station","rb");				break; // GOOD COMPLETE
+	case  1:  binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station2","rb");			break; // GOOD COMPLETE
+	case  2:  binSrc = fopen("E:\\JPSX\\Avocado\\FF7Fight","rb");				break; // GOOD COMPLETE
+	case  3:  binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerMenu","rb");			break; // GOOD COMPLETE
+	case  4:  binSrc = fopen("E:\\JPSX\\Avocado\\RidgeRacerGame","rb");			break; // GOOD COMPLETE
+	case  5:  binSrc = fopen("E:\\JPSX\\Avocado\\RidgeScore","rb");				break; // GOOD COMPLETE
+	case  6:  binSrc = fopen("E:\\JPSX\\Avocado\\StarOceanMenu","rb");			break; // GOOD COMPLETE But gbreak; litch. Happen also in SW Raster => Bad data most likely.
+	case  7:  binSrc = fopen("E:\\JPSX\\Avocado\\TexTrueColorStarOcean","rb");	break; // GOOD COMPLEbreak; TE.
+	case  8:  binSrc = fopen("E:\\JPSX\\Avocado\\Rectangles","rb");				break; // GOOD COMPLETE
+	case  9:  binSrc = fopen("E:\\JPSX\\Avocado\\MegamanInGame","rb");			break; // GOOD COMPLETE
 	case 10:  binSrc = fopen("E:\\JPSX\\Avocado\\Megaman_Menu","rb");			break; // GOOD COMPLETE
 	case 11:  binSrc = fopen("E:\\JPSX\\Avocado\\Megaman1","rb");				break; // GOOD COMPLETE
 	case 12:  binSrc = fopen("E:\\JPSX\\Avocado\\JumpingFlashMenu","rb");		break; // GOOD COMPLETE
@@ -341,16 +397,339 @@ int main(int argcount, char** args)
 	VCScanner*	pScan   = new VCScanner();
 				pScan->init(4000);
 
+u16 fuckPointList[] = {
+			 0x1efb
+			,0xa9e3
+			,0xe146
+			,0x007c
+			,0x62c2
+			,0x0854
+			,0x27f8
+			,0x231b
+			,0xe9e8
+			,0xcde7
+			,0x438d
+			,0x0f76
+			,0x255a
+			,0xf92e
+			,0x7263
+			,0xc233
+			,0xd79f
+
+			,0x5490
+			,0xbe1e
+			,0xb7e5
+			,0x8302
+			,0xc7a8
+			,0x1011
+			,0xc777
+			,0x6e4d
+			,0x56cd
+			,0x6ee1
+			,0xe53b
+			,0x0487
+			,0x1b60
+			,0xd574
+			,0x808a
+			,0x7276
+			,0x81db
+
+			,0x8f60
+			,0xc044
+			,0x0386
+			,0x47c9
+			,0x3aa2
+			,0x97d9
+			,0x3e66
+			,0x872d
+			,0x1de3
+			,0xd8b5
+			,0x9aa6
+			,0x33c7
+			,0x3fb3
+			,0x78b0
+			,0x99e2
+			,0x7b57
+			,0x481f
+
+			,0x49a6
+			,0x5d28
+			,0x2c9d
+			,0x9234
+			,0x8b3e
+			,0x51b3
+			,0xdbea
+			,0xc3e7
+			,0x139e
+			,0x01f4
+			,0xa830
+			,0xd2f8
+			,0xce9c
+			,0xd4c6
+			,0xb57c
+			,0x2f5a
+			,0x780f
+
+			,0x6f64
+			,0x4ec7
+			,0xc951
+			,0x40e4
+			,0x28b7
+			,0x8c6e
+			,0x2527
+			,0x5cae
+			,0x8042
+			,0x26c4
+			,0x05d8
+			,0x7e29
+			,0x6585
+			,0xff75
+			,0x4368
+			,0x2d13
+			,0x3041
+
+			,0x35e7
+			,0xb6b6
+			,0xf7b1
+			,0xaf3f
+			,0xf79a
+			,0x105e
+			,0x719f
+			,0xcf9c
+			,0xb7d5
+			,0xd1c4
+			,0x5ba7
+			,0xf81a
+			,0x5765
+			,0x6758
+			,0xcc9d
+			,0x5d6f
+			,0x8412
+
+			,0x6498
+			,0x5f53
+			,0xfc90
+			,0x030c
+			,0x4b90
+			,0x206a
+			,0x6bdd
+			,0xbae5
+			,0x2c60
+			,0x78a4
+			,0x1940
+			,0xc10d
+			,0xf637
+			,0x3940
+			,0x6377
+			,0x5c01
+			,0x5c39
+
+			,0x4e52
+			,0x8914
+			,0x954c
+			,0xadae
+			,0xb0db
+			,0x1773
+			,0x8e0b
+			,0xd403
+			,0x785b
+			,0x0a49
+			,0xf191
+			,0x2fc8
+			,0x5411
+			,0x4092
+			,0x378d
+			,0x5638
+			,0xa787
+
+			,0x63ee
+			,0xd1d1
+			,0x49bc
+			,0xe538
+			,0x5dcb
+			,0xb6ad
+			,0x09ea
+			,0x0c6e
+			,0x1e98
+			,0xa3e1
+			,0x3174
+			,0xed29
+			,0xab7c
+			,0x1818
+			,0x73ee
+			,0x9599
+			,0x70da
+
+			,0x6920
+			,0xd5bd
+			,0x9820
+			,0x1edd
+			,0x2439
+			,0x3bea
+			,0x1f17
+			,0x0353
+			,0xe06e
+			,0xb692
+			,0x07f4
+			,0x06d2
+			,0x8e15
+			,0x15e7
+			,0x17d3
+			,0x1022
+			,0x0d70
+
+			,0x99f0
+			,0x87ea
+			,0xf529
+			,0x2279
+			,0x4a5d
+			,0x21c3
+			,0xa18c
+			,0xa2fb
+			,0x006d
+			,0xb338
+			,0x59ed
+			,0xb062
+			,0x2cb3
+			,0xe9b4
+			,0x2577
+			,0xaae3
+			,0x1aac
+
+			,0x1d2d
+			,0x224f
+			,0xfa39
+			,0x5a24
+			,0xc63b
+			,0x010b
+			,0x3fc3
+			,0x75d6
+			,0xb8ba
+			,0xad6f
+			,0x1228
+			,0x55d4
+			,0x8064
+			,0xd3be
+			,0xfb19
+			,0xa69d
+			,0x0acd
+
+			,0x2b90
+			,0x51d8
+			,0x4566
+			,0x2c87
+			,0xeaef
+			,0x4a2b
+			,0x18bc
+			,0xbf0b
+			,0xf482
+			,0xdc66
+			,0x0ff2
+			,0x1775
+			,0x7cfc
+			,0x0fc0
+			,0xa69b
+			,0xefcc
+			,0x9b28
+
+			,0xa723
+			,0xf7fc
+			,0xdc4d
+			,0x55be
+			,0x7803
+			,0x095e
+			,0x30a7
+			,0x102f
+			,0xe1b0
+			,0x2f94
+			,0xedec
+			,0xee1a
+			,0x41cb
+			,0x4d30
+			,0x05ae
+			,0x1493
+			,0x7be0
+
+			,0x0eeb
+			,0x73ac
+			,0x8fbd
+			,0x4c98
+			,0x2baf
+			,0x6c69
+			,0x6301
+			,0x8e26
+			,0xa538
+			,0xa982
+			,0x5145
+			,0xcef3
+			,0x8ba1
+			,0x4671
+			,0x7fd8
+			,0xb196
+			,0xa719
+
+			,0xb98a
+			,0x9367
+			,0x8fa7
+			,0x84a1
+			,0x2765
+			,0x1a52
+			,0x84b5
+			,0xd1f1
+			,0x3bba
+			,0xf465
+			,0x97bc
+			,0xa64c
+			,0x489b
+			,0xf343
+			,0x3378
+			,0x1d68
+			,0x166e
+
+			,0x2ac0
+			,0x7e7b
+			,0xa650
+			,0x2312
+			,0xa097
+			,0x9849
+			,0x37ce
+			,0x7dcf
+			,0x9ffb
+			,0x9dcc
+			,0x8de5
+			,0xb603
+			,0xcecc
+			,0xdecf
+			,0xd253
+			,0x4842
+			,0x51d0
+	};
+
+#if 0
 	srand(17);
+	int idxppt = 0;
+	for (int y=0;y<256;y++) {
+		for (int x=0;x<256;x++) {
+			u16* p = (u16*)&buffer[x*2 + y*2048];
+			int v = /*(((x & 16)!=0) ^((y&1)!=0)) & (x & 1);*/ (rand()<<15) & 0x8000;
+			*p = v;
+//			printf("%i",v>>15);
+			setStencil(mod,x,y,v>>15 ? true : false);
+		}
+//		printf("\n");
+	}
+#else
+	FILE* fData = fopen("E:\\PSFPGA-TEST-SOC1\\gpu_tb\\psf_gpu\\dump.vram","rb");
+	fread(buffer,512*1024*2,1,fData);
 	for (int y=0;y<512;y++) {
 		for (int x=0;x<1024;x++) {
-			u16* p = (u16*)&buffer[x*2 + y*2048];
-			int v = /*(((x & 16)!=0) ^((y&1)!=0)) & (x & 1);*/(rand() & 1);
-			*p = v << 15;
-
-			setStencil(mod,x,y,v ? true : false);
+			u16 p = ((u16*)buffer)[x + y*1024];
+			setStencil(mod,x,y,p>>15 ? true : false);
 		}
 	}
+	fclose(fData);
+	memcpy(refBuffer,buffer,1024*1024);
+#endif
 
 	/*
 	for (int y=0;y<512;y++) {
@@ -722,16 +1101,23 @@ int main(int argcount, char** args)
 	switch (demo) {
 	case TEST_A:
 	{
-		commandGenerator.writeRaw(0xe1000400);
-//		commandGenerator.writeRaw(0xe3000000);
-//		commandGenerator.writeRaw(0xe403c140);
-		commandGenerator.writeRaw(0xe6000002);
-		commandGenerator.writeRaw(0x2000b714);
-		commandGenerator.writeRaw(0x007700ca);
-		commandGenerator.writeRaw(0x00e900d1);
-		commandGenerator.writeRaw(0x00370128);
 
-	}
+		commandGenerator.writeRaw(0xe1000008);
+		commandGenerator.writeRaw(0xe3000000);
+		commandGenerator.writeRaw(0xe403c140);
+		commandGenerator.writeRaw(0xe6000000);
+
+
+                commandGenerator.writeRaw(0x2cccd0d4);
+                commandGenerator.writeRaw(0x01be00fa);
+                commandGenerator.writeRaw(0x53751e17);
+                commandGenerator.writeRaw(0x0153010d);
+                commandGenerator.writeRaw(0x0348f913);
+                commandGenerator.writeRaw(0x0111003b);
+                commandGenerator.writeRaw(0x776cc799);
+                commandGenerator.writeRaw(0x00270105);
+                commandGenerator.writeRaw(0x320869a3);
+	}								
 	break;
 	case CAR_SHADOW:
 	{
@@ -1679,12 +2065,14 @@ int main(int argcount, char** args)
 	int prevCommandParseState = -1;
 	int prevCommandWorkState  = -1;
 
-	if (useSWRender) {
-		RenderCommandSoftware(bufferRGBA, buffer, commandGenerator,window);
-		return 0;
+	if (useSWRender || compare) {
+		RenderCommandSoftware(bufferRGBA, refBuffer, commandGenerator,window);
+		if (!compare) {
+			return 0;
+		}
 	}
 
-	Sleep(5000);
+//	Sleep(5000);
 
 	bool log
 #ifdef RELEASE
@@ -1899,9 +2287,9 @@ int main(int argcount, char** args)
 			bool uploadData = false;
 			if (commandGenerator.stillHasCommand()) {
 				if (isGPUWaiting) {
-					uploadData = (cycleCounter % 2000)==0;
+					uploadData = (cycleCounter % 3)==0;
 				} else {
-					if (!commandGenerator.isCommandStart() && ((cycleCounter % 2000)==0)) {
+					if (!commandGenerator.isCommandStart() && ((cycleCounter % 3)==0)) {
 						uploadData = true;					
 					}
 				}
@@ -1974,10 +2362,21 @@ int main(int argcount, char** args)
 	}
 	*/
 
+	for (int y = 0; y<4; y++) {
+		for (int x = 0; x<5; x++) {
+			printf("%04x,",(((u16*)buffer)[x+(y*1024)]));
+		}
+	}
+
  	int errorCount = dumpFrame(mod, "output.png", "output_msk.png",buffer,clockCnt>>1, true);
 	if (errorCount) {
-		printf("STENCIL PROBLEM"); while (1) {}
+//		printf("STENCIL PROBLEM"); while (1) {}
 	}
+
+	if (compare) {
+		compareBuffers(buffer, refBuffer);
+	}
+
 	delete [] buffer;
 	delete [] refBuffer;
 	pScan->shutdown();
@@ -2119,5 +2518,6 @@ void RenderCommandSoftware(u8* bufferRGBA, u8* srcBuffer, GPUCommandGen& command
 
 	dumpFrame(NULL, "output_sw.png", "output_msk_sw.png",swBuffer,0, true);
 
+	memcpy(srcBuffer, swBuffer, 1024*1024);
 	delete[] swBuffer;
 }

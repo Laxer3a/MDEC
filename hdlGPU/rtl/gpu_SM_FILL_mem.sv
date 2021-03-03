@@ -18,9 +18,9 @@ module gpu_SM_FILL_mem(
 	// Setup
 	input					i_InterlaceRender,
 	input					GPU_REG_CurrentInterlaceField,
-	input			[ 8:0]	RegR0,
-	input			[ 8:0]	RegG0,
-	input			[ 8:0]	RegB0,
+	input			[ 7:0]	RegR0,
+	input			[ 7:0]	RegG0,
+	input			[ 7:0]	RegB0,
 	input	signed  [11:0]	RegX0,
 	input	signed  [11:0]	RegY0,
 	input			[10:0]	RegSizeW,

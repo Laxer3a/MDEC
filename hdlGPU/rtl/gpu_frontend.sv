@@ -85,6 +85,7 @@ module gpu_frontend(
 	output [11:0]			o_GPU_REG_RangeX1,
 	output [9:0]			o_GPU_REG_RangeY0,
 	output [9:0]			o_GPU_REG_RangeY1,
+	output					o_GPU_REG_GP1MasterTexDisable,
 
 	output DMADirection 	o_GPU_REG_DMADirection
 		
@@ -107,6 +108,7 @@ reg			[11:0]	GPU_REG_RangeX0;
 reg			[11:0]	GPU_REG_RangeX1;
 reg			[9:0]	GPU_REG_RangeY0;
 reg			[9:0]	GPU_REG_RangeY1;
+reg					GPU_REG_GP1MasterTexDisable;
 
 DMADirection		GPU_REG_DMADirection;
 
@@ -190,6 +192,7 @@ wire parserWaitingNewCommand;
 wire writeGP1		=  gpuAdrA2 & gpuSel & write;
 
 wire cmdGP1			= writeGP1 & (cpuDataIn[29:27] == 3'd0); // Short cut for most commands.
+wire cmdGP1_8		= writeGP1 & (cpuDataIn[29:27] == 3'd1); // Short cut for most commands.
 wire rstGPU  		=(cmdGP1   & (cpuDataIn[26:24] == 3'd0)) | (!i_nRst);
 wire rstCmd  		= cmdGP1   & (cpuDataIn[26:24] == 3'd1);
 wire rstIRQ  		= cmdGP1   & (cpuDataIn[26:24] == 3'd2);
@@ -198,8 +201,8 @@ wire setDmaDir		= cmdGP1   & (cpuDataIn[26:24] == 3'd4);
 wire setDispArea	= cmdGP1   & (cpuDataIn[26:24] == 3'd5);
 wire setDispRangeX	= cmdGP1   & (cpuDataIn[26:24] == 3'd6);
 wire setDispRangeY	= cmdGP1   & (cpuDataIn[26:24] == 3'd7);
-wire setDisplayMode	= writeGP1 & (cpuDataIn[29:24] == 6'd8);
-// Command GP1-09 not supported.
+wire setDisplayMode	= cmdGP1_8 & (cpuDataIn[26:24] == 3'd0); // 0h08 command.
+wire setTexDisable  = cmdGP1_8 & (cpuDataIn[26:24] == 3'd1); // 0h09 command.
 wire getGPUInfo		= writeGP1 & (cpuDataIn[29:28] == 2'd1); // 0h1X command.
 
 /*	GP1(10h) - Get GPU Info
@@ -282,6 +285,7 @@ begin
 		GPU_REG_HorizResolution		<= 2'b0;
 		GPU_REG_HorizResolution368	<= 0;
 		GPU_REG_ReverseFlag			<= 0;
+		GPU_REG_GP1MasterTexDisable <= 0;
 	end else begin
 		if (setDisp) begin
 			GPU_REG_DisplayDisabled		<= cpuDataIn[0];
@@ -310,6 +314,9 @@ begin
 			GPU_REG_HorizResolution368	<= cpuDataIn[6];
 			GPU_REG_ReverseFlag			<= cpuDataIn[7];
 		end
+		if (setTexDisable) begin
+			GPU_REG_GP1MasterTexDisable <= cpuDataIn[0];
+		end
 	end
 end
 
@@ -334,5 +341,5 @@ assign o_GPU_REG_RangeY0	 		= GPU_REG_RangeY0;
 assign o_GPU_REG_RangeY1	 		= GPU_REG_RangeY1;
 
 assign o_GPU_REG_DMADirection		= GPU_REG_DMADirection;
-
+assign o_GPU_REG_GP1MasterTexDisable= GPU_REG_GP1MasterTexDisable;
 endmodule

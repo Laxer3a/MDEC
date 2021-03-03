@@ -54,23 +54,23 @@ module gpu_loadedRegs(
 	
 	output signed [11:0] o_RegX0,
 	output signed [11:0] o_RegY0,
-	output         [8:0] o_RegR0,
-	output         [8:0] o_RegG0,
-	output         [8:0] o_RegB0,
+	output         [7:0] o_RegR0,
+	output         [7:0] o_RegG0,
+	output         [7:0] o_RegB0,
 	output         [7:0] o_RegU0,
 	output         [7:0] o_RegV0,
 	output signed [11:0] o_RegX1,
 	output signed [11:0] o_RegY1,
-	output         [8:0] o_RegR1,
-	output         [8:0] o_RegG1,
-	output         [8:0] o_RegB1,
+	output         [7:0] o_RegR1,
+	output         [7:0] o_RegG1,
+	output         [7:0] o_RegB1,
 	output         [7:0] o_RegU1,
 	output         [7:0] o_RegV1,
 	output signed [11:0] o_RegX2,
 	output signed [11:0] o_RegY2,
-	output         [8:0] o_RegR2,
-	output         [8:0] o_RegG2,
-	output         [8:0] o_RegB2,
+	output         [7:0] o_RegR2,
+	output         [7:0] o_RegG2,
+	output         [7:0] o_RegB2,
 	output         [7:0] o_RegU2,
 	output         [7:0] o_RegV2,
 	output        [10:0] o_RegSizeW,
@@ -116,23 +116,23 @@ gpu_commandDecoder decoder(
 // -2048..+2047
 reg signed [11:0] RegX0;
 reg signed [11:0] RegY0;
-reg  [8:0] RegR0;
-reg  [8:0] RegG0;
-reg  [8:0] RegB0;
+reg  [7:0] RegR0;
+reg  [7:0] RegG0;
+reg  [7:0] RegB0;
 reg  [7:0] RegU0;
 reg  [7:0] RegV0;
 reg signed [11:0] RegX1;
 reg signed [11:0] RegY1;
-reg  [8:0] RegR1;
-reg  [8:0] RegG1;
-reg  [8:0] RegB1;
+reg  [7:0] RegR1;
+reg  [7:0] RegG1;
+reg  [7:0] RegB1;
 reg  [7:0] RegU1;
 reg  [7:0] RegV1;
 reg signed [11:0] RegX2;
 reg signed [11:0] RegY2;
-reg  [8:0] RegR2;
-reg  [8:0] RegG2;
-reg  [8:0] RegB2;
+reg  [7:0] RegR2;
+reg  [7:0] RegG2;
+reg  [7:0] RegB2;
 reg  [7:0] RegU2;
 reg  [7:0] RegV2;
 // [NOT USED FOR NOW : DIRECTLY MODIFY GLOBAL GPU STATE]
@@ -151,7 +151,7 @@ wire signed [11:0]	fifoDataOutX	= { fifoDataOut[10],fifoDataOut[10: 0] } + { i_G
 
 wire [7:0]	fifoDataOutUR			= fifoDataOut[ 7: 0]; // Same cut for R and U coordinate.
 wire [7:0]	fifoDataOutVG			= fifoDataOut[15: 8]; // Same cut for G and V coordinate.
-wire [7:0]	fifoDataOutB			= fifoDataOut[23:16];
+
 // [NOT USED FOR NOW : DIRECTLY MODIFY GLOBAL GPU STATE]
 //wire [9:0]	fifoDataOutTex		= {fifoDataOut[27],fifoDataOut[24:16]};
 wire [9:0]  fifoDataOutWidth		= fifoDataOut[ 9: 0];
@@ -159,33 +159,10 @@ wire [9:0]  fifoDataOutWidth		= fifoDataOut[ 9: 0];
 wire [8:0]  fifoDataOutHeight		= fifoDataOut[24:16];
 //wire [ 9:0] fifoDataOutH    		= fifoDataOut[25:16]; NOT USED.
 
+wire [7:0] loadComponentR			= bIgnoreColor   ? 8'd128 : fifoDataOutUR;
+wire [7:0] loadComponentG			= bIgnoreColor   ? 8'd128 : fifoDataOutVG;
+wire [7:0] loadComponentB			= bIgnoreColor   ? 8'd128 : fifoDataOut[23:16];
 
-// Load all 3 component at the same time, save cycles in state machine
-// Also use special formula :
-// . Vertex Color RGB will be multiplied by Texture RGB. Texture RGB is 0..255 post renormalization.
-//   So it is smarter to have Vertex RGB as 256 for MAXIMUM value and just do a simple shift post multiplication and STILL be mathematically correct.
-//		- When NOT using texture => we ADD Bit[7] of component to renormalize from 0..255 -> 0..256
-//		- When using texture     => Specs says that 0x80 are brightest (same level as FF) -> We multiply by two (shift) only. (add 0) 0x80 -> 0x100
-//									So 0.FF -> 0x1FE (510 (1.9921875) instead of 511 (1.99609375)) But because it is overbright with clamped value later on, should be no problem.
-//
-// . Spec says that when using texture,
-wire [8:0] componentFuncR			= i_bUseTexture    ? { fifoDataOutUR,1'b0 } : { 1'b0, fifoDataOutUR };
-wire [8:0] componentFuncG			= i_bUseTexture    ? { fifoDataOutVG,1'b0 } : { 1'b0, fifoDataOutVG };
-wire [8:0] componentFuncB			= i_bUseTexture    ? {  fifoDataOutB,1'b0 } : { 1'b0,  fifoDataOutB };
-/*
-// We also avoid to add +1 when using color for FILL command.
-wire bNoTexture						= (!i_bUseTexture) & (!bIsBase0x);
-wire [8:0] componentFuncRA			= componentFuncR + { 8'b00000000, fifoDataOutUR[7] & bNoTexture };
-wire [8:0] componentFuncGA			= componentFuncG + { 8'b00000000, fifoDataOutVG[7] & bNoTexture };
-wire [8:0] componentFuncBA			= componentFuncB + { 8'b00000000, fifoDataOutB [7] & bNoTexture };
-// Finally force WHITE color(256) if no component RGB value are available.
-wire [8:0] loadComponentR			= bIgnoreColor   ? 9'b100000000 : componentFuncRA;
-wire [8:0] loadComponentG			= bIgnoreColor   ? 9'b100000000 : componentFuncGA;
-wire [8:0] loadComponentB			= bIgnoreColor   ? 9'b100000000 : componentFuncBA;
-*/
-wire [8:0] loadComponentR			= bIgnoreColor   ? 9'd256 : componentFuncR;
-wire [8:0] loadComponentG			= bIgnoreColor   ? 9'd256 : componentFuncG;
-wire [8:0] loadComponentB			= bIgnoreColor   ? 9'd256 : componentFuncB;
 // TODO : SWAP bit. for loading 4th, line segment.
 //
 wire [9:0] copyHeight = { !(|fifoDataOutHeight[8:0]), fifoDataOutHeight };

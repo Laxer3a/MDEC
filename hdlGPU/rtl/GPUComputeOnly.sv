@@ -28,12 +28,12 @@ module GPUComputeOnly(
 //	input			iTransparentR,
 	
 	// Gouraud Side output
-	input [8:0]		iR_L,
-	input [8:0]		iG_L,
-	input [8:0]		iB_L,
-	input [8:0]		iR_R,
-	input [8:0]		iG_R,
-	input [8:0]		iB_R,
+	input [7:0]		iR_L,
+	input [7:0]		iG_L,
+	input [7:0]		iB_L,
+	input [7:0]		iR_R,
+	input [7:0]		iG_R,
+	input [7:0]		iB_R,
 
 	// BG If needed.
 	input [4:0]		rBG_L,

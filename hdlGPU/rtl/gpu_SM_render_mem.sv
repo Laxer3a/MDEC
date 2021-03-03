@@ -49,23 +49,23 @@ module gpu_SM_render_mem(
 	
 	input	signed [11:0]	RegX0,
 	input	signed [11:0]	RegY0,
-	input			[8:0] 	RegR0,
-	input			[8:0] 	RegG0,
-	input			[8:0] 	RegB0,
+	input			[7:0] 	RegR0,
+	input			[7:0] 	RegG0,
+	input			[7:0] 	RegB0,
 	input			[7:0] 	RegU0,
 	input			[7:0] 	RegV0,
 	input	signed [11:0] 	RegX1,
 	input	signed [11:0] 	RegY1,
-	input			[8:0] 	RegR1,
-	input			[8:0] 	RegG1,
-	input			[8:0] 	RegB1,
+	input			[7:0] 	RegR1,
+	input			[7:0] 	RegG1,
+	input			[7:0] 	RegB1,
 	input			[7:0] 	RegU1,
 	input			[7:0] 	RegV1,
 	input	signed [11:0] 	RegX2,
 	input	signed [11:0] 	RegY2,
-	input			[8:0] 	RegR2,
-	input			[8:0] 	RegG2,
-	input			[8:0] 	RegB2,
+	input			[7:0] 	RegR2,
+	input			[7:0] 	RegG2,
+	input			[7:0] 	RegB2,
 	input			[7:0] 	RegU2,
 	input			[7:0] 	RegV2,
 	input			[9:0] 	GPU_REG_DrawAreaX0,
@@ -145,7 +145,8 @@ typedef enum logic[4:0] {
 	WAIT_1						= 5'd18,
 	SELECT_PRIMITIVE			= 5'd19,
 	FLUSH_SEND					= 5'd20,
-	FLUSH_COMPLETE_STATE		= 5'd21
+	FLUSH_COMPLETE_STATE		= 5'd21,
+	START_WAIT_CYCLE_BECAUSE_PIPELINE = 5'd22
 } workState_t;
 
 //----------------------------------------------------	
@@ -174,7 +175,7 @@ reg loadNext, stencilReadSig,
 	flush,
 	writePixelL,writePixelR;
 wire isValidPixelL,isValidPixelR;
-wire earlyTriangleReject;
+wire earlyTriangleReject,earlyLineReject;
 wire edgeDidNOTSwitchLeftRightBB;
 wire isNegXAxis;
 wire isLineLeftPix,isLineRightPix;
@@ -182,7 +183,7 @@ wire isValidHorizontalTriBbox;
 wire isNegPreB;
 wire reachEdgeTriScan,isRightPLXmaxTri,isInsideBBoxTriRectL,isInsideBBoxTriRectR,isBottomInsideBBox;
 
-wire signed [8:0] pixRL,pixGL,pixBL,pixRR,pixGR,pixBR;
+wire signed [7:0] pixRL,pixGL,pixBL,pixRR,pixGR,pixBR;
 wire signed [7:0] pixUL,pixVL,pixUR,pixVR;
 
 wire memArbOutputIdle;
@@ -347,6 +348,8 @@ gpu_setupunit gpu_setupunit_inst(
 	.GPU_REG_DrawAreaY0				(GPU_REG_DrawAreaY0),
 	.GPU_REG_DrawAreaX1				(GPU_REG_DrawAreaX1),
 	.GPU_REG_DrawAreaY1				(GPU_REG_DrawAreaY1),
+	.GPU_REG_TextureXFlip			(GPU_REG_TextureXFlip),
+	.GPU_REG_TextureYFlip			(GPU_REG_TextureYFlip),
 
 	// --------------------------
 	// State machine Control
@@ -370,6 +373,7 @@ gpu_setupunit gpu_setupunit_inst(
 	.o_isValidPixelL				(isValidPixelL),
 	.o_isValidPixelR				(isValidPixelR),
 	.o_earlyTriangleReject			(earlyTriangleReject),
+	.o_earlyLineReject				(earlyLineReject),
 	.o_edgeDidNOTSwitchLeftRightBB	(edgeDidNOTSwitchLeftRightBB),
 	.o_reachEdgeTriScan				(reachEdgeTriScan),
 	.o_isValidHorizontalTriBbox		(isValidHorizontalTriBbox),
@@ -614,8 +618,8 @@ GPUBackend GPUBackendInstance(
     .ditherActive					(bDither),
     .GPU_REG_TexBasePageX			(GPU_REG_TexBasePageX),
     .GPU_REG_TexBasePageY			(GPU_REG_TexBasePageY),
-    .GPU_REG_TextureXFlip			(GPU_REG_TextureXFlip),
-    .GPU_REG_TextureYFlip			(GPU_REG_TextureYFlip),
+//  .GPU_REG_TextureXFlip			(GPU_REG_TextureXFlip),
+//  .GPU_REG_TextureYFlip			(GPU_REG_TextureYFlip),
     .GPU_REG_WindowTextureMaskX		(GPU_REG_WindowTextureMaskX),
     .GPU_REG_WindowTextureMaskY		(GPU_REG_WindowTextureMaskY),
     .GPU_REG_WindowTextureOffsetX	(GPU_REG_WindowTextureOffsetX),
@@ -946,14 +950,20 @@ begin
 	begin
 		// Put test here, because DET may not be computed before of pipeline.
 		if (isValidPixelL | isValidPixelR) begin // Line equation.
-			nextWorkState	= SCAN_LINE;
-			stencilReadSig	= 1;
+			nextWorkState	= START_WAIT_CYCLE_BECAUSE_PIPELINE;
 		end else begin
 			memorizeLineEqu = 1;
 			nextWorkState	= START_LINE_TEST_RIGHT;
 			loadNext		= 1;
 			selNextX		= X_TRI_BBRIGHT;// Set next X = BBox RIGHT intersected with DrawArea.
 		end
+	end
+	// - Need to insert a cycle before in case first pixel in top left corner. Else V or B component may not be updated !!!
+	// - We loose a cycle in case of ping-ping with LEFT/RIGHT TEST and then first pixel pair valid on the LEFT but that's ok.
+	START_WAIT_CYCLE_BECAUSE_PIPELINE:
+	begin
+		nextWorkState	= SCAN_LINE;
+		stencilReadSig	= 1;
 	end
 	START_LINE_TEST_RIGHT: // 10
 	begin
@@ -1110,7 +1120,7 @@ begin
 		stencilReadSig	= 1;
 		selNextX		= X_LINE_START;
 		selNextY		= Y_LINE_START;
-		nextWorkState	= LINE_DRAW;
+		nextWorkState	= earlyLineReject ? RENDER_WAIT : LINE_DRAW;
 	end
 	LINE_DRAW:
 	begin
@@ -1163,7 +1173,7 @@ wire [14:0] nextPixRasterBlock	= i_bIsLineCommand ? { nextLineY[8:0] , nextLineX
 wire changeBlockRead			= (rasterCurrentBlock != nextPixRasterBlock);
 
 assign o_stencilFullMode		= 1;
-assign o_stencilReadSig			= stencilReadSig & changeBlockRead;
+assign o_stencilReadSig			= stencilReadSig & ( changeBlockRead | ((currWorkState==START_WAIT_CYCLE_BECAUSE_PIPELINE) || (currWorkState==START_LINE_TEST_RIGHT) || (currWorkState == SCAN_LINE_CATCH_END) || (currWorkState == LINE_START) || (currWorkState == RECT_START)) );
 assign o_stencilReadAdr			= nextPixRasterBlock;
 
 assign o_active					= (currWorkState != RENDER_WAIT);

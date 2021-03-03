@@ -148,6 +148,7 @@ wire [11:0]			GPU_REG_RangeX0;
 wire [11:0]			GPU_REG_RangeX1;
 wire [9:0]			GPU_REG_RangeY0;
 wire [9:0]			GPU_REG_RangeY1;
+wire				GPU_REG_GP1MasterTexDisable;
 
 wire [1:0]      	GPU_REG_DMADirection;
 
@@ -250,7 +251,7 @@ wire InterlaceRender					= DIP_Allow480i & ((!GPU_REG_DrawDisplayAreaOn) & GPU_R
 // From Command Decoder
 //---------------------------------------------------------------
 wire bIsLineCommand,bIsCopyCommand,bIsPolyCommand,bIsRectCommand,bIsCopyVVCommand,bIsCopyVCCommand,bIsCopyCVCommand,bUseTextureParser,bSemiTransp,bOpaque,bIsPerVtxCol;
-wire bUseTexture = bUseTextureParser & (!GPU_REG_TextureDisable); // Avoid texture fetching if we do LINE, Compute proper color for FILL.
+wire bUseTexture = bUseTextureParser & (!(GPU_REG_TextureDisable & GPU_REG_GP1MasterTexDisable)); // Avoid texture fetching if we do LINE, Compute proper color for FILL.
 
 // From parser
 //---------------------------------------------------------------
@@ -313,23 +314,23 @@ wire rstGPU,rstCmd,rstIRQ;
 // -2048..+2047
 wire signed [11:0] RegX0;
 wire signed [11:0] RegY0;
-wire  [8:0] RegR0;
-wire  [8:0] RegG0;
-wire  [8:0] RegB0;
+wire  [7:0] RegR0;
+wire  [7:0] RegG0;
+wire  [7:0] RegB0;
 wire  [7:0] RegU0;
 wire  [7:0] RegV0;
 wire signed [11:0] RegX1;
 wire signed [11:0] RegY1;
-wire  [8:0] RegR1;
-wire  [8:0] RegG1;
-wire  [8:0] RegB1;
+wire  [7:0] RegR1;
+wire  [7:0] RegG1;
+wire  [7:0] RegB1;
 wire  [7:0] RegU1;
 wire  [7:0] RegV1;
 wire signed [11:0] RegX2;
 wire signed [11:0] RegY2;
-wire  [8:0] RegR2;
-wire  [8:0] RegG2;
-wire  [8:0] RegB2;
+wire  [7:0] RegR2;
+wire  [7:0] RegG2;
+wire  [7:0] RegB2;
 wire  [7:0] RegU2;
 wire  [7:0] RegV2;
 wire [10:0] RegSizeW;
@@ -521,7 +522,8 @@ gpu_frontend gpu_frontend_instance (
 	.o_GPU_REG_RangeX0				(GPU_REG_RangeX0),
 	.o_GPU_REG_RangeX1				(GPU_REG_RangeX1),
 	.o_GPU_REG_RangeY0				(GPU_REG_RangeY0),
-	.o_GPU_REG_RangeY1				(GPU_REG_RangeY1)
+	.o_GPU_REG_RangeY1				(GPU_REG_RangeY1),
+	.o_GPU_REG_GP1MasterTexDisable	(GPU_REG_GP1MasterTexDisable)
 );
 
 GPURegisters_GP0 GPURegisters_GP0_instance (
