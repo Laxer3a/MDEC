@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright (C) 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
 
@@ -134,6 +134,7 @@ always @(posedge i_clk) begin
 end
 
 wire decrementingOfficialTimer = (OfficialTimingCounter != 6'd0);
+reg pDIP_USEFASTGTE;
 always @(posedge i_clk)
 begin
 	// Instruction Loading.
@@ -145,6 +146,7 @@ begin
 		ctrl.vec <= i_Instruction[16:15];		// 0:V0,       1:V1,    2:V2,        3:IR/Long
 		ctrl.mx	 <= i_Instruction[18:17];		// 0:Rotation, 1:Light, 2:Color,     3:Reserved
 		isMVMVA	 <= isMVMVAWire; 				// MVMVA.
+		pDIP_USEFASTGTE <= i_DIP_USEFASTGTE;
 	end
 
 	// Executing lock flag.
@@ -152,7 +154,7 @@ begin
 		isMVMVA	 <= 1'b0;
 	end
 
-	if ((!i_nRst) || (i_DIP_USEFASTGTE)) begin
+	if ((!i_nRst) || (pDIP_USEFASTGTE)) begin
 		OfficialTimingCounter	<= 6'd0;
 	end else begin
 		if (loadInstr) begin

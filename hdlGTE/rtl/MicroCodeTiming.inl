@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright (C) 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.
 
@@ -24,7 +24,7 @@ See LICENSE file.
 6'h20 : retCount = 6'd29; // NCT
 6'h28 : retCount = 6'd4; // SQR
 6'h29 : retCount = 6'd7; // DPCL
-6'h2a : retCount = 6'd17; // DPCT
+6'h2a : retCount = 6'd18; // DPCT
 6'h2d : retCount = 6'd4; // AVSZ3
 6'h2e : retCount = 6'd5; // AVSZ4
 6'h30 : retCount = 6'd21; // RTPT

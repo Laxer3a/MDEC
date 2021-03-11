@@ -15,22 +15,7 @@ See LICENSE file.
 #include <stdio.h>
 #include <string.h>
 
-/*		TODO LIST :
-		- MVMVA Microcode
-		- MVMVA Buggy Microcode
-		- HW : NClip special path to add.
-		- NClip new addition support.
-
-		- HW : Special path for DPCT/DPCS (Go from 18 to 15 cycles and fit budget)
-
-		- Special path support in tool.
-		- Flags support.
-
-		- Proper 16 bit write back selection.
-
-		- HW : Support temporary expression evaluation flags.
-		- Tool support for temporary expression flags.
-*/
+bool EquStr(const char* str1, const char* str2) { return (strcmp(str1,str2)==0); }
 
 /*
 // MICROCODE => REGISTER WRITE (Direct control, without compute path)
@@ -39,23 +24,42 @@ typedef struct packed { // 24 bit
 	logic [3:0] wrMAC;	-> AddSel MAC1..3
 	logic       wrOTZ;  [!!! ONLY ONE NOT USED !!!]
 	
-	logic pushR;	    -> i_computeCtrl.selCol0 => Sel1/2/3:CRGB0.rgb (.color)
-	logic pushG;	       FIND REGISTER MAPPING OTHER REGISTERS !!!!
-	logic pushB;
-
 	logic pushX;	-> Input of SEL1,2,3
 	logic pushY;    -> Input of SEL1,2,3
 	logic pushZ;	-> Input of SEL1,2,3
 					specialRGBMulTMP = TMP * [Constant CPU ONLY-CRGB]
+
+		bool wrIR[4];	// [3:0] wrIR;	-> Sel1:IR0/T3/T2 Sel2:IR0/IR3/T1 Sel3:IR0/IR2/T1
+		bool wrMAC[4];
+		bool wrOTZ;
+		bool wrTMP[3];
+		bool copyIRtoTemp;
+
+		bool storeFull;
+		bool useStoreFull;
+
 } gteWriteBack;
+
+
+	DONE:
+	Handle Dependency for 'color' input in Sel1/2/3 when i_computeCtrl.selCol0 is true. 
+	wire [7:0] colR = i_computeCtrl.selCol0 ? i_registers.CRGB0.r : i_registers.CRGB.r;
+
+	TODO:
+	
 */
 
 #define GENERATE_MICROCODE	(1)
 
 bool useBRAM		   = true;
-bool exportFASTONLY	   = true;
 bool exportPIPELINENOP = false;
 
+// PIPELINE MANAGEMENT :
+// When entering a new cycle, this flag is marked if color shift register is used as INPUT.
+// So we can detect pipeline hazards.
+bool isUsingColFeedback();
+int  GetSelOpInstr();
+void registerNext();
 
 bool hasDependencyIssue;
 struct SRegister {
@@ -71,12 +75,21 @@ struct SRegister {
 
 	void Write() {
 		printf(" Write %s\n",name);
-		currWrite = 1;
+		if (currWrite == 0) {
+			currWrite = 1;
+		} else {
+			printf("DOUBLE WRITE ?"); while (1) {};
+		}
 	}
 
 	void Read() {
 		printf(" Read %s\n",name);
-		currRead = 1;
+		if (currRead == 0) {
+			currRead = 1;
+		} else {
+			// Same register can be read multiple time at different places at the same time.
+			// printf("DOUBLE READ ?"); while (1) {};
+		}
 	}
 
 	void Clear() {
@@ -128,7 +141,19 @@ void RegistersClearAnalysis() {
 	}
 }
 
+SRegister* findRegister(const char* name) {
+	for (int n=0; n < registersCount; n++) {
+		if (strcmp(name,arrayRegisters[n].name)==0) {
+			return &arrayRegisters[n];
+		}
+	}
+	return NULL;
+}
+
 void insertNOP_Global();
+void addNOP_Global() {
+	registerNext();
+}
 
 void RegisterPerformAnalysis() {
 	hasDependencyIssue = false;
@@ -141,7 +166,7 @@ void RegisterPerformAnalysis() {
 		hasDependencyIssue = false;
 		if (exportPIPELINENOP) {
 	printf("  ==> Inserted NOP.\n");
-			insertNOP_Global();
+			// insertNOP_Global();
 		}
 	}
 	printf("\n\n");
@@ -149,30 +174,9 @@ void RegisterPerformAnalysis() {
 
 struct SELUNIT {
 public:
+	int unitID;
 	static const int NA = 0;
-	SELUNIT():availableRegCountL(0) {}
-
-	bool markWrite(const char* name, int index) {
-		char buffer[20];
-		if (index != 0) {
-			sprintf(buffer, "%s%i",name,index);
-			name = buffer;
-		}
-
-		int indexL = FindLeft(name,true);
-		if (indexL != -1) {
-			availableRegL[indexL].pReg->Write();
-			return true;
-		} else {
-			int indexR = FindRight(name,true);
-			if (indexR != -1) {
-				availableRegR[indexR].pReg->Write();
-				return true;
-			} else {
-				return false;
-			}
-		}
-	}
+	SELUNIT():availableRegCountL(0),unitID(-1) {}
 
 	void Register		(int instructionID) {
 		this->instructionID = instructionID;
@@ -195,7 +199,67 @@ public:
 		int idxL = setup[instructionID].left  = FindLeft (nameLeft,false);
 		int idxR = setup[instructionID].right = FindRight(nameRight,false);
 		availableRegL[idxL].pReg->Read();
-		availableRegR[idxR].pReg->Read();
+
+		if (nameRight) {
+			bool useR = EquStr("CRGB.r",nameRight);
+			bool useG = EquStr("CRGB.g",nameRight);
+			bool useB = EquStr("CRGB.b",nameRight);
+
+			if (useR || useG || useB) {
+				if (!isUsingColFeedback()) {
+					if (useR) { findRegister("CRGB.r")->Read(); }
+					if (useG) { findRegister("CRGB.g")->Read(); }
+					if (useB) { findRegister("CRGB.b")->Read(); }
+				} else {
+					if (useR) { findRegister("CRGB0.r")->Read(); }
+					if (useG) { findRegister("CRGB0.g")->Read(); }
+					if (useB) { findRegister("CRGB0.b")->Read(); }
+				}
+			}
+		}
+
+		if (strcmp("IR0",nameRight)) {
+			const char* regS1;
+			const char* regS2;
+			const char* regS3;
+			const char* regName;
+
+			switch (GetSelOpInstr()) {
+			case 0:
+				regS1 = "IR0";
+				regS2 = "IR0";
+				regS3 = "IR0";
+				break;
+			case 1:
+				regS1 = "IR0";
+				regS2 = "IR3";
+				regS3 = "IR2";
+				break;
+			case 2:
+				regS1 = "TMP3";
+				regS2 = "IR0";
+				regS3 = "TMP1";
+				break;
+			case 3:
+				regS1 = "TMP2";
+				regS2 = "TMP1";
+				regS3 = "IR0";
+				break;
+			default:
+				printf("ERROR"); while (1) {};
+				break;
+			}
+
+			switch (this->unitID) {
+			case 0: regName = regS1; break;
+			case 1: regName = regS2; break;
+			case 2: regName = regS3; break;
+			default: printf("ERROR"); while (1) {};
+			}
+
+			findRegister(regName)->Read();
+		}
+
 		// printf("L:%i, R:%i @%i (%s,%s)\n",setup[instructionID].left,setup[instructionID].right,instructionID, availableRegL[setup[instructionID].left].name,availableRegR[setup[instructionID].right].name);
 	}
 
@@ -438,7 +502,7 @@ struct SELADD {
 	}
 
 	void setSpecial_ZOZSF4Mul() {
-		int idx = Find("Z0xZSF4",true);
+		int idx = Find("SZ0",true); // Actually Z0xZSF4 (SZ0 x ZFS4) but dependancy for read/write is SZ0
 		setup[instructionID] = idx;
 		entries[idx].reg->Read();
 	}
@@ -453,6 +517,16 @@ struct SELADD {
 		int idx = Find(name,true);
 		setup[instructionID] = idx;
 		entries[idx].reg->Read();
+
+		if (EquStr("R_mul_ShadowIR1",name)) {
+			findRegister("TMP1")->Read();
+		}
+		if (EquStr("G_mul_ShadowIR2",name)) {
+			findRegister("TMP2")->Read();
+		}
+		if (EquStr("B_mul_ShadowIR3",name)) {
+			findRegister("TMP3")->Read();
+		}
 	}
 
 	int Find(const char* name, bool checkErr) {
@@ -526,8 +600,6 @@ struct SELADD {
 	int setup[1500];
 };
 
-void markWrite(const char* dst, int index1to3);
-
 struct WRITEBACK {
 	void reset(int nextInstructionID) {
 		instructionID = nextInstructionID;
@@ -538,41 +610,90 @@ struct WRITEBACK {
 	void write(const char* dst, int index1to3) { // Mac0, Mac1..3, IR1..3, etc...
 		Entry& rE = setup[instructionID];
 
-		markWrite(dst,index1to3);
-
 		// FIRST, BEFORE 'IR' !!!!
-		if (strncmp(dst,"IR2TMP",6)==0) { rE.copyIRtoTemp = true; return; }
+		if (strncmp(dst,"IR2TMP",6)==0) {
+			rE.copyIRtoTemp = true;
+			/* TODO MAY NOT BE PIPELINED ?
+				IR2TEMP is BACKUP !!!
+				NEED TO DO THAT BEFORE WORK START !!! EQUIVALENT TO A READ !!!
+			*/
+			findRegister("IR1")->Read();
+			findRegister("IR2")->Read();
+			findRegister("IR3")->Read();
+			findRegister("TMP1")->Write();
+			findRegister("TMP2")->Write();
+			findRegister("TMP3")->Write();
 
-		if (strncmp(dst,"TMP",3)==0) { rE.wrTMP[index1to3] = true; return; }
+			return;
+		}
+
+		if (strncmp(dst,"TMP",3)==0) {
+			rE.wrTMP[index1to3] = true; return;
+			switch (index1to3) {
+			case 1: findRegister("TMP1")->Write(); break; 
+			case 2: findRegister("TMP2")->Write(); break; 
+			case 3: findRegister("TMP3")->Write(); break;
+			default: printf("ERROR"); while (1) {}; break;
+			}
+		}
 		if (strncmp(dst,"IR",2)==0) {
-			rE.wrIR[index1to3] = true; return; 
+			rE.wrIR[index1to3] = true; 
+			switch (index1to3) {
+			case 0: findRegister("IR0")->Write(); break; 
+			case 1: findRegister("IR1")->Write(); break; 
+			case 2: findRegister("IR2")->Write(); break; 
+			case 3: findRegister("IR3")->Write(); break;
+			default: printf("ERROR"); while (1) {}; break;
+			}
+			return;
 		}
 		if (strncmp(dst,"MAC",3)==0) {
 			if (index1to3 >= 1) {
 				rE.useSFWrite32 = true;
 			} // else false for MAC0
-			rE.wrMAC[index1to3] = true; return;
-		}
-		if (strncmp(dst,"COL",2)==0) {
+			rE.wrMAC[index1to3] = true;
 			switch (index1to3) {
-			case 1: rE.pushR = true; break;
-			case 2: rE.pushG = true; break;
-			case 3: rE.pushB = true; break;
+			case 0: findRegister("MAC0")->Write(); break; 
+			case 1: findRegister("MAC1")->Write(); break; 
+			case 2: findRegister("MAC2")->Write(); break; 
+			case 3: findRegister("MAC3")->Write(); break;
+			default: printf("ERROR"); while (1) {}; break;
+			}
+			return;
+		}
+		if (strncmp(dst,"COL",2)==0) {	// DONE
+			switch (index1to3) {
+			case 1: rE.pushR = true; findRegister("CRGB0.r")->Write(); break;
+			case 2: rE.pushG = true; findRegister("CRGB0.g")->Write(); break;
+			case 3: rE.pushB = true; findRegister("CRGB0.b")->Write(); break;
 			default: printf("ERROR\n"); break;
 			}
 			return;
 		}
-		if (strncmp(dst,"PUSH",4)==0) {
+		if (strncmp(dst,"PUSH",4)==0) {	// DONE
 			switch (index1to3) {
-			case 1: rE.pushX = true; break;
-			case 2: rE.pushY = true; break;
-			case 3: rE.pushZ = true; break;
+			case 1: rE.pushX = true; 
+				findRegister("SX0")->Write();
+				findRegister("SX1")->Write();
+				findRegister("SX2")->Write();
+				break;
+			case 2: rE.pushY = true;
+				findRegister("SY0")->Write();
+				findRegister("SY1")->Write();
+				findRegister("SY2")->Write();
+				break;
+			case 3: rE.pushZ = true;
+				findRegister("SZ0")->Write();
+				findRegister("SZ1")->Write();
+				findRegister("SZ2")->Write();
+				findRegister("SZ3")->Write();
+				break;
 			default: printf("ERROR\n"); break;
 			}
 			return;
 		}
-		if (strncmp(dst,"OTZ",3)==0) { rE.wrOTZ = true; return; }
-		if (strcmp(dst,"DIVRES")==0) { rE.wrDIVRES= true; return; }
+		if (strncmp(dst,"OTZ",3)==0) { findRegister("OTZ")->Write(); rE.wrOTZ = true; return; }
+		if (strcmp(dst,"DIVRES")==0) { findRegister("HS3Z")->Write(); rE.wrDIVRES= true; return; }
 		if (strcmp(dst,"STORERES")==0) { rE.storeFull = true; return; }
 
 		printf("ERROR WRITE NOT FOUND %s\n",dst);
@@ -652,7 +773,7 @@ struct GLOBALPATHCTRL {
 		useNegSel3[instructionID] = false;
 		selCol0   [instructionID] = false;
 		lastInstructionFAST[instructionID] = false;
-		lastInstructionSLOW[instructionID] = false;
+//		lastInstructionSLOW[instructionID] = false;
 		selOpInstr[instructionID] = 0;
 	}
 
@@ -660,6 +781,14 @@ struct GLOBALPATHCTRL {
 		if (index == 1) { useNegSel1[instructionID] = true; return; }
 		if (index == 2) { useNegSel2[instructionID] = true; return; }
 		if (index == 3) { useNegSel3[instructionID] = true; return; }
+	}
+
+	bool isUsingCol0() {
+		return selCol0[instructionID]; 
+	}
+
+	int GetSelOpInstr() {
+		return selOpInstr[instructionID];
 	}
 
 	void useCol0() {
@@ -670,20 +799,18 @@ struct GLOBALPATHCTRL {
 		selOpInstr[instructionID] = n1to3;
 	}
 
-	void setPREVIOUSLastInstructionFast(bool isSingleInstrMicroCode) {
+	void setAsLastInstruction() {
 		// NOP INSTRUCTION DOES NOT HAVE THAT FLAG
 		if (instructionID > 0) {
-			if (isSingleInstrMicroCode) {
-				lastInstructionFAST[instructionID] = true;
-			} else {
-				lastInstructionFAST[instructionID-1] = true;
-			}
+			lastInstructionFAST[instructionID] = true;
 		}
 	}
 
+/*
 	void setLastInstructionSlow() {
 		lastInstructionSLOW[instructionID] = true;
 	}
+*/
 
 	void insertNOP() {
 		int instructionIDP = instructionID+1;
@@ -694,7 +821,7 @@ struct GLOBALPATHCTRL {
 		useNegSel3[instructionIDP] = useNegSel3[instructionID];
 		selCol0   [instructionIDP] = selCol0   [instructionID];
 		lastInstructionFAST[instructionIDP] = lastInstructionFAST[instructionID];
-		lastInstructionSLOW[instructionIDP] = lastInstructionSLOW[instructionID];
+//		lastInstructionSLOW[instructionIDP] = lastInstructionSLOW[instructionID];
 		selOpInstr[instructionIDP] = selOpInstr[instructionID];
 
 		// NOP Inserted
@@ -709,7 +836,7 @@ struct GLOBALPATHCTRL {
 	bool useNegSel3[1500];
 	bool selCol0   [1500];
 	bool lastInstructionFAST[1500];
-	bool lastInstructionSLOW[1500];
+//	bool lastInstructionSLOW[1500];
 	int  selOpInstr[1500];
 };
 
@@ -719,6 +846,14 @@ SELADD    selAdd;
 MASKUNIT  mask;
 WRITEBACK writeBack;
 GLOBALPATHCTRL globalPath;
+
+bool isUsingColFeedback() {
+	return globalPath.isUsingCol0();
+}
+
+int  GetSelOpInstr() {
+	return globalPath.GetSelOpInstr();
+}
 
 int instructionID = 0;
 bool bEndInstruction = true;
@@ -734,42 +869,36 @@ void insertNOP_Global() {
 	instructionID++;
 }
 
-
-
-void markWrite(const char* dst, int index1to3) {
-	if (sel[0].markWrite(dst,index1to3)) {
-	} else if (sel[1].markWrite(dst,index1to3)) {
-	} else if (sel[2].markWrite(dst,index1to3)) {
-	} else if (selAdd.markWrite(dst,index1to3)) {
-	} else if (strcmp(dst,"IR2TMP")==0) {
-		// TMP HANDLING.
-		printf("HANDLE IR2TMP %s\n", dst);
-	} else {
-		printf("COULD NOT CATCH WRITE %s\n", dst);
-	}
-}
-
 void registerInstructions();
 void generateMicroCode(const char* fileName);
 void generatorStartTableMicroCode(const char* fileName);
 void generatorStartTableMicroCodeOfficialTiming(const char* fileName);
 
 void HWDesignSetup() {
+	allocateRegister("CRGB0.r");
+	allocateRegister("CRGB0.g");
+	allocateRegister("CRGB0.b");
+	allocateRegister("OTZ");
+	allocateRegister("MAC0");
+
+	// allocateRegister("DIVRES"); Same as "HS3Z"
+
 	// ===========================================
 	// Sel0 : Mat 0
-	sel[0].assignLeftMat("R11",0,0,"MAT0_C0");
-	sel[0].assignLeftMat("R21",1,0,"MAT1_C0");
-	sel[0].assignLeftMat("R31",2,0,"MAT2_C0");
+	sel[0].unitID = 0;
+	sel[0].assignLeftMat("R11",0,0,"MAT0_C0");	// OK
+	sel[0].assignLeftMat("R21",1,0,"MAT1_C0");	// OK
+	sel[0].assignLeftMat("R31",2,0,"MAT2_C0");	// OK
 	// Sel1 : Mat 1
-	sel[0].assignLeftMat("L11",0,1,"MAT0_C1");
-	sel[0].assignLeftMat("L21",1,1,"MAT1_C1");
-	sel[0].assignLeftMat("L31",2,1,"MAT2_C1");
+	sel[0].assignLeftMat("L11",0,1,"MAT0_C1");	// OK
+	sel[0].assignLeftMat("L21",1,1,"MAT1_C1");	// OK
+	sel[0].assignLeftMat("L31",2,1,"MAT2_C1");	// OK
 	// Sel2 : Mat 0
-	sel[0].assignLeftMat("LR1",0,2,"MAT0_C2");
-	sel[0].assignLeftMat("LG1",1,2,"MAT1_C2");
-	sel[0].assignLeftMat("LB1",2,2,"MAT2_C2");
+	sel[0].assignLeftMat("LR1",0,2,"MAT0_C2");	// OK
+	sel[0].assignLeftMat("LG1",1,2,"MAT1_C2");	// OK
+	sel[0].assignLeftMat("LB1",2,2,"MAT2_C2");	// OK
 	// Sel3 : Color
-	sel[0].assignLeft   ("CRGB.r",3,"color"  );
+	sel[0].assignLeft   ("CRGB.r",3,"color"  );	// DONE
 	// Sel4 : IRn
 	sel[0].assignLeft   ("IR1"  ,4,"IRn"    );
 	// Sel5 : SZ
@@ -797,6 +926,7 @@ void HWDesignSetup() {
 
 	// ===========================================
 	// Sel0 : Mat 0
+	sel[1].unitID = 1;
 	sel[1].assignLeftMat("R12",0,0,"MAT0_C0");
 	sel[1].assignLeftMat("R22",1,0,"MAT1_C0");
 	sel[1].assignLeftMat("R32",2,0,"MAT2_C0");
@@ -835,6 +965,7 @@ void HWDesignSetup() {
 
 	// ===========================================
 	// Sel0 : Mat 0
+	sel[2].unitID = 2;
 	sel[2].assignLeftMat("R13",0,0,"MAT0_C0");
 	sel[2].assignLeftMat("R23",1,0,"MAT1_C0");
 	sel[2].assignLeftMat("R33",2,0,"MAT2_C0");
@@ -926,7 +1057,7 @@ void HWDesignSetup() {
 	selAdd.Register("MAC3", 5, 2, true);
 
 	// Do I Remap to "???" sections ? 
-	selAdd.Register("Z0xZSF4", 6, 0, false); // NO SHIFT << 12 !!!
+	selAdd.Register("SZ0", 6, 0, false); // NO SHIFT << 12 !!! is actually a complex register Z0xZSF4 (mul inside SEL ADD) But reg dependancies...
 
 	// SHADOW REGISTER OF IRx
 	selAdd.Register("TMP1", 7, 0, false); //    <<12 (false)
@@ -1005,8 +1136,6 @@ void Start(const char* name, int opcode, int PSXClockCycle, int ownClockCycleEst
 	RegistersClearAnalysis();
 }
 
-void registerNext();
-
 void endInstruction(bool final = true) {
 	if (bEndInstruction) {
 		bEndInstruction = false;
@@ -1025,26 +1154,36 @@ void endInstruction(bool final = true) {
 		printf("**************\n[%i] Opcode %i %s EXEC TIME : %i (Official : %i)\n***************\n",counterOfOp , lastOpcode, Opcode[lastOpcode].name, length + (useBRAM ? 1:0), lengthOfficial);
 		bool isSingleMicroCode = (length == 1);
 
-		if (useBRAM)        { lengthOfficial--;        }
-		if (exportFASTONLY) { lengthOfficial = length; }
-		counterOfOp++;
-
 		// MARK END, BUT BECAUSE OF PC REG LATENCY
 		// NEED TO MARK THE PREVIOUS INSTRUCTION !!!!
-		globalPath.setPREVIOUSLastInstructionFast(isSingleMicroCode);	// POINT TO LAST MICROCODE !!!!
-		if (useBRAM & exportFASTONLY) {
+		
+		// globalPath.setPREVIOUSLastInstructionFast(isSingleMicroCode);	// POINT TO LAST MICROCODE !!!!
+
+		if (useBRAM & (counterOfOp!=1)) {
 			// Force one nop Insertion.
-			registerNext();
+			addNOP_Global();
+			length++;
 		}
 
-		if (length < lengthOfficial) {
-			for (int n=length; n < lengthOfficial; n++) {
-				registerNext(); // Warning recursive call...
-			}
-			globalPath.setLastInstructionSlow();	// POINT TO LAST MICROCODE !!!!
+		globalPath.setAsLastInstruction();
+
+		if (Opcode[lastOpcode].officialCount < length) {
+			// OUR BEST EFFORT IS SLOWER THAN ORIGINAL TIMING FROM SONY.
+			// => PATCH TIMER GENERATION, ELSE HW COUNTER ARE FUCKED UP.
+			Opcode[lastOpcode].officialCount = length;
+			lengthOfficial = length;
 		} else {
-			globalPath.setLastInstructionSlow();	// POINT TO LAST MICROCODE !!!!
+			/* WE DONT EXPORT EMPTY SLOTS ANYMORE !!!
+			if (length < lengthOfficial) {
+				for (int n=length; n < lengthOfficial; n++) {
+					registerNext(); // Warning recursive call...
+				}
+			}
+			*/
 		}
+
+		counterOfOp++;
+
 	}
 }
 
@@ -1215,6 +1354,7 @@ void patternB() {
 		default: col = NULL; printf("ERROR"); break;
 		}
 
+		// No Pipelining issue here on colors. 
 		if (v == 1) { sel[0].setInstruction(col,"IR1"); } else { sel[0].setInstruction(NULL,"ZERO"); }
 		if (v == 2) { sel[1].setInstruction(col,"IR2"); } else { sel[1].setInstruction(NULL,"ZERO"); }
 		if (v == 3) { sel[2].setInstruction(col,"IR3"); } else { sel[2].setInstruction(NULL,"ZERO"); }
@@ -1294,6 +1434,7 @@ void patternC(bool useRGBFifo) {
 	for (int v=1; v<=3; v++) {
 		registerNext();
 
+		// Do before ANY register marking operation, need to detect pipelining issues.
 		if (useRGBFifo) {
 			globalPath.useCol0();
 		}
@@ -1380,7 +1521,6 @@ void patternA() {
 		setMacAndIr<3>(((int64_t)farColor.b << 12) - (B * ir[3]), false);
 	*/ // IR[x] and TMPx same usage OK.
 	vecFarCol_IRx(true);
-
 	/*
 		setMacAndIr<1>((R * prevIr.x) + ir[0] * ir[1], lm);
 		setMacAndIr<2>((G * prevIr.y) + ir[0] * ir[2], lm);
@@ -1447,7 +1587,9 @@ void nop() {
 // DONE PASS AMIDOG
 void ncds(int n) {
 	multiplyMatrixByVector_LightByVertex(n);
+	addNOP_Global();
 	multiplyMatrixByVector_ColorByIR    (false);
+	addNOP_Global();
 	patternA();
 }
 
@@ -1470,6 +1612,7 @@ void ncdt() {
 // DONE PASS AMIDOG
 void ncs(int n) {
 	multiplyMatrixByVector_LightByVertex(n);
+	addNOP_Global();
 	multiplyMatrixByVector_ColorByIR    (true);
 }
 
@@ -1492,7 +1635,9 @@ void nct() {
 // DONE PASS AMIDOG
 void nccs(int n) {
 	multiplyMatrixByVector_LightByVertex(n);
+	addNOP_Global();
 	multiplyMatrixByVector_ColorByIR    (false);
+	addNOP_Global();
 	patternB();
 }
 
@@ -1516,6 +1661,7 @@ void ncct() {
 void cc() {
 	Start("CC",0x1C,11,6);
 	multiplyMatrixByVector_ColorByIR    (false);
+	// ??? 	addNOP_Global();
 	patternB();
 	endInstruction();
 }
@@ -1524,6 +1670,7 @@ void cc() {
 void cdp() { 
 	Start("CDP",0x14,13,9);
 	multiplyMatrixByVector_ColorByIR    (false);
+	addNOP_Global();
 	patternA();
 	endInstruction();
 }
@@ -1704,6 +1851,8 @@ void rtps(int idx, bool setMAC0) {
 		writeBack.write("IR" , n);
 
 	}
+
+	addNOP_Global();
 
 	for (int n=0; n < 2; n++) {
 		// FIRST, SETUP HW.
@@ -2032,10 +2181,10 @@ void op() {
 	*/
 	for (int n=1; n <=3; n++) {
 		registerNext();
+		globalPath.setOPInstrCycle(n);
 		if (n==1) {
 			writeBack.write("IR2TMP",0); // Copy to shadow registers.
 		}
-		globalPath.setOPInstrCycle(n);
 
 		switch (n) {
 		case 1:
@@ -2207,7 +2356,7 @@ void addLicense(FILE* fout) {
 	fprintf(fout,"\n");
 	fprintf(fout,"PS-FPGA Licenses (DUAL License GPLv2 and commercial license)\n");
 	fprintf(fout,"\n");
-	fprintf(fout,"This PS-FPGA source code is copyright © 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, \n");
+	fprintf(fout,"This PS-FPGA source code is copyright (C) 2019 Romain PIQUOIS (Laxer3a) and licensed under the GNU General Public License v2.0, \n");
 	fprintf(fout," and a commercial licensing option.\n");
 	fprintf(fout,"If you wish to use the source code from PS-FPGA, email laxer3a@hotmail.com for commercial licensing.\n");
 	fprintf(fout,"\n");
@@ -2337,9 +2486,6 @@ void generateMicroCode(const char* fileName, bool firstMode) {
 
 		pro(fout," };"); proln;
 		pro(fout,"microCodeROM[%i].lastInstrFAST = 1'b%i;\n",n,globalPath.lastInstructionFAST[n] ? 1:0);
-		if (!exportFASTONLY) {
-			pro(fout,"microCodeROM[%i].lastInstrSLOW = 1'b%i;\n",n,globalPath.lastInstructionSLOW[n] ? 1:0);
-		}
 	}
 
 	fclose(fout);
@@ -2383,6 +2529,8 @@ void generatorStartTableMicroCodeOfficialTiming(const char* fileName) {
 
 	fclose(fout);
 }
+
+#if (GENERATE_MICROCODE==0)
 
 class VGTEEngine;
 #include "../rtl/obj_dir/VGTEEngine.h"
@@ -2432,10 +2580,11 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_IN8(i_nRst,0,0);
     VL_IN8(i_regID,5,0);
     VL_IN8(i_WritReg,0,0);
+    VL_IN8(i_ReadReg,0,0);
     VL_IN8(i_DIP_USEFASTGTE,0,0);
     VL_IN8(i_DIP_FIXWIDE,0,0);
     VL_IN8(i_run,0,0);
-    VL_OUT8(o_executing,0,0);
+    VL_OUT8(o_operationForbidden,0,0);
     VL_IN(i_dataIn,31,0);
     VL_OUT(o_dataOut,31,0);
     VL_IN(i_Instruction,24,0);
@@ -2447,17 +2596,23 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__i_nRst,0,0);
     VL_SIG8(GTEEngine__DOT__i_regID,5,0);
     VL_SIG8(GTEEngine__DOT__i_WritReg,0,0);
+    VL_SIG8(GTEEngine__DOT__i_ReadReg,0,0);
     VL_SIG8(GTEEngine__DOT__i_DIP_USEFASTGTE,0,0);
     VL_SIG8(GTEEngine__DOT__i_DIP_FIXWIDE,0,0);
     VL_SIG8(GTEEngine__DOT__i_run,0,0);
-    VL_SIG8(GTEEngine__DOT__o_executing,0,0);
+    VL_SIG8(GTEEngine__DOT__o_operationForbidden,0,0);
     VL_SIG8(GTEEngine__DOT__isMVMVA,0,0);
     VL_SIG8(GTEEngine__DOT__isMVMVAWire,0,0);
     VL_SIG8(GTEEngine__DOT__isBuggyMVMVA,0,0);
     VL_SIG8(GTEEngine__DOT__gteLastMicroInstruction,0,0);
     VL_SIG8(GTEEngine__DOT__loadInstr,0,0);
     VL_SIG8(GTEEngine__DOT__isExecuting,0,0);
+    VL_SIG8(GTEEngine__DOT__rPC,7,0);
+    VL_SIG8(GTEEngine__DOT__startMicroCodeAdr,7,0);
+    VL_SIG8(GTEEngine__DOT__vPC,7,0);
+    VL_SIG8(GTEEngine__DOT__vPC1,7,0);
     VL_SIG8(GTEEngine__DOT__PCcond,0,0);
+    VL_SIG8(GTEEngine__DOT__nPC,7,0);
     VL_SIG8(GTEEngine__DOT__officialCycleCount,5,0);
     VL_SIG8(GTEEngine__DOT__OfficialTimingCounter,5,0);
     VL_SIG8(GTEEngine__DOT__decrementingOfficialTimer,0,0);
@@ -2529,6 +2684,26 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__colG,7,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__colB,7,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__divOverflow,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheck44Local,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__puseStoreFull,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pisIRnCheckUseLM,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__plmFalseForIR3Saturation,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheck44Global,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__puseSFWrite32,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheckIRn,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheckColor,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheckOTZ,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheckDIV,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheck32Global,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheckXY,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pX0_or_Y1,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pcheckIR0,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pwrTMP1,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pwrTMP2,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pwrTMP3,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pstoreFull,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__pmaskID,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__assignIRtoTMP,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isOverflowS44,3,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isUnderflowS44,3,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__isOverflowS32,0,0);
@@ -2601,20 +2776,19 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__sel,3,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__i_clk,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__overflow,0,0);
-	/*
-    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT3,1,0);
-    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT2,1,0);
-    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT1,1,0);
-    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__countT0,1,0);
-    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT3,0,0);
-    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT2,0,0);
-    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__anyOneT1,0,0);
-	*/
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shiftAmount,3,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__ovf,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__p_ovf,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pp_ovf,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__isOver,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__o_allZeros,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__o_leadZeroCount,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__or0,7,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__or1,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__or2,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__an0,3,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__an10,1,0);
+    VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__an11,1,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local1__DOT__isOverflow,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local1__DOT__isUnderflow,0,0);
     VL_SIG8(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local2__DOT__isOverflow,0,0);
@@ -2678,23 +2852,20 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_clk,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isNewInstr,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__Instruction,5,0);
-//  VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_USEFAST,0,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_PC,7,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__o_lastInstr,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isLastEntrySLOW,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicroCode_inst__DOT__isLastEntryFAST,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__isBuggyMVMVA,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__Instruction,5,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__StartAddress,7,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__officialCycleCount,5,0);
+    VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__retAdr,7,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__retCount,5,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__remapp3,0,0);
     VL_SIG8(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__remapped,5,0);
     VL_SIG16(GTEEngine__DOT__writeBack,14,0);
     VL_SIG16(GTEEngine__DOT__ctrl,8,0);
-    VL_SIG16(GTEEngine__DOT__rPC,8,0);
-    VL_SIG16(GTEEngine__DOT__startMicroCodeAdr,8,0);
-    VL_SIG16(GTEEngine__DOT__vPC,8,0);
-    VL_SIG16(GTEEngine__DOT__vPC1,8,0);
-    VL_SIG16(GTEEngine__DOT__nPC,8,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__i_wb,14,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SX0,15,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__SX1,15,0);
@@ -2751,6 +2922,7 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VX2,15,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VY2,15,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__VZ2,15,0);
+    VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__p_wb,14,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__dataPathSY,15,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__dataPathSX,15,0);
     VL_SIG16(GTEEngine__DOT__GTERegs_inst__DOT__dataPathSZ,15,0);
@@ -2873,16 +3045,12 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__shadowIR,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__z3,15,0);
-	/*
-    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b0,15,0);
-    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b1,15,0);
-    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b2,15,0);
-    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__b3,15,0);
-	*/
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__multShift,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__d,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__ladr,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pd,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__routData,9,0);
+    VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__i_word,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__clampOut,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__clampOutIR0,15,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__andS,15,0);
@@ -2898,11 +3066,8 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__andStage,14,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__valueOut,14,0);
     VL_SIG16(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__andStage,14,0);
-    VL_SIG16(GTEEngine__DOT__GTEMicroCode_inst__DOT__i_PC,8,0);
     VL_SIG16(GTEEngine__DOT__GTEMicroCode_inst__DOT__o_writeBack,14,0);
     VL_SIG16(GTEEngine__DOT__GTEMicroCode_inst__DOT__wb,14,0);
-    VL_SIG16(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__StartAddress,8,0);
-    VL_SIG16(GTEEngine__DOT__GTEMicrocodeStart_inst__DOT__retAdr,8,0);
     VL_SIG(GTEEngine__DOT__i_dataIn,31,0);
     VL_SIG(GTEEngine__DOT__o_dataOut,31,0);
     VL_SIG(GTEEngine__DOT__i_Instruction,24,0);
@@ -2974,12 +3139,7 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__macV,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__of,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__divRes,16,0);
-	/*
-    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h0,23,0);
-    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h1,27,0);
-    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h2,29,0);
-    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__h3,30,0);
-	*/
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__tmp,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__n,30,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pn,30,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__mdu1,25,0);
@@ -2991,13 +3151,59 @@ void registerVerilatedMemberIntoScanner(VGTEEngine* mod, VCScanner* pScan) {
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__pd3,18,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__ppn,30,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__outStage4,16,0);
+    VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__leadZeroCounter16_inst__DOT__i,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipOTZ_inst__DOT__v,20,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipXY_inst__DOT__v,16,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__postSF_v,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSRange__DOT__valueIn,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPositive__DOT__valueIn,31,0);
     VL_SIG(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__myClampSPosCol__DOT__valueIn,27,0);
+//    VL_SIGW(GTEEngine__DOT__gteWR,154,0,5);
+//    VL_SIGW(GTEEngine__DOT__computeCtrl,70,0,3);
+//    VL_SIGW(GTEEngine__DOT__GTERegs_inst__DOT__gteWR,154,0,5);
+//    VL_SIGW(GTEEngine__DOT__GTEComputePath_inst__DOT__i_computeCtrl,70,0,3);
+//    VL_SIGW(GTEEngine__DOT__GTEComputePath_inst__DOT__o_RegCtrl,154,0,5);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outAddSel,43,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel1,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel2,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel3,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel1P,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel2P,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel3P,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel1P_p,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel2P_p,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outSel3P_p,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__outAddSel_p,43,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part1Sum,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part1SumPostExt,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part2Sum,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__tempSumREG,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__part2SumPostExt,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__finalSumBeforeExt,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__finalSum,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__outstuff,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit1__DOT__result,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__outstuff,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit2__DOT__result,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__outstuff,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__SelMuxUnit3__DOT__result,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__outstuff,43,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__resMul,32,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__selAddInst__DOT__out,43,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__mnd,49,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shfm,34,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__GTEFastDiv_Inst__DOT__shcp,33,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local1__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local2__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Local3__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS44Global__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagS32Global__DOT__v,44,0);
+    VL_SIG64(GTEEngine__DOT__GTEComputePath_inst__DOT__FlagClipIRnColor_Inst__DOT__i_v44,44,0);
+    //VL_SIGW(GTEEngine__DOT__GTEMicroCode_inst__DOT__o_ctrl,70,0,3);
+    //VL_SIGW(GTEEngine__DOT__GTEMicroCode_inst__DOT__cmptCtrl,70,0,3);
+    //VL_SIGW(GTEEngine__DOT__GTEMicroCode_inst__DOT__currentEntry,86,0,3);
 }
+#endif
 
 int main()
 {
@@ -3043,6 +3249,7 @@ int main()
 		clockCnt++;
 	}
 	mod->i_nRst = 1;
+	mod->i_DIP_USEFASTGTE = 0;
 	mod->i_clk = 0; mod->eval();
 	if (useScan) { pScan->eval(clockCnt); }
 	clockCnt++;
@@ -3058,17 +3265,20 @@ int main()
 		mod->i_regID		= 0;
 
 		switch (clockCycle) {
-		case 7:
-			// Send instruction
-			mod->i_run			= 1;
-//			mod->i_Instruction	= 0x01; //  RTPS 15 Official;
-			mod->i_Instruction  = 0x28; //  SQR
+		case 6:
+			mod->i_WritReg	= 1;
+			mod->i_dataIn	= 0x39B3282D;
+			mod->i_regID	= 0x37;
 			break;
-		case 26:
+		case 8:
 			// Send instruction
 			mod->i_run			= 1;
-//			mod->i_Instruction	= 0x01; //  RTPS 15 Official;
-			mod->i_Instruction  = 0x28; //  SQR
+			mod->i_Instruction  = 0x2A;
+			break;
+		case 28:
+			// Send instruction
+			mod->i_run			= 1;
+			mod->i_Instruction  = 0x2A;
 			break;
 		case 33:
 			/*
@@ -3076,7 +3286,7 @@ int main()
 		case 35:
 		case 36:
 		*/
-			if (mod->o_executing == 0) {
+			if (mod->o_operationForbidden == 0) {
 				mod->i_run			= 1;
 				mod->i_Instruction	= 0x00; //  NOP
 			}

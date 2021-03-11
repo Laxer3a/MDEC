@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright (C) 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -261,19 +261,22 @@ wire [34:0]	 outSel2P = i_computeCtrl.negSel[1] ? (~outSel2 + 35'd1) : outSel2;
 wire [34:0]	 outSel3P = i_computeCtrl.negSel[2] ? (~outSel3 + 35'd1) : outSel3;
 
 //---------------------- If pipeline HERE, reaches 52.01 Mhz
-reg	 [34:0]			outSel3P_p;
-reg	 [34:0]			outSel2P_p;
 reg	 [34:0]			outSel1P_p;
+reg	 [34:0]			outSel2P_p;
+reg	 [34:0]			outSel3P_p;
 reg	 signed [43:0]	outAddSel_p;
 
 // All pipelined Control signals.
-reg					pcheck44Local, puseStoreFull,pisIRnCheckUseLM,plmFalseForIR3Saturation,pcheck44Global,puseSFWrite32,pcheckIRn,pcheckColor,pcheckOTZ,pcheckDIV,pcheck32Global,pcheckXY,pX0_or_Y1,pcheckIR0,passignIRtoTMP,pwrTMP1,pwrTMP2,pwrTMP3,pstoreFull;
+reg					pcheck44Local, puseStoreFull,pisIRnCheckUseLM,plmFalseForIR3Saturation,pcheck44Global,puseSFWrite32,pcheckIRn,pcheckColor,pcheckOTZ,pcheckDIV,pcheck32Global,pcheckXY,pX0_or_Y1,pcheckIR0,pwrTMP1,pwrTMP2,pwrTMP3,pstoreFull;
 reg [1:0]			pmaskID;
+
+// Trick, write that occurs at the beginning of the instruction, not after the pipeline. (BACKUP)
+wire				assignIRtoTMP = i_computeCtrl.assignIRtoTMP;
 
 always @(posedge i_clk) begin
 	outSel1P_p					<= outSel1P;
-	outSel3P_p					<= outSel3P;
 	outSel2P_p					<= outSel2P;
+	outSel3P_p					<= outSel3P;
 	outAddSel_p					<= outAddSel;
 	
 	// Post Pipeline signal control.
@@ -293,7 +296,7 @@ always @(posedge i_clk) begin
 	pcheckXY					<= i_computeCtrl.checkXY;
 	pX0_or_Y1					<= i_computeCtrl.X0_or_Y1;
 	pcheckIR0					<= i_computeCtrl.checkIR0;
-	passignIRtoTMP				<= i_computeCtrl.assignIRtoTMP;
+	// passignIRtoTMP				<= i_computeCtrl.assignIRtoTMP;
 	pwrTMP1						<= i_computeCtrl.wrTMP1;
 	pwrTMP2						<= i_computeCtrl.wrTMP2;
 	pwrTMP3						<= i_computeCtrl.wrTMP3;
@@ -509,7 +512,7 @@ always @(posedge i_clk) begin
 		TMP3		<= 16'd0;
 		tempSumREG	<= 45'd0;
 	end else begin
-		if (passignIRtoTMP) begin
+		if (assignIRtoTMP) begin
 			TMP1 <= i_registers.IR1;
 			TMP2 <= i_registers.IR2;
 			TMP3 <= i_registers.IR3;
