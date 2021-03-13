@@ -141,7 +141,7 @@ module GTESelPath(
 		4'd6 :   leftSide = { DQA[15], DQA};		//   SIGNED
 		4'd7 :   leftSide = 17'd4096;             // DEFAULT 7
 		4'd8 :   leftSide = { SX[15] , SX };		//   SIGNED
-		default: leftSide = 17'dx;
+		default: leftSide = 17'd0;
 		endcase
 	end
 
@@ -162,7 +162,7 @@ module GTESelPath(
 		4'd8 :   rightSide = {{2{SYA[15]}}, SYA };
 		4'd9 :   rightSide = {{2{SYB[15]}}, SYB };
 		4'd10:	 rightSide = { 1'b0, HS3Z };
-		default: rightSide = 18'dx;
+		default: rightSide = 18'd0;
 		endcase
 	end
 	

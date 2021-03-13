@@ -17,7 +17,7 @@ module GTEEngine (
 
 	input  E_REG  i_regID,				// Register ID to write or read. (READ ALWAYS HAPPEN, 0 LATENCY to o_dataOut, please use when o_executing=0)
 	input         i_WritReg,			// Write to 'Register ID' = i_dataIn.
-	input		  i_ReadReg,
+//	input		  i_ReadReg,
 	
 	input		  i_DIP_USEFASTGTE,		// Control signal coming from the console (not the CPU, from outside at runtime or compile option)
 	input		  i_DIP_FIXWIDE,		// Same
@@ -27,7 +27,7 @@ module GTEEngine (
 
 	input  [24:0] i_Instruction,		// Instruction to execute
 	input         i_run,				// Instruction valid
-	output        o_operationForbidden
+	output        o_executing
 );
 
 // ComputePath => Register Write
@@ -44,7 +44,7 @@ CTRL            ctrl;
 
 reg             isMVMVA;
 wire            isMVMVAWire  = (i_Instruction[5:0] == 6'h12);
-wire            isBuggyMVMVA = isMVMVAWire & (i_Instruction[14:13] == 2'd2);
+wire			isBuggyMVMVA = isMVMVAWire & (i_Instruction[14:13] == 2'd2);
 // Control status for microcode.
 wire            gteLastMicroInstruction;
 
@@ -63,7 +63,7 @@ GTERegs GTERegs_inst (
 	.gteREG			(gteREG),	// Output
 	
 	.i_regID		(i_regID),
-	.i_WritReg		(i_WritReg & (!o_operationForbidden)),	// Filter
+	.i_WritReg		(i_WritReg & (!o_executing)),	// Filter
 	.i_dataIn		(i_dataIn),
 	.o_dataOut		(o_dataOut)
 );
@@ -111,7 +111,7 @@ wire isExecuting = (rPC != 8'd0);
 
 reg  [ 7:0] rPC;
 wire [ 7:0] startMicroCodeAdr;
-wire [ 7:0] vPC = loadInstr ? startMicroCodeAdr : rPC;
+wire [ 7:0] vPC = loadInstr ? startMicroCodeAdr : (gteLastMicroInstruction ? 8'd0 : rPC);
 wire [ 7:0] vPC1= vPC + {7'd0, isExecuting | loadInstr };
 
 wire PCcond     = (!i_nRst) || (gteLastMicroInstruction && (!loadInstr));
@@ -127,7 +127,7 @@ GTEMicrocodeStart GTEMicrocodeStart_inst(
 	.officialCycleCount	(officialCycleCount)
 );
 
-assign loadInstr = i_run && (!isExecuting);
+assign loadInstr = i_run && (!o_executing);
 
 always @(posedge i_clk) begin
 	rPC <= nPC;
@@ -169,6 +169,6 @@ begin
 end
 
 // Output
-assign o_operationForbidden = isExecuting | decrementingOfficialTimer;
+assign o_executing = isExecuting | decrementingOfficialTimer;
 
 endmodule
