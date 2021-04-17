@@ -66,6 +66,7 @@ module gpu_setupunit(
 	input signed [11:0]			i_pixelY,
 	
 	input						i_scanDirectionR2L, // 0=L2R, 1=R2L
+	input						i_dirReg,
 	
 	// ------------------------------------------
 	// Line runtime logic control
@@ -97,6 +98,11 @@ module gpu_setupunit(
 	output						o_isLineLeftPix,
 	output						o_isLineRightPix,
 	output						o_isNegPreB,
+	
+	output						o_insideTriangle,
+	output						o_outSideLeft,
+	output						o_outSideRight,
+	output						o_further,
 
 	// ------------------------------------------
 	// Triangle BB for scanner
@@ -522,6 +528,23 @@ module gpu_setupunit(
 	assign w1R							= w1L + { {11{b[11]}}, b};
 	assign w2R							= w2L + { {11{negd[11]}}, negd};
 
+	wire further[3];
+
+	// 	further[0] 	= ((w0L <  0) & (((f   < 0) && (dir >= 0)) || ((f   >=0) && (dir < 0))) & (DET <  0))
+	//		   		| ((w0L >= 0) & (((f   >=0) && (dir >= 0)) || ((f   < 0) && (dir < 0))) & (DET >= 0));
+	assign further[0]	= ( w0L[EQUMSB] & (( f[11] & (!i_dirReg)) | (!f[11] & i_dirReg)) &   rDET[21] )
+						| (!w0L[EQUMSB] & ((!f[11] & (!i_dirReg)) | ( f[11] & i_dirReg)) & (!rDET[21]));
+	// further[1]	= ((w1L <  0) & (((b   < 0) && (dir >= 0)) || ((b   >=0) && (dir < 0))) & (DET <  0))
+	//		   		| ((w1: >= 0) & (((b   >=0) && (dir >= 0)) || ((b   < 0) && (dir < 0))) & (DET >= 0));
+	assign further[1]	= ( w1L[EQUMSB] & (( b[11] & (!i_dirReg)) | (!b[11] & i_dirReg)) &   rDET[21] )
+						| (!w1L[EQUMSB] & ((!b[11] & (!i_dirReg)) | ( b[11] & i_dirReg)) & (!rDET[21]));
+	// Reverse d conditions. (-d)
+	// further[2]	= ((w2L <  0) & (((d   > 0) && (dir >= 0)) || ((d   < 0) && (dir < 0))) & (DET <  0))
+	//				| ((w2L >= 0) & (((d   <=0) && (dir >= 0)) || ((d   >=0) && (dir < 0))) & (DET >= 0));
+	assign further[2]	= ( w2L[EQUMSB] & ((!d[11] & (!i_dirReg)) | ( d[11] & i_dirReg)) &   rDET[21] )
+						| (!w2L[EQUMSB] & (( d[11] & (!i_dirReg)) | (!d[11] & i_dirReg)) & (!rDET[21]));
+
+						
 	reg memW0,memW1,memW2;
 	always @(posedge i_clk)
 		if (i_memorizeLineEqu) begin
@@ -577,6 +600,12 @@ module gpu_setupunit(
 
 	assign o_isNULLDET					= (/*P*/rDET == 22'd0);
 	assign o_isNegXAxis					= isNegXAxis;
+	
+	assign o_insideTriangle				= (isCCWInsideL | isCWInsideL) | (isCCWInsideR | isCWInsideR);
+	assign o_outSideLeft				= (!isLeftPLXminTri ) & (!isLeftPRXminTri );
+	assign o_outSideRight				= (!isRightPLXmaxTri) & (!isRightPRXmaxTri);
+	assign o_further					= (further[0] | further[1] | further[2]) | o_outSideLeft | o_outSideRight;
+	
 	assign o_isValidPixelL				= (isCCWInsideL | isCWInsideL) & isInsideBBoxTriRectL;
 	assign o_isValidPixelR				= (isCCWInsideR | isCWInsideR) & isInsideBBoxTriRectR;
 	assign o_earlyTriangleReject		= earlyTriangleReject;

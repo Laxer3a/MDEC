@@ -49,7 +49,8 @@ module gpu_scan(
 	output	signed [11:0] 	o_nextPixelY,
 	output  signed [ 9:0]   o_loopIncrNextPixelY,
 	
-	output					o_tri_dir,						// Triangle Only
+	output					o_tri_regDir,					// Triangle Only
+	output					o_tri_nextDir,					// Triangle Only
 	output					o_tri_pixelFound,				// Triangle Only
 	output					o_tri_completedOneDirection		// Triangle Only
 );
@@ -68,11 +69,12 @@ wire signed [11:0] nextLineY = pixelY + { 9'b0 , i_InterlaceRender , !i_Interlac
 
 assign o_loopIncrNextPixelY = nextLineY[9:0];
 
+wire nextDir = i_tri_switchDir ? !dir : dir;
 
 always @(*)
 begin
     case (i_selNextX)
-        X_TRI_NEXT:		nextPixelX	= pixelX + { {10{dir}}, 2'b10 };	// -2,0,+2
+        X_TRI_NEXT:		nextPixelX	= pixelX + { {10{nextDir}}, 2'b10 };	// -2,0,+2
         X_LINE_START:	nextPixelX	= i_RegX0;
         X_LINE_NEXT:	nextPixelX	= i_nextLineX; // Optimize and merge with case 0
         X_TRI_BBLEFT:	nextPixelX	= { i_minTriDAX0[11:1], 1'b0 };
@@ -132,7 +134,8 @@ end
 assign o_pixelX						= pixelX;
 assign o_pixelY						= pixelY;
 assign o_tri_pixelFound 			= pixelFound;
-assign o_tri_dir					= dir;
+assign o_tri_nextDir				= nextDir;		// Now output NEXT DIR.
+assign o_tri_regDir					= dir;
 assign o_tri_completedOneDirection	= completedOneDirection;
 assign o_nextPixelX					= nextPixelX;
 assign o_nextPixelY					= nextPixelY;

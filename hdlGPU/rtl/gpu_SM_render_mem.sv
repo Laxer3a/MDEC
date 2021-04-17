@@ -135,8 +135,8 @@ typedef enum logic[4:0] {
 	TRIANGLE_START				= 5'd7,
 	START_LINE_TEST_LEFT		= 5'd9,
 	START_LINE_TEST_RIGHT		= 5'd10,
-	SCAN_LINE					= 5'd11,
-	SCAN_LINE_CATCH_END			= 5'd12,
+	SNAKE						= 5'd11,
+	SEARCH_OUT					= 5'd12,
 	SETUP_INTERP				= 5'd13,
 	SETUP_INTERP_REAL			= 5'd14,
 	RECT_SCAN_LINE				= 5'd15,
@@ -194,7 +194,7 @@ reg [2:0]	selNextX,selNextY;
 wire waitingWork = (currWorkState == RENDER_WAIT);
 wire resetDir 	 = waitingWork;
 
-wire dir,pixelFound,completedOneDirection;
+wire dir,nextDir,pixelFound,completedOneDirection;
 wire isNULLDET;
 
 wire isLineInsideDrawArea;
@@ -274,7 +274,9 @@ gpu_scan gpu_scan_instance(
 	.i_tri_setDirectionComplete		(setDirectionComplete),	// Triangle Only
 	.i_tri_resetPixelFound			(resetPixelFound),		// Triangle Only
 
-	.o_tri_dir						(dir),					// Triangle Only
+	.o_tri_regDir					(dir),					// Triangle Only
+	.o_tri_nextDir					(nextDir),				// Triangle Only
+	
 	.o_tri_pixelFound				(pixelFound),			// Triangle Only
 	.o_tri_completedOneDirection	(completedOneDirection)	// Triangle Only
 );
@@ -308,6 +310,8 @@ always @(posedge i_clk) begin
 			interpolationCounter <= nextInterpolationCounter;
 	end
 end
+
+wire insideTriangle,outSideLeft,outSideRight,further;
 
 gpu_setupunit gpu_setupunit_inst(
 	.i_clk							(i_clk),
@@ -391,13 +395,19 @@ gpu_setupunit gpu_setupunit_inst(
 	.o_maxTriDAX1					(maxTriDAX1),
 	.o_minTriDAY0					(minTriDAY0),
 	
+	.o_insideTriangle				(insideTriangle),
+	.o_outSideLeft					(outSideLeft),
+	.o_outSideRight					(outSideRight),
+	.o_further						(further),
+	
 	// --------------------------
 	// Runtime parameters
 	// --------------------------
 	.i_pixelX						(pixelX),
 	.i_pixelY						(pixelY),
 		
-	.i_scanDirectionR2L				(dir),
+	.i_scanDirectionR2L				(nextDir),
+	.i_dirReg						(dir),
 		
 	.o_pixRL						(pixRL),
 	.o_pixGL						(pixGL),
@@ -832,6 +842,18 @@ MemArbRender MemArbRender_instance(
 	.o_dataOut						(o_dataOut)
 );
 
+reg storeFurther;
+reg savedFurther;
+always@(posedge i_clk) begin
+	if (!i_nrst) begin
+		savedFurther = 0;
+	end else begin
+		if (storeFurther) begin
+			savedFurther = further;
+		end
+	end
+end
+
 always @(*)
 begin
 	nextWorkState				= currWorkState;
@@ -849,6 +871,7 @@ begin
 	writePixelL					= 0;
 	writePixelR					= 0;
 	flush						= 0;
+	storeFurther				= 0;
 	
 	selNextX					= X_ASIS;
 	selNextY					= Y_ASIS;
@@ -946,8 +969,25 @@ begin
 		// Use C(ache)LOAD to load a cache line for TEXTURE with 8 BYTE. This command will be upgraded if cache design changes...
 		// Clut CACHE uses BSTORE command.
 	end
+	
+	// TODO : Scanner use +nextDir instead of dir
+	// TODO : further depend on DET result => TEST_RIGHT may be too soon !!!!
+	// TODO : Check X_TRI_BBLEFT/RIGHT vs pair x
+	// TODO : furtherW[2:0] 
 	START_LINE_TEST_LEFT: // 9
 	begin
+		storeFurther = 1'b1;
+		loadNext	= 1;
+		if (insideTriangle) begin
+			nextWorkState	= START_WAIT_CYCLE_BECAUSE_PIPELINE;
+			selNextX		= X_ASIS;
+			selNextY		= Y_ASIS;
+		end else begin
+			nextWorkState	= isBottomInsideBBox ? START_LINE_TEST_RIGHT : FLUSH_SEND; // Exit, reached end ?
+			selNextX		= X_TRI_BBRIGHT;
+			selNextY		= Y_ASIS;
+		end
+		/*
 		// Put test here, because DET may not be computed before of pipeline.
 		if (isValidPixelL | isValidPixelR) begin // Line equation.
 			nextWorkState	= START_WAIT_CYCLE_BECAUSE_PIPELINE;
@@ -957,18 +997,32 @@ begin
 			loadNext		= 1;
 			selNextX		= X_TRI_BBRIGHT;// Set next X = BBox RIGHT intersected with DrawArea.
 		end
+		*/
 	end
 	// - Need to insert a cycle before in case first pixel in top left corner. Else V or B component may not be updated !!!
 	// - We loose a cycle in case of ping-ping with LEFT/RIGHT TEST and then first pixel pair valid on the LEFT but that's ok.
 	START_WAIT_CYCLE_BECAUSE_PIPELINE:
 	begin
-		nextWorkState	= SCAN_LINE;
+		nextWorkState	= SNAKE;
 		stencilReadSig	= 1;
 	end
 	START_LINE_TEST_RIGHT: // 10
 	begin
 		stencilReadSig	= 1;
 		loadNext		= 1;
+		
+		if ((further == savedFurther) & (!insideTriangle)) begin
+			// Same side
+			nextWorkState	= START_LINE_TEST_LEFT;
+			selNextX	= X_TRI_BBLEFT;
+			selNextY	= Y_TRI_NEXT;
+		end else begin
+			nextWorkState	= SNAKE;
+			selNextX	= insideTriangle ? X_ASIS : X_TRI_NEXT; // Save 1 cycle.
+			selNextY	= Y_ASIS;
+			switchDir	= 1'b1;
+		end
+		/*
 		selNextX		= X_TRI_BBLEFT;	// Set currX = BBoxMinX intersect X Draw Area.
 		// Test Bbox left (included) has SAME line equation result as right (excluded) result of line equation.
 		// If so, mean that we are at the same area defined by the equation.
@@ -982,9 +1036,61 @@ begin
 			resetPixelFound	= 1;
 			nextWorkState	= SCAN_LINE;
 		end
+		*/
 	end
-	SCAN_LINE: // 11
+	SNAKE: // 11
 	begin
+		if (isBottomInsideBBox && (!isNULLDET)) begin // DET not used before because of pipeline latency.
+			// TODO : For now pipeline LOCK scanning. Can try later to unlock...
+				loadNext	= 1;
+				if ((insideTriangle || (!further)) && (!(outSideLeft | outSideRight))) begin
+					if (requestNextPixel) begin
+						// [Pipeline lock here only in theory]
+						writePixelL	= isValidPixelL	& ((GPU_REG_CheckMaskBit && (!stencilReadValue[0])) || (!GPU_REG_CheckMaskBit));
+						writePixelR	= isValidPixelR	& ((GPU_REG_CheckMaskBit && (!stencilReadValue[1])) || (!GPU_REG_CheckMaskBit));
+
+						selNextX		= X_TRI_NEXT;
+						stencilReadSig	= 1;
+					end
+				end else begin
+					if (outSideLeft | outSideRight) begin
+						// Continue scanning next line, switch of direction.
+						switchDir 		= 1;
+						stencilReadSig	= 1;
+						selNextX		= X_TRI_NEXT;
+						selNextY		= Y_TRI_NEXT;
+					end else begin
+						// Generic reach outside of triangle...
+						// Further and outside of triangle.
+						// => Do not change direction
+						// Go next line
+						selNextX		= X_ASIS;
+						selNextY		= Y_TRI_NEXT;
+						nextWorkState	= SEARCH_OUT;
+					end
+				end
+		end else begin
+			nextWorkState	= isNULLDET ? RENDER_WAIT : FLUSH_SEND;
+		end
+	end
+	SEARCH_OUT: // 12
+	begin
+		loadNext		= 1;
+		selNextX		= X_TRI_NEXT;
+		selNextY		= Y_ASIS;
+		stencilReadSig	= 1;
+		if (!isBottomInsideBBox) begin
+			nextWorkState = FLUSH_SEND;
+		end else begin
+			if ((insideTriangle || (!further)) && (!(outSideLeft|outSideRight))) begin
+				nextWorkState	= SEARCH_OUT;
+			end else begin
+				switchDir		= 1;
+				nextWorkState	= SNAKE;
+			end
+		end
+	end
+	/*
 		if (isBottomInsideBBox && (!isNULLDET)) begin // DET not used before because of pipeline latency.
 			//
 			// TODO : Can optimize if LR = 10 when dir = 0, or LR = 01 when dir = 1 to directly Y_TRI_NEXT + SCAN_LINE_CATCH_END, save ONE CYCLE per line.
@@ -1054,7 +1160,8 @@ begin
 		end else begin
 			nextWorkState	= isNULLDET ? RENDER_WAIT : FLUSH_SEND;
 		end
-	end
+	*/
+	/*
 	SCAN_LINE_CATCH_END: // 12
 	begin
 		if (isValidPixelL || isValidPixelR) begin
@@ -1067,6 +1174,7 @@ begin
 			nextWorkState	= SCAN_LINE;
 		end
 	end
+	*/
 	// --------------------------------------------------------------------
 	//	 RECT STATE MACHINE
 	// --------------------------------------------------------------------
@@ -1173,7 +1281,7 @@ wire [14:0] nextPixRasterBlock	= i_bIsLineCommand ? { nextLineY[8:0] , nextLineX
 wire changeBlockRead			= (rasterCurrentBlock != nextPixRasterBlock);
 
 assign o_stencilFullMode		= 1;
-assign o_stencilReadSig			= stencilReadSig & ( changeBlockRead | ((currWorkState==START_WAIT_CYCLE_BECAUSE_PIPELINE) || (currWorkState==START_LINE_TEST_RIGHT) || (currWorkState == SCAN_LINE_CATCH_END) || (currWorkState == LINE_START) || (currWorkState == RECT_START)) );
+assign o_stencilReadSig			= stencilReadSig & ( changeBlockRead | ((currWorkState==START_WAIT_CYCLE_BECAUSE_PIPELINE) || (currWorkState==START_LINE_TEST_RIGHT) || (currWorkState == SEARCH_OUT) || (currWorkState == LINE_START) || (currWorkState == RECT_START)) );
 assign o_stencilReadAdr			= nextPixRasterBlock;
 
 assign o_active					= (currWorkState != RENDER_WAIT);
