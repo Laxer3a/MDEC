@@ -166,6 +166,7 @@
     <ClCompile Include="GPUCommandGen.cpp" />
     <ClCompile Include="GPUSimSW.cpp" />
     <ClCompile Include="gpu_ref.cpp" />
+    <ClCompile Include="gpu_triangle.cpp" />
     <ClCompile Include="HelperFunc.cpp" />
     <ClCompile Include="MiniFB\MiniFB_common.c" />
     <ClCompile Include="MiniFB\MiniFB_cpp.cpp" />

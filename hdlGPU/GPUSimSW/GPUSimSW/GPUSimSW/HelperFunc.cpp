@@ -421,10 +421,6 @@ int dumpFrame(VGPU_DDR* mod, const char* name, const char* maskName, unsigned ch
 			int g   = ((c16>>5)  & 0x1F);
 			int b   = ((c16>>10) & 0x1F);
 
-			if (x==1 && y==1) { printf("1,1 = %04x\n",c16); }
-			if (x==64 && y==1) { printf("64,1 = %04x\n",c16); }
-			if (x==1 && y==64) { printf("1,64 = %04x\n",c16); }
-
 			r = (r >> 2) | (r << 3);
 			g = (g >> 2) | (g << 3);
 			b = (b >> 2) | (b << 3);

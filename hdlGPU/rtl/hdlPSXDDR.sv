@@ -272,7 +272,7 @@ parameter	CMD_32BYTE		= 2'd1,
 	// IMPORTANT !!!! FOR NOW IT SEEMS THAT READ USING 4 consecutive READ SIG is SIZE OF 1.
 	// SO READ WAS 4x32 Byte instead of 1x32 (4x8)
 	// ALL CONTENT SEEMS TO WORK FOR NOW. MAY NOT BE BEST BUT IS FULLY FUNCTIONNAL.
-	assign o_burstLength		= 3'd1; // ORIGINAL LOGIC (size == CMD_32BYTE) ? 3'd4 : 3'd1;
+	assign o_burstLength		= (i_commandSize == CMD_32BYTE) ? 3'd4 : 3'd1;
 	
 	assign o_readEnableMem		= readSigDDR;	// Already set only in (currState==READ_STATE1)
 	assign o_writeEnableMem		= writeSigDDR && (currState==WRITE_STATE1);

@@ -31,6 +31,10 @@ class VGPU_DDR;
 #include "gpu_ref.h"
 
 void RenderCommandSoftware(u8* bufferRGBA, u8* srcBuffer, GPUCommandGen& commandGenerator,struct mfb_window *window);
+void RandomBenchTriangle(u8* bufferRGBA, struct mfb_window *window);
+void ThinTriangles(u8* bufferRGBA, struct mfb_window *window);
+void TestSuite(u8* bufferRGBA, struct mfb_window *window);
+
 
 extern void loadImageToVRAMAsCommand(GPUCommandGen& commandGenerator, const char* fileName, int x, int y, bool imgDefaultFlag);
 extern void loadImageToVRAM(VGPU_DDR* mod, const char* filename, u8* target, int x, int y, bool flagValue);
@@ -81,7 +85,9 @@ u8* heatMapEntries[64*512];
 int  heatMapEntriesCount = 0;
 
 void SetWriteHeat(int adr) {
-	u8* basePix = &heatMapRGB[(adr>>2)*64];
+	// Convert 32 byte block ID into pixel start.
+	adr *= 64;
+	u8* basePix = &heatMapRGB[adr];
 	for (int n=0; n < heatMapEntriesCount; n++) {
 		if (heatMapEntries[n] == basePix) {
 			// Update R
@@ -101,7 +107,8 @@ void SetWriteHeat(int adr) {
 }
 
 void SetReadHeat(int adr) {
-	u8* basePix = &heatMapRGB[(adr>>2)*64];
+	// Convert 32 byte block ID into pixel start.
+	u8* basePix = &heatMapRGB[adr*64];
 	for (int n=0; n < heatMapEntriesCount; n++) {
 		if (heatMapEntries[n] == basePix) {
 			// Update R
@@ -229,8 +236,8 @@ void cacheMapping() {
 		for (int x=0; x < 64; x++) {
 			int idxUnique = x+(y*64);
 			int idxClmp   = idxUnique & 0x3FF;
-			// A[19:18],A[10:7],A[17:11],A[6:0]
-
+			// A[19:18],A[10:7],A[17:11],A[6:0] -> A[14:13],A[5:2],A[11:6],A[1:0]
+			// gpu_addr_i[15],gpu_addr_i[6:2],gpu_addr_i[14:7],gpu_addr_i[1:0]
 			int idxByte   = (x+y*64)*32;
 			
 			int idxCache  = (x & 3) | ((y & 0x7F)<<2);
@@ -252,10 +259,257 @@ void cacheMapping() {
 	delete[] buffer;
 }
 
+
+
+typedef struct
+{
+    char     name[16];
+    uint32_t size;
+} t_log_fs_entry;
+
+void loadDump(const char* fileName, VGPU_DDR* mod, u16* bufferD) {
+    FILE* f = fopen(fileName,"rb");
+    fseek(f,0,SEEK_END);
+    int size = ftell(f);
+    u8* data = new u8[size];
+
+    fseek(f,SEEK_SET,0);
+    fread(data,1,size,f);
+
+    // Load Each chunk.
+    u8* parse = data;
+    while (parse < &data[size]) {
+        t_log_fs_entry* pEntry = (t_log_fs_entry*)parse;
+
+        if (!strcmp(pEntry->name,"mips_ctx.bin")) {
+        }
+
+        if (!strcmp(pEntry->name,"io.bin")) {
+        }
+
+        if (!strcmp(pEntry->name,"scratch.bin")) {
+        }
+
+        if (!strcmp(pEntry->name,"vram.bin")) {
+			u16* src = (u16*)&parse[sizeof(t_log_fs_entry)];
+			u16* dst = bufferD;
+			for (int y=0; y < 512; y++) {
+				for (int x=0; x < 1024; x++) {
+					u16 v = *src++;
+					bool bBit    = (v & 0x8000) ? true : false;
+					setStencil(mod,x,y,bBit);
+					*dst++ = v;
+				}
+			}
+        }
+
+        if (!strcmp(pEntry->name,"main.bin")) {
+			/*
+            memcpy(bufferRAM,&parse[sizeof(t_log_fs_entry)],1024*1024*2);
+            // all Cached
+            memset(bufferRAML,1,1024*1024*2);
+			*/
+        }
+
+        if (strcmp(pEntry->name,"bios.bin")) {
+        }
+
+        parse += pEntry->size + 16 + 4;            
+    }
+
+    delete[] data;
+    fclose(f);
+}
+
+u8* findEOL(u8* start) {
+	// Stop on next char after EOL
+	// + patch EOL with 0
+	
+	// or stop at char zero.
+	// [TODO]
+    while (*start!=0 && *start!=0xA) {
+        start++;
+    }
+
+    if (*start == 0xA) {
+        *start = 0;
+        start++;
+    }
+
+    return start;
+}
+
+u8* found(u8* start, u8* sub) {
+    const char* res;
+    if (res = strstr((const char*)start,(const char*)sub)) {
+        res += strlen((const char*)sub);
+        return (u8*)res;
+    }
+    return NULL;
+}
+
+u64 ValueHexAfter(u8* start, u8* pattern) {
+	// Only space and hexa.
+	// Stop on others.
+	// Only space and 0..9
+	// Stop on others.
+    u8* res = found(start, pattern);
+    u64 result = -1;
+    if (res) {
+        result = 0;
+
+        while (*res == ' ') {
+            res++;
+        }
+
+        // parse all spaces
+        while ((*res >= '0' && *res <= '9') || (*res >= 'a' && *res <='f') || (*res >= 'A' && *res <= 'F')) {
+            int v = 0;
+            if (*res >= '0' && *res <= '9') {
+                v = (*res - '0');
+            } else {
+                if (*res >= 'A' && *res <= 'F') {
+                    v = (*res - 'A') + 10;
+                } else {
+                    v = (*res - 'a') + 10;
+                }
+            }
+            result = (result * 16) + v;
+            res++;
+        }
+    }
+
+    return result;
+}
+
+void loadGPUCommands(const char* fileName, GPUCommandGen& commandGenerator) {
+    FILE* file = fopen(fileName, "rb");
+
+    if (!file) { return; }
+
+	// 50 MB, cut in TWO.
+	const int FULL = 50*1024*1024;
+	const int HALF = FULL / 2;
+	
+	u8* block = new u8[FULL + 1];
+	block[FULL] = 0;
+	u8* halfp = &block[HALF];
+
+    fseek(file,0,SEEK_END);	
+	u64 size      = ftell(file);
+    fseek(file,0,SEEK_SET);
+
+	u32 blocksize = HALF;
+	u8* parse     = block;
+	
+	u64 lastTime  = 0;
+	u32 lastAddr  = 0;
+	u32 lastMask  = 0;
+    int lastDMAchannel = 0;
+	
+	int state = 0;
+	int line  = 0;
+
+    u64 finalTime = 0;
+
+    u64 dmaStartTime = 0;
+
+    fread(block,size < FULL ? size : FULL, 1, file);
+    if (size < FULL) {
+        block[size] = 0;
+        size = 0;
+    } else {
+        size -= FULL;
+    }
+
+	while (true) {
+		line++;
+
+		if ((line & 0xFFF) == 0) {
+			printf("Parsed line : %i\n",line);
+		}
+
+#if 1
+        if (line > 1100000) {
+            break;
+        }
+#endif
+	
+		// [TODO Parse line]
+		// 1. Find end of line
+		u8* start = parse;
+		u8* param;
+		parse = findEOL(parse);
+		
+		// 2. Find sub string within range
+		switch (state) {
+		case 0:
+			if (param = found(start, (u8*)"IO Access (W) [")) {
+				// IO Access (W) [DMA]:     1f8010f0 = 0f6f4b21 [mask=f] [delta=5 @ 390044]
+				// Find until ] char, get device with same name.
+				u8* p = param;
+				u8* p2;
+				
+				u32 addr = ValueHexAfter(p,(u8*)"]:");
+				u32 value= ValueHexAfter(p,(u8*)"= ");
+				u8  mask = ValueHexAfter(p,(u8*)"mask=");
+				
+				if (param=found(p,(u8*)"GPU")) {
+					if ((addr & 0x7) == 0) {
+						commandGenerator.writeRaw(value);
+					} else {
+						commandGenerator.writeGP1(value);
+					}
+//                    if ((addr == 0x1F801814) && ((value>>24) == 0x05)) {
+				}
+			} else
+			if (param = found(start, (u8*)"[DMA] Activating transfer CH")) {
+                lastDMAchannel = param[0] - '0';
+			} else
+			if (param = found(start, (u8*)"M2P]")) {
+                u32 value = ValueHexAfter(param,(u8*)" ");
+                switch (lastDMAchannel) {
+                case 2:
+					commandGenerator.writeRaw(value);
+					break;
+				default:
+                    break;
+                }
+            } else {
+				// Ignore.
+			}
+			break;
+		case 1:
+
+			state = 0;
+			break;
+		}
+		
+		// 3. Load into correct device.
+	
+		if (*parse == 0) {
+			break;
+		}
+		
+		// parse now point to next line.
+		if (parse >= halfp) {
+			memcpy(block,halfp,HALF);
+			parse -= HALF;
+			fread (halfp,blocksize,1,file);
+			size  -= blocksize;
+			halfp[blocksize] = 0;
+			if (size < HALF) {
+				blocksize = size;
+			}
+		}
+	}
+}
+
+
 int main(int argcount, char** args)
 {
-	cacheMapping();
-	return 0;
+//	cacheMapping();
+//	return 0;
 
 //	return mainTestVRAMVRAM();
 //	return mainTestDMAUpload(true);
@@ -294,6 +548,7 @@ int main(int argcount, char** args)
 		COPY_FROMRAM,
 		TEST_EMU_DATA,
 		USE_AVOCADO_DATA,
+		USE_DUMP_SIM,
 		PALETTE_FAIL_LATEST,
 		INTERLACE_TEST,
 		POLY_FAIL,
@@ -304,7 +559,11 @@ int main(int argcount, char** args)
 	};
 
 //	DEMO manual		= TEST_A;
-	DEMO manual		= USE_AVOCADO_DATA;
+//	DEMO manual		= USE_AVOCADO_DATA;
+	DEMO manual		= USE_DUMP_SIM;
+	const char* dumpFileName   = "E:\\MDEC\\gran_turismo2.dump";
+	const char* log_inFileName = "E:\\MDEC\\gran_turismo2-sim-91.txt";
+
 //	DEMO manual		= TESTSUITE;
 
 	bool compare     = false;
@@ -313,14 +572,16 @@ int main(int argcount, char** args)
 	bool useHeatMap  = true;
 
 	// SW/HW
-	bool useSWRender = true;
+	bool useSWRender = false;
 
 	// HW
 	bool useScanRT   = false;
-	int  lengthCycle = 1250000;
+	int  lengthCycle = 2350000;
+
+	const int READ_LATENCY = 1;
 
 	// 9,17,12 = Very good test for stencil.
-	int source = 1; // ,5 : SW Namco Logo wrong, Score
+	int source = 7; // ,5 : SW Namco Logo wrong, Score
 
 	switch (source) {
 	case  0:  binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station","rb");				break; // GOOD COMPLETE
@@ -345,7 +606,7 @@ int main(int argcount, char** args)
 	case 19:  binSrc = fopen("E:\\AvocadoDump\\RRFlag.gpudrawlist","rb");		break; // GOOD COMPLETE
 	case 20:  binSrc = fopen("E:\\AvocadoDump\\RRChase3.gpudrawlist","rb");		break; // GOOD COMPLETE
 	case 21:  binSrc = fopen("E:\\AvocadoDump\\FF7_3.gpudrawlist","rb");		break; // GOOD COMPLETE
-	case 22:  binSrc = fopen("F:\\bios.gpudump","rb");							break; // GOOD COMPLETE
+	case 22:  binSrc = fopen("E:\\AvocadoDump\\dumpBiosAnim.gpudrawlist","rb");							break; // GOOD COMPLETE
 	case 23:  binSrc = fopen("F:\\tekken3.gpudrawlist","rb");					break; // GOOD COMPLETE
 	case 24:  binSrc = fopen("E:\\AvocadoDump\\trex.gpudrawlist","rb");			break;
 	case 25:  binSrc = fopen("E:\\AvocadoDump\\PlaystationLogo.gpudrawlist","rb");			break;
@@ -397,338 +658,340 @@ int main(int argcount, char** args)
 	VCScanner*	pScan   = new VCScanner();
 				pScan->init(4000);
 
-u16 fuckPointList[] = {
-			 0x1efb
-			,0xa9e3
-			,0xe146
-			,0x007c
-			,0x62c2
-			,0x0854
-			,0x27f8
-			,0x231b
-			,0xe9e8
-			,0xcde7
-			,0x438d
-			,0x0f76
-			,0x255a
-			,0xf92e
-			,0x7263
-			,0xc233
-			,0xd79f
-
-			,0x5490
-			,0xbe1e
-			,0xb7e5
-			,0x8302
-			,0xc7a8
-			,0x1011
-			,0xc777
-			,0x6e4d
-			,0x56cd
-			,0x6ee1
-			,0xe53b
-			,0x0487
-			,0x1b60
-			,0xd574
-			,0x808a
-			,0x7276
-			,0x81db
-
-			,0x8f60
-			,0xc044
-			,0x0386
-			,0x47c9
-			,0x3aa2
-			,0x97d9
-			,0x3e66
-			,0x872d
-			,0x1de3
-			,0xd8b5
-			,0x9aa6
-			,0x33c7
-			,0x3fb3
-			,0x78b0
-			,0x99e2
-			,0x7b57
-			,0x481f
-
-			,0x49a6
-			,0x5d28
-			,0x2c9d
-			,0x9234
-			,0x8b3e
-			,0x51b3
-			,0xdbea
-			,0xc3e7
-			,0x139e
-			,0x01f4
-			,0xa830
-			,0xd2f8
-			,0xce9c
-			,0xd4c6
-			,0xb57c
-			,0x2f5a
-			,0x780f
-
-			,0x6f64
-			,0x4ec7
-			,0xc951
-			,0x40e4
-			,0x28b7
-			,0x8c6e
-			,0x2527
-			,0x5cae
-			,0x8042
-			,0x26c4
-			,0x05d8
-			,0x7e29
-			,0x6585
-			,0xff75
-			,0x4368
-			,0x2d13
-			,0x3041
-
-			,0x35e7
-			,0xb6b6
-			,0xf7b1
-			,0xaf3f
-			,0xf79a
-			,0x105e
-			,0x719f
-			,0xcf9c
-			,0xb7d5
-			,0xd1c4
-			,0x5ba7
-			,0xf81a
-			,0x5765
-			,0x6758
-			,0xcc9d
-			,0x5d6f
-			,0x8412
-
-			,0x6498
-			,0x5f53
-			,0xfc90
-			,0x030c
-			,0x4b90
-			,0x206a
-			,0x6bdd
-			,0xbae5
-			,0x2c60
-			,0x78a4
-			,0x1940
-			,0xc10d
-			,0xf637
-			,0x3940
-			,0x6377
-			,0x5c01
-			,0x5c39
-
-			,0x4e52
-			,0x8914
-			,0x954c
-			,0xadae
-			,0xb0db
-			,0x1773
-			,0x8e0b
-			,0xd403
-			,0x785b
-			,0x0a49
-			,0xf191
-			,0x2fc8
-			,0x5411
-			,0x4092
-			,0x378d
-			,0x5638
-			,0xa787
-
-			,0x63ee
-			,0xd1d1
-			,0x49bc
-			,0xe538
-			,0x5dcb
-			,0xb6ad
-			,0x09ea
-			,0x0c6e
-			,0x1e98
-			,0xa3e1
-			,0x3174
-			,0xed29
-			,0xab7c
-			,0x1818
-			,0x73ee
-			,0x9599
-			,0x70da
-
-			,0x6920
-			,0xd5bd
-			,0x9820
-			,0x1edd
-			,0x2439
-			,0x3bea
-			,0x1f17
-			,0x0353
-			,0xe06e
-			,0xb692
-			,0x07f4
-			,0x06d2
-			,0x8e15
-			,0x15e7
-			,0x17d3
-			,0x1022
-			,0x0d70
-
-			,0x99f0
-			,0x87ea
-			,0xf529
-			,0x2279
-			,0x4a5d
-			,0x21c3
-			,0xa18c
-			,0xa2fb
-			,0x006d
-			,0xb338
-			,0x59ed
-			,0xb062
-			,0x2cb3
-			,0xe9b4
-			,0x2577
-			,0xaae3
-			,0x1aac
-
-			,0x1d2d
-			,0x224f
-			,0xfa39
-			,0x5a24
-			,0xc63b
-			,0x010b
-			,0x3fc3
-			,0x75d6
-			,0xb8ba
-			,0xad6f
-			,0x1228
-			,0x55d4
-			,0x8064
-			,0xd3be
-			,0xfb19
-			,0xa69d
-			,0x0acd
-
-			,0x2b90
-			,0x51d8
-			,0x4566
-			,0x2c87
-			,0xeaef
-			,0x4a2b
-			,0x18bc
-			,0xbf0b
-			,0xf482
-			,0xdc66
-			,0x0ff2
-			,0x1775
-			,0x7cfc
-			,0x0fc0
-			,0xa69b
-			,0xefcc
-			,0x9b28
-
-			,0xa723
-			,0xf7fc
-			,0xdc4d
-			,0x55be
-			,0x7803
-			,0x095e
-			,0x30a7
-			,0x102f
-			,0xe1b0
-			,0x2f94
-			,0xedec
-			,0xee1a
-			,0x41cb
-			,0x4d30
-			,0x05ae
-			,0x1493
-			,0x7be0
-
-			,0x0eeb
-			,0x73ac
-			,0x8fbd
-			,0x4c98
-			,0x2baf
-			,0x6c69
-			,0x6301
-			,0x8e26
-			,0xa538
-			,0xa982
-			,0x5145
-			,0xcef3
-			,0x8ba1
-			,0x4671
-			,0x7fd8
-			,0xb196
-			,0xa719
-
-			,0xb98a
-			,0x9367
-			,0x8fa7
-			,0x84a1
-			,0x2765
-			,0x1a52
-			,0x84b5
-			,0xd1f1
-			,0x3bba
-			,0xf465
-			,0x97bc
-			,0xa64c
-			,0x489b
-			,0xf343
-			,0x3378
-			,0x1d68
-			,0x166e
-
-			,0x2ac0
-			,0x7e7b
-			,0xa650
-			,0x2312
-			,0xa097
-			,0x9849
-			,0x37ce
-			,0x7dcf
-			,0x9ffb
-			,0x9dcc
-			,0x8de5
-			,0xb603
-			,0xcecc
-			,0xdecf
-			,0xd253
-			,0x4842
-			,0x51d0
-	};
-
 #if 0
-	srand(17);
-	int idxppt = 0;
-	for (int y=0;y<256;y++) {
-		for (int x=0;x<256;x++) {
-			u16* p = (u16*)&buffer[x*2 + y*2048];
-			int v = /*(((x & 16)!=0) ^((y&1)!=0)) & (x & 1);*/ (rand()<<15) & 0x8000;
-			*p = v;
-//			printf("%i",v>>15);
-			setStencil(mod,x,y,v>>15 ? true : false);
+	u16 fuckPointList[] = {
+				 0x1efb
+				,0xa9e3
+				,0xe146
+				,0x007c
+				,0x62c2
+				,0x0854
+				,0x27f8
+				,0x231b
+				,0xe9e8
+				,0xcde7
+				,0x438d
+				,0x0f76
+				,0x255a
+				,0xf92e
+				,0x7263
+				,0xc233
+				,0xd79f
+
+				,0x5490
+				,0xbe1e
+				,0xb7e5
+				,0x8302
+				,0xc7a8
+				,0x1011
+				,0xc777
+				,0x6e4d
+				,0x56cd
+				,0x6ee1
+				,0xe53b
+				,0x0487
+				,0x1b60
+				,0xd574
+				,0x808a
+				,0x7276
+				,0x81db
+
+				,0x8f60
+				,0xc044
+				,0x0386
+				,0x47c9
+				,0x3aa2
+				,0x97d9
+				,0x3e66
+				,0x872d
+				,0x1de3
+				,0xd8b5
+				,0x9aa6
+				,0x33c7
+				,0x3fb3
+				,0x78b0
+				,0x99e2
+				,0x7b57
+				,0x481f
+
+				,0x49a6
+				,0x5d28
+				,0x2c9d
+				,0x9234
+				,0x8b3e
+				,0x51b3
+				,0xdbea
+				,0xc3e7
+				,0x139e
+				,0x01f4
+				,0xa830
+				,0xd2f8
+				,0xce9c
+				,0xd4c6
+				,0xb57c
+				,0x2f5a
+				,0x780f
+
+				,0x6f64
+				,0x4ec7
+				,0xc951
+				,0x40e4
+				,0x28b7
+				,0x8c6e
+				,0x2527
+				,0x5cae
+				,0x8042
+				,0x26c4
+				,0x05d8
+				,0x7e29
+				,0x6585
+				,0xff75
+				,0x4368
+				,0x2d13
+				,0x3041
+
+				,0x35e7
+				,0xb6b6
+				,0xf7b1
+				,0xaf3f
+				,0xf79a
+				,0x105e
+				,0x719f
+				,0xcf9c
+				,0xb7d5
+				,0xd1c4
+				,0x5ba7
+				,0xf81a
+				,0x5765
+				,0x6758
+				,0xcc9d
+				,0x5d6f
+				,0x8412
+
+				,0x6498
+				,0x5f53
+				,0xfc90
+				,0x030c
+				,0x4b90
+				,0x206a
+				,0x6bdd
+				,0xbae5
+				,0x2c60
+				,0x78a4
+				,0x1940
+				,0xc10d
+				,0xf637
+				,0x3940
+				,0x6377
+				,0x5c01
+				,0x5c39
+
+				,0x4e52
+				,0x8914
+				,0x954c
+				,0xadae
+				,0xb0db
+				,0x1773
+				,0x8e0b
+				,0xd403
+				,0x785b
+				,0x0a49
+				,0xf191
+				,0x2fc8
+				,0x5411
+				,0x4092
+				,0x378d
+				,0x5638
+				,0xa787
+
+				,0x63ee
+				,0xd1d1
+				,0x49bc
+				,0xe538
+				,0x5dcb
+				,0xb6ad
+				,0x09ea
+				,0x0c6e
+				,0x1e98
+				,0xa3e1
+				,0x3174
+				,0xed29
+				,0xab7c
+				,0x1818
+				,0x73ee
+				,0x9599
+				,0x70da
+
+				,0x6920
+				,0xd5bd
+				,0x9820
+				,0x1edd
+				,0x2439
+				,0x3bea
+				,0x1f17
+				,0x0353
+				,0xe06e
+				,0xb692
+				,0x07f4
+				,0x06d2
+				,0x8e15
+				,0x15e7
+				,0x17d3
+				,0x1022
+				,0x0d70
+
+				,0x99f0
+				,0x87ea
+				,0xf529
+				,0x2279
+				,0x4a5d
+				,0x21c3
+				,0xa18c
+				,0xa2fb
+				,0x006d
+				,0xb338
+				,0x59ed
+				,0xb062
+				,0x2cb3
+				,0xe9b4
+				,0x2577
+				,0xaae3
+				,0x1aac
+
+				,0x1d2d
+				,0x224f
+				,0xfa39
+				,0x5a24
+				,0xc63b
+				,0x010b
+				,0x3fc3
+				,0x75d6
+				,0xb8ba
+				,0xad6f
+				,0x1228
+				,0x55d4
+				,0x8064
+				,0xd3be
+				,0xfb19
+				,0xa69d
+				,0x0acd
+
+				,0x2b90
+				,0x51d8
+				,0x4566
+				,0x2c87
+				,0xeaef
+				,0x4a2b
+				,0x18bc
+				,0xbf0b
+				,0xf482
+				,0xdc66
+				,0x0ff2
+				,0x1775
+				,0x7cfc
+				,0x0fc0
+				,0xa69b
+				,0xefcc
+				,0x9b28
+
+				,0xa723
+				,0xf7fc
+				,0xdc4d
+				,0x55be
+				,0x7803
+				,0x095e
+				,0x30a7
+				,0x102f
+				,0xe1b0
+				,0x2f94
+				,0xedec
+				,0xee1a
+				,0x41cb
+				,0x4d30
+				,0x05ae
+				,0x1493
+				,0x7be0
+
+				,0x0eeb
+				,0x73ac
+				,0x8fbd
+				,0x4c98
+				,0x2baf
+				,0x6c69
+				,0x6301
+				,0x8e26
+				,0xa538
+				,0xa982
+				,0x5145
+				,0xcef3
+				,0x8ba1
+				,0x4671
+				,0x7fd8
+				,0xb196
+				,0xa719
+
+				,0xb98a
+				,0x9367
+				,0x8fa7
+				,0x84a1
+				,0x2765
+				,0x1a52
+				,0x84b5
+				,0xd1f1
+				,0x3bba
+				,0xf465
+				,0x97bc
+				,0xa64c
+				,0x489b
+				,0xf343
+				,0x3378
+				,0x1d68
+				,0x166e
+
+				,0x2ac0
+				,0x7e7b
+				,0xa650
+				,0x2312
+				,0xa097
+				,0x9849
+				,0x37ce
+				,0x7dcf
+				,0x9ffb
+				,0x9dcc
+				,0x8de5
+				,0xb603
+				,0xcecc
+				,0xdecf
+				,0xd253
+				,0x4842
+				,0x51d0
+		};
+
+	#if 0
+		srand(17);
+		int idxppt = 0;
+		for (int y=0;y<256;y++) {
+			for (int x=0;x<256;x++) {
+				u16* p = (u16*)&buffer[x*2 + y*2048];
+				int v = /*(((x & 16)!=0) ^((y&1)!=0)) & (x & 1);*/ (rand()<<15) & 0x8000;
+				*p = v;
+	//			printf("%i",v>>15);
+				setStencil(mod,x,y,v>>15 ? true : false);
+			}
+	//		printf("\n");
 		}
-//		printf("\n");
-	}
-#else
-	FILE* fData = fopen("E:\\PSFPGA-TEST-SOC1\\gpu_tb\\psf_gpu\\dump.vram","rb");
-	fread(buffer,512*1024*2,1,fData);
-	for (int y=0;y<512;y++) {
-		for (int x=0;x<1024;x++) {
-			u16 p = ((u16*)buffer)[x + y*1024];
-			setStencil(mod,x,y,p>>15 ? true : false);
+	#else
+		FILE* fData = fopen("E:\\PSFPGA-TEST-SOC1\\gpu_tb\\psf_gpu\\dump.vram","rb");
+		fread(buffer,512*1024*2,1,fData);
+		for (int y=0;y<512;y++) {
+			for (int x=0;x<1024;x++) {
+				u16 p = ((u16*)buffer)[x + y*1024];
+				setStencil(mod,x,y,p>>15 ? true : false);
+			}
 		}
-	}
-	fclose(fData);
-	memcpy(refBuffer,buffer,1024*1024);
+		fclose(fData);
+		memcpy(refBuffer,buffer,1024*1024);
+	#endif
 #endif
 
 	/*
@@ -794,9 +1057,9 @@ u16 fuckPointList[] = {
 	mod->i_nrst = 1;
 
 	// Not busy by default...
-	mod->i_busyMem				        = 0;
-	mod->i_dataValidMem					= 0;
-	mod->i_dataMem						= 0;
+	mod->i_busy					        = 0;
+	mod->i_dataInValid					= 0;
+//	mod->o_dataOut						= 0;
 
 	mod->i_DIP_AllowDither = 1;
 	mod->i_DIP_ForceDither = 0;
@@ -1101,22 +1364,35 @@ u16 fuckPointList[] = {
 	switch (demo) {
 	case TEST_A:
 	{
+		commandGenerator.writeRaw(0xE3000000 | (0<<0) | (0<<10));
+		commandGenerator.writeRaw(0xE4000000 | (320<<0) | (240<<10));
 
+        commandGenerator.writeRaw(0x2200FFFF);
+        commandGenerator.writeRaw(0x171c7aac);
+        commandGenerator.writeRaw(0x271db0f7);
+        commandGenerator.writeRaw(0x001d88ba);
+/*
+		commandGenerator.writeRaw(0x20FF00FF);
+		commandGenerator.writeRaw(0x00000020);
+		commandGenerator.writeRaw(0x00400000);
+		commandGenerator.writeRaw(0x00400040);
+*/
+/*
 		commandGenerator.writeRaw(0xe1000008);
 		commandGenerator.writeRaw(0xe3000000);
 		commandGenerator.writeRaw(0xe403c140);
 		commandGenerator.writeRaw(0xe6000000);
 
-
-                commandGenerator.writeRaw(0x2cccd0d4);
-                commandGenerator.writeRaw(0x01be00fa);
-                commandGenerator.writeRaw(0x53751e17);
-                commandGenerator.writeRaw(0x0153010d);
-                commandGenerator.writeRaw(0x0348f913);
-                commandGenerator.writeRaw(0x0111003b);
-                commandGenerator.writeRaw(0x776cc799);
-                commandGenerator.writeRaw(0x00270105);
-                commandGenerator.writeRaw(0x320869a3);
+        commandGenerator.writeRaw(0x2cccd0d4);
+        commandGenerator.writeRaw(0x01be00fa);
+        commandGenerator.writeRaw(0x53751e17);
+        commandGenerator.writeRaw(0x0153010d);
+        commandGenerator.writeRaw(0x0348f913);
+        commandGenerator.writeRaw(0x0111003b);
+        commandGenerator.writeRaw(0x776cc799);
+        commandGenerator.writeRaw(0x00270105);
+        commandGenerator.writeRaw(0x320869a3);
+*/
 	}								
 	break;
 	case CAR_SHADOW:
@@ -1665,6 +1941,10 @@ u16 fuckPointList[] = {
 		}
 
 		break;
+	case USE_DUMP_SIM:
+		loadDump		(dumpFileName,mod,(u16*)buffer);
+		loadGPUCommands	(log_inFileName,commandGenerator);
+		break;
 	case USE_AVOCADO_DATA:
 	{
 		if (fileName) {
@@ -2065,8 +2345,14 @@ u16 fuckPointList[] = {
 	int prevCommandParseState = -1;
 	int prevCommandWorkState  = -1;
 
+//	TestSuite(bufferRGBA, window);
+
+//	ThinTriangles(bufferRGBA, window);
+//	RandomBenchTriangle(bufferRGBA, window);
+
 	if (useSWRender || compare) {
-		RenderCommandSoftware(bufferRGBA, refBuffer, commandGenerator,window);
+		RenderCommandSoftware(bufferRGBA, buffer, commandGenerator,window);
+		printTotalTimeCycle();
 		if (!compare) {
 			return 0;
 		}
@@ -2096,6 +2382,7 @@ u16 fuckPointList[] = {
 
 		bool savePic = false;
 		// updateBuff = ((clockCnt>>1) & 0xFFF) == 0;
+		updateBuff = false;
 
 		if (log) {
 			// If some work is done, reset stuckState.
@@ -2123,8 +2410,12 @@ u16 fuckPointList[] = {
 //				Convert16To32((u8*)swBuffer, bufferRGBA);
 
 				int state = mfb_update(window,bufferRGBA);
-
+				static int prevClockCnt = 0;
 				updateBuff = false;
+
+				int diffClock = clockCnt - prevClockCnt;
+				printf("Clock %i (%i)\n",clockCnt,currentCommandID);
+				prevClockCnt = clockCnt;				
 
 				if (state < 0)
 					break;
@@ -2161,7 +2452,7 @@ u16 fuckPointList[] = {
 
 		};
 
-		mod->i_busyMem = rand() & 1;
+		mod->i_busy = 0; // rand() & 1;
 
 		mod->clk    = 1;
 		mod->eval();
@@ -2180,91 +2471,138 @@ u16 fuckPointList[] = {
 		static int  burstSizeRead    = 0;
 		static int  burstAdr         = 0;
 
-		if (mod->o_writeEnableMem == 1 /* && (mod->i_busyMem == 0)*/) {
-			if (beginTransaction) {
-				burstSize  = mod->o_burstLength;
-				burstAdr   = mod->o_targetAddr;
-				beginTransaction = (burstSize <= 1);
-				if (useHeatMap) { SetWriteHeat(burstAdr); }
-			} else {
-				burstAdr  += 1;
-				burstSize--;
-				if (burstSize == 1) {
-					beginTransaction = true;
-					burstSize = 0;
-				}
-			}
 
-			int baseAdr = burstAdr << 3;
+		if (mod->o_write == 1 && mod->o_command && (mod->i_busy == 0)) {
+			switch (mod->o_commandSize) {
+			case 1:
+				burstSize  = 4;
+				break;
+			case 0:	// 8 Not supported for write.
+			case 2:	// 4 Not supported anymore
+			default:
+				while (1) {}; break;
+			}
+			burstAdr   = (mod->o_adr<<5) + (mod->o_subadr<<2);
+			beginTransaction = false;
+			if (useHeatMap) { SetWriteHeat(burstAdr>>5); }
+
+			int baseAdr = burstAdr;
+/*
 			if (baseAdr != (mod->o_targetAddr<<3)) {
 				printf("WRITE ERROR !\n");
 				error = 1;
 				// pScan->shutdown();
 			}
+*/
 
+			int selPix = mod->o_writeMask;
 
-			int selPix = mod->o_byteEnableMem;
+			u32 w = mod->o_dataOut[0];
+			if (selPix & 0x01) { buffer[baseAdr  ] =  w      & 0xFF; }
+			if (selPix & 0x01) { buffer[baseAdr+1] = (w>> 8) & 0xFF; }
+			if (selPix & 0x02) { buffer[baseAdr+2] = (w>>16) & 0xFF; }
+			if (selPix & 0x02) { buffer[baseAdr+3] = (w>>24) & 0xFF; }
 
-			if (selPix &  1) { buffer[baseAdr  ] =  mod->o_dataMem      & 0xFF; }
-			if (selPix &  2) { buffer[baseAdr+1] = (mod->o_dataMem>> 8) & 0xFF; }
-			if (selPix &  4) { buffer[baseAdr+2] = (mod->o_dataMem>>16) & 0xFF; }
-			if (selPix &  8) { buffer[baseAdr+3] = (mod->o_dataMem>>24) & 0xFF; }
+			w = mod->o_dataOut[1];
+			if (selPix & 0x04) { buffer[baseAdr+4] = (w>> 0) & 0xFF; }
+			if (selPix & 0x04) { buffer[baseAdr+5] = (w>> 8) & 0xFF; }
+			if (selPix & 0x08) { buffer[baseAdr+6] = (w>>16) & 0xFF; }
+			if (selPix & 0x08) { buffer[baseAdr+7] = (w>>24) & 0xFF; }
 
-			if (selPix & 16) { buffer[baseAdr+4] = (mod->o_dataMem>>32) & 0xFF; }
-			if (selPix & 32) { buffer[baseAdr+5] = (mod->o_dataMem>>40) & 0xFF; }
-			if (selPix & 64) { buffer[baseAdr+6] = (mod->o_dataMem>>48) & 0xFF; }
-			if (selPix &128) { buffer[baseAdr+7] = (mod->o_dataMem>>56) & 0xFF; }
+			w = mod->o_dataOut[2];
+			if (selPix & 0x10) { buffer[baseAdr+8] = (w>> 0) & 0xFF; }
+			if (selPix & 0x10) { buffer[baseAdr+9] = (w>> 8) & 0xFF; }
+			if (selPix & 0x20) { buffer[baseAdr+10]= (w>>16) & 0xFF; }
+			if (selPix & 0x20) { buffer[baseAdr+11]= (w>>24) & 0xFF; }
+
+			w = mod->o_dataOut[3];
+			if (selPix & 0x40) { buffer[baseAdr+12]= (w>> 0) & 0xFF; }
+			if (selPix & 0x40) { buffer[baseAdr+13]= (w>> 8) & 0xFF; }
+			if (selPix & 0x80) { buffer[baseAdr+14]= (w>>16) & 0xFF; }
+			if (selPix & 0x80) { buffer[baseAdr+15]= (w>>24) & 0xFF; }
+
+			w = mod->o_dataOut[4];
+			if (selPix & 0x0100) { buffer[baseAdr+16] =  w      & 0xFF; }
+			if (selPix & 0x0100) { buffer[baseAdr+17] = (w>> 8) & 0xFF; }
+			if (selPix & 0x0200) { buffer[baseAdr+18] = (w>>16) & 0xFF; }
+			if (selPix & 0x0200) { buffer[baseAdr+19] = (w>>24) & 0xFF; }
+
+			w = mod->o_dataOut[5];
+			if (selPix & 0x0400) { buffer[baseAdr+20] = (w>>0) & 0xFF; }
+			if (selPix & 0x0400) { buffer[baseAdr+21] = (w>>8) & 0xFF; }
+			if (selPix & 0x0800) { buffer[baseAdr+22] = (w>>16) & 0xFF; }
+			if (selPix & 0x0800) { buffer[baseAdr+23] = (w>>24) & 0xFF; }
+
+			w = mod->o_dataOut[6];
+			if (selPix & 0x1000) { buffer[baseAdr+24] = (w>>0) & 0xFF; }
+			if (selPix & 0x1000) { buffer[baseAdr+25] = (w>>8) & 0xFF; }
+			if (selPix & 0x2000) { buffer[baseAdr+26] = (w>>16) & 0xFF; }
+			if (selPix & 0x2000) { buffer[baseAdr+27] = (w>>24) & 0xFF; }
+
+			w = mod->o_dataOut[7];
+			if (selPix & 0x4000) { buffer[baseAdr+28] = (w>>0) & 0xFF; }
+			if (selPix & 0x4000) { buffer[baseAdr+29] = (w>>8) & 0xFF; }
+			if (selPix & 0x8000) { buffer[baseAdr+30] = (w>>16) & 0xFF; }
+			if (selPix & 0x8000) { buffer[baseAdr+31] = (w>>24) & 0xFF; }
 		} else {
 			error = 0;
 		}
 
 		static bool transactionRead = false;
-		if (transactionRead) {
+		static int readLatency = 0;
+		if (transactionRead && (readLatency==0)) {
 
 			//
 			// WARNING REUSE ADR SET AT CYCLE BEFORE
 			//
-			int	baseAdr = burstAdr<<3;
+			int	baseAdr = burstAdr;
+			int itemCount;
+			switch (burstSizeRead) {
+			case 1:
+				// 32 byte read.
+				itemCount = 8;
+				break;
+			case 0:
+				// 8 byte read.
+				itemCount = 2;
+				break;
+			default:
+				// 4 byte read.
+				while (1) {}
+				break;
+			}
+			mod->i_dataInValid = 1;
 
-			mod->i_dataValidMem = 1;
+			u32 result = 0;
 
-			int selPix = mod->o_byteEnableMem;
-
-			u64 result = 0;
-
-			if (selPix &  1) { result |= ((u64)buffer[baseAdr+0])<<0;  }
-			if (selPix &  2) { result |= ((u64)buffer[baseAdr+1])<<8;  }
-			if (selPix &  4) { result |= ((u64)buffer[baseAdr+2])<<16; }
-			if (selPix &  8) { result |= ((u64)buffer[baseAdr+3])<<24; }
-
-			if (selPix & 16) { result |= ((u64)buffer[baseAdr+4])<<32; }
-			if (selPix & 32) { result |= ((u64)buffer[baseAdr+5])<<40; }
-			if (selPix & 64) { result |= ((u64)buffer[baseAdr+6])<<48; }
-			if (selPix &128) { result |= ((u64)buffer[baseAdr+7])<<56; }
-
-			mod->i_dataMem      = result;
+			for (int n=0; n < itemCount; n++) {
+				result  = ((u64)buffer[baseAdr+0])<<0; 
+				result |= ((u64)buffer[baseAdr+1])<<8; 
+				result |= ((u64)buffer[baseAdr+2])<<16;
+				result |= ((u64)buffer[baseAdr+3])<<24;
+				baseAdr += 4;
+				mod->i_dataIn[n] = result;
+			}
 
 	//		mod->eval();
 			//
 			// INCREMENT FOR NEXT READ.
 			//
-			burstAdr  += 1;
-			burstSizeRead--;
-			if (burstSizeRead == 0) {
-				transactionRead = false;
-			}
+			transactionRead = false;
 		} else {
-			mod->i_dataValidMem = 0;
+			mod->i_dataInValid = 0;
+			if (readLatency > 0) { readLatency--; }
 //			mod->eval();
 		}
 
-		if (mod->o_readEnableMem == 1/* && (mod->i_busyMem == 0)*/) {
+		if ((mod->o_write == 0) && mod->o_command && (mod->i_busy == 0)) {
 			if (!transactionRead) {
-				burstSizeRead = mod->o_burstLength;
-				burstAdr   = mod->o_targetAddr;
+				burstSizeRead	= mod->o_commandSize;
+				burstAdr		= (mod->o_adr<<5) | (mod->o_subadr<<2);
 				readCount++;
-				if (useHeatMap) { SetReadHeat(burstAdr); }
+				if (useHeatMap) { SetReadHeat(burstAdr>>5); }
 				transactionRead = true;
+				readLatency = READ_LATENCY;
 			}
 		}
 
@@ -2519,5 +2857,342 @@ void RenderCommandSoftware(u8* bufferRGBA, u8* srcBuffer, GPUCommandGen& command
 	dumpFrame(NULL, "output_sw.png", "output_msk_sw.png",swBuffer,0, true);
 
 	memcpy(srcBuffer, swBuffer, 1024*1024);
+	delete[] swBuffer;
+}
+
+#include <random>
+#include <memory>
+#include <functional>
+ 
+void RandomBenchTriangle(u8* bufferRGBA, struct mfb_window *window) {
+	u8* swBuffer = new u8[1024*1024];
+	memset(swBuffer, 0, 1024*1024);
+
+	// PSX Context.
+	GPURdrCtx psxGPU;
+	psxGPU.swBuffer		= (u16*)swBuffer;
+
+	// Call back context
+	MyCtx cbCtx;
+	cbCtx.window		= window;
+	cbCtx.bufferRGBA	= bufferRGBA;
+	psxGPU.callback	   = rendercallback;
+	psxGPU.userContext = &cbCtx;
+
+    using namespace std::placeholders;  // for _1, _2, _3...
+ 
+    // common use case: binding a RNG with a distribution
+    std::mt19937 ex(0xDEADBEEF);
+    std::mt19937 ey(0x12384586);
+    std::mt19937 es(0xCAFEBABE);
+    std::uniform_int_distribution<> dx(0, 1023);
+    std::uniform_int_distribution<> dy(0, 511);
+    std::uniform_int_distribution<> bb(1, 15);
+    auto rand_coordx = std::bind(dx, ex); // a copy of e is stored in rnd
+    auto rand_coordy = std::bind(dy, ey); // a copy of e is stored in rnd
+    auto rand_clip   = std::bind(bb, es); // a copy of e is stored in rnd
+
+	psxGPU.offsetX_s11	= 0;		
+	psxGPU.offsetY_s11	= 0;
+//	psxGPU.interlaced = true;
+
+	while (1) {
+		Vertex p[3];
+
+		psxGPU.drAreaX0_10	= rand_coordx() / 2;		
+		psxGPU.drAreaY0_9	= rand_coordy() / 2;
+		psxGPU.drAreaX1_10	= psxGPU.drAreaX0_10 + rand_clip()*32;
+		psxGPU.drAreaY1_9	= psxGPU.drAreaY1_9  + rand_clip()*16;
+
+		p[0].x = rand_coordx();
+		p[0].y = rand_coordy();
+
+		p[1].x = rand_coordx();
+		p[1].y = rand_coordy();
+
+		p[2].x = rand_coordx();
+		p[2].y = rand_coordy();
+
+		printf("TRI : [%i,%i],[%i,%i],[%i,%i] in [%i,%i,%i,%i]\n",
+			p[0].x,
+			p[0].y,
+			p[1].x,
+			p[1].y,
+			p[2].x,
+			p[2].y,
+
+			psxGPU.drAreaX0_10,
+			psxGPU.drAreaY0_9,
+			psxGPU.drAreaX1_10,	
+			psxGPU.drAreaY1_9
+		);
+
+		psxGPU.RenderTriangle(p,0,1,2);
+	}
+
+	delete[] swBuffer;
+}
+
+ void RenderTriangleTest(GPURdrCtx& psxGPU, int* clipping, int x0, int y0, int x1, int y1, int x2, int y2) {
+	psxGPU.drAreaX0_10	= clipping[0];
+	psxGPU.drAreaY0_9	= clipping[1];
+	psxGPU.drAreaX1_10	= clipping[2];
+	psxGPU.drAreaY1_9	= clipping[3];
+
+	Vertex p[3];
+	p[0].x = x0;
+	p[0].y = y0;
+
+	p[1].x = x1;
+	p[1].y = y1;
+
+	p[2].x = x2;
+	p[2].y = y2;
+
+	psxGPU.RenderTriangle(p,0,1,2);
+}
+
+void TestSuite(u8* bufferRGBA, struct mfb_window *window) {
+	// ------------------------------------------------------------
+
+	u8* swBuffer = new u8[1024*1024];
+	memset(swBuffer, 0, 1024*1024);
+
+	// PSX Context.
+	GPURdrCtx psxGPU;
+	psxGPU.swBuffer		= (u16*)swBuffer;
+
+	// Call back context
+	MyCtx cbCtx;
+	cbCtx.window		= window;
+	cbCtx.bufferRGBA	= bufferRGBA;
+	psxGPU.callback	   = rendercallback;
+	psxGPU.userContext = &cbCtx;
+
+	// ------------------------------------------------------------
+
+	psxGPU.interlaced = false;
+
+	int clipping[4];
+
+	clipping[0] =   0; clipping[1] =   0; 
+	clipping[2] = 319; clipping[1] = 239;
+ 
+	RenderTriangleTest(psxGPU,clipping,
+		5,0,
+		0,10,
+		10,10
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		297,2,
+		361,2,
+		297,130
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		361,130,
+		361,2,
+		297,130
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		-23,2,
+		41,2,
+		-23,130
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		-2,83,
+		-12,96,
+		2,84
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		-2,100,
+		-9,100,
+		1,95
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		 8,84,
+		 1,95,
+		14,83
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		 -18,235,
+		 88,227,
+		 12,209
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		 308,137,
+		 329,137,
+		 319,139
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		 274,93,
+		 737,93,
+		 417,1113
+	);
+
+	// Non Optimal
+	RenderTriangleTest(psxGPU,clipping,
+		 301,57,
+		 291,89,
+		 336,45
+	);
+
+	// Non Optimal
+	RenderTriangleTest(psxGPU,clipping,
+		 312,25,
+		 301,57,
+		 350,4
+	);
+
+	// Pair Fail
+	clipping[0] = 128; clipping[1] = 128; clipping[2] = 149; clipping[3] = 215;
+	RenderTriangleTest(psxGPU,clipping,
+		 185,161,
+		 142,173,
+		 142,171
+	);
+
+	psxGPU.interlaced = true;
+
+	clipping[0] = 502; clipping[1] = 190; clipping[2] = 886; clipping[3] = 6191;
+	RenderTriangleTest(psxGPU,clipping,
+		 633,292,
+		1021,128,
+		 842,229
+	);
+
+	clipping[0] = 0; clipping[1] = 20; clipping[2] = 367; clipping[3] = 467;
+	RenderTriangleTest(psxGPU,clipping,
+		 336,110,
+		 336,180,
+		 271,111
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		404,426,
+		355,378,
+		230,423
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		224,389,
+		223,386,
+		232,395
+	);
+
+	RenderTriangleTest(psxGPU,clipping,
+		223,405,
+		211,398,
+		212,401
+	);
+
+
+	psxGPU.interlaced = false;
+
+	// ------------------------------------------------------------
+	delete[] swBuffer;
+}
+
+void ThinTriangles(u8* bufferRGBA, struct mfb_window *window) {
+	u8* swBuffer = new u8[1024*1024];
+	memset(swBuffer, 0, 1024*1024);
+
+	// PSX Context.
+	GPURdrCtx psxGPU;
+	psxGPU.swBuffer		= (u16*)swBuffer;
+
+	// Call back context
+	MyCtx cbCtx;
+	cbCtx.window		= window;
+	cbCtx.bufferRGBA	= bufferRGBA;
+	psxGPU.callback	   = rendercallback;
+	psxGPU.userContext = &cbCtx;
+
+    using namespace std::placeholders;  // for _1, _2, _3...
+ 
+    // common use case: binding a RNG with a distribution
+	float t      = 0.0f;
+
+	float angle  = 0.0f;
+
+	float radius = 0.0f;
+
+	psxGPU.offsetX_s11	= 0;		
+	psxGPU.offsetY_s11	= 0;
+
+	float cx = 128.0f;
+	float cy = 128.0f;
+
+	while (1) {
+		Vertex p[3];
+
+		// Opposite
+		float angleOpp = angle - 3.1415925f;
+		float oppL     = angleOpp - (3.14f * (t / 1200) / 180);
+		float oppR     = angleOpp + (3.14f * (t / 1000) / 180);
+
+		radius = sin(t / 1000.0f) * 50;
+
+		p[0].x = cx + (cos(angle) * radius);
+		p[0].y = cy + (sin(angle) * radius);
+
+		p[1].x = cx + (cos(oppL) * radius);
+		p[1].y = cy + (sin(oppL) * radius);
+
+		p[2].x = cx + (cos(oppR) * radius);
+		p[2].y = cy + (sin(oppR) * radius);
+
+		cx += 1.0f;
+		if (cx > 179.0f) {
+			cx = 77.0f;
+			cy += 1.0f;
+			if (cy > 179.0f) {
+				cy = 77.0f;
+			}
+		}
+	
+		static int size = 0;
+		size++; // 16384 combination of clip
+		psxGPU.drAreaX0_10	= 128;
+		psxGPU.drAreaY0_9	= 128;
+		psxGPU.drAreaX1_10	= 128 + (size & 0x7F);
+		psxGPU.drAreaY1_9	= 128 + ((size>>7) & 0x7F);
+
+
+		printf("TRI : [%i,%i],[%i,%i],[%i,%i] in [%i,%i,%i,%i]\n",
+			p[0].x,
+			p[0].y,
+			p[1].x,
+			p[1].y,
+			p[2].x,
+			p[2].y,
+
+			psxGPU.drAreaX0_10,
+			psxGPU.drAreaY0_9,
+			psxGPU.drAreaX1_10,	
+			psxGPU.drAreaY1_9
+		);
+
+		psxGPU.RenderTriangle(p,0,1,2);
+
+
+		// Head
+		angle += 0.0001f;
+
+		// General T
+		t += 1.0f;
+		if (t > 10000.0f) {
+			t = 1.0f;
+		}
+	}
+
 	delete[] swBuffer;
 }

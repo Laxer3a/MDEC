@@ -189,6 +189,7 @@ module GPUBackend(
 	assign o_pixelInFlight = pixelInFlightL | pixelInFlightR;
 	wire validPixelL1,validPixelR1;
 
+	wire requDataTex_c0L,requDataTex_c0R;
 	GPUPipeCtrl2 GPUPipeCtrl2L(
 		.clk				(clk),
 		.i_nrst				(i_nrst),
@@ -235,7 +236,7 @@ module GPUBackend(
 		//  Memory Side
 		// --------------------------------------------
 
-		.requDataTex_c0				(o_requDataTex_c0L		),
+		.requDataTex_c0				(requDataTex_c0L		),
 		.adrTexReq_c0				(o_adrTexReq_c0L		),
 		.TexHit_c1					(i_TexHit_c1L			),
 		.TexMiss_c1					(i_TexMiss_c1L			),
@@ -295,7 +296,7 @@ module GPUBackend(
 		//  Memory Side
 		// --------------------------------------------
 
-		.requDataTex_c0				(o_requDataTex_c0R		),
+		.requDataTex_c0				(requDataTex_c0R		),
 		.adrTexReq_c0				(o_adrTexReq_c0R		),
 		.TexHit_c1					(i_TexHit_c1R			),
 		.TexMiss_c1					(i_TexMiss_c1R			),
@@ -308,10 +309,33 @@ module GPUBackend(
 		.indexPal					(o_indexPalR			),	// Temp
 		.dataClut_c2				(i_dataClut_c2R			)
 	);
+	
+	assign o_requDataTex_c0L = requDataTex_c0L; // | (i_pausePipeline & i_TexMiss_c1R);
+	assign o_requDataTex_c0R = requDataTex_c0R; // | (i_pausePipeline & i_TexMiss_c1L);
 
 	wire finalValidL = (!oTransparentL) & oValidPixelL;
 	wire finalValidR = (!oTransparentR) & oValidPixelR;
-	
+
+	wire validPipelineData = i_TexHit_c1R && i_TexHit_c1L; // ((i_TexHit_c1R && i_TexHit_c1L) || (!i_TexHit_c1R && i_TexHit_c1L) || (i_TexHit_c1R && !i_TexHit_c1L))
+
+	/* OLD VERSION : 
+	reg validLC1,validRC1;
+	always @(posedge clk)
+	begin
+		validLC1 <= 1'b1;
+		validRC1 <= 1'b1;
+
+		if (!i_nrst) begin
+		end else begin
+			validLC1 <= i_validPixel_L;
+			validRC1 <= i_validPixel_R;
+		end
+
+	end
+	wire validPipelineData = ((i_TexHit_c1R & validLC1)|(!validRC1))
+	                      && ((i_TexHit_c1L & validLC1)|(!validLC1));
+ 	*/
+ 	
 	// ---------------------------------------------
 	// READ BACKGROUND PIXEL FOR BLENDING (Value ignored if not used)
 	// ---------------------------------------------
@@ -380,16 +404,17 @@ module GPUBackend(
 	reg validTextureL,validTextureR;
 	always @(posedge clk)
 	begin
-		if (!i_pausePipeline && ((i_TexHit_c1R && i_TexHit_c1L) || (!i_TexHit_c1R && i_TexHit_c1L) || (i_TexHit_c1R && !i_TexHit_c1L))) begin
+
+		if (!i_pausePipeline && validPipelineData) begin
 			validTextureL <= i_TexHit_c1L;
 			validTextureR <= i_TexHit_c1R;
 		end
-		/* FIX THAT DOES NOT WORK	
+		/*
 		if (!i_pausePipeline) begin
-			validTextureL <= i_TexHit_c1L & validPixelL1;
+			validTextureL <= i_TexHit_c1L;
 		end
 		if (!i_pausePipeline) begin
-			validTextureR <= i_TexHit_c1R & validPixelR1;
+			validTextureR <= i_TexHit_c1R;
 		end
 		*/
 	end

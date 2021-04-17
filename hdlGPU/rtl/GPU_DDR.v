@@ -90,17 +90,20 @@ module GPU_DDR
     input           display_vblank_i,
 	
     // --------------------------------------
-	//   Avalon MM DDR Bus
+	//   GPU Direct 256 bit mem IF
     // --------------------------------------
-	output [16:0]	o_targetAddr,
-	output [ 2:0]	o_burstLength,
-	input			i_busyMem,				// Wait Request (Busy = 1, Wait = 1 same meaning)
-	output			o_writeEnableMem,		//
-	output			o_readEnableMem,		//
-	output [63:0]	o_dataMem,
-	output [7:0]	o_byteEnableMem,
-	input			i_dataValidMem,
-	input  [63:0]	i_dataMem
+    output           o_command,        		// 0 = do nothing, 1 Perform a read or write to memory.
+    input            i_busy,           		// Memory busy 1 => can not use.
+    output   [1:0]   o_commandSize,    		// 0 = 8 byte, 1 = 32 byte. (Support for write ?)
+    
+    output           o_write,          		// 0=READ / 1=WRITE 
+    output [ 14:0]   o_adr,            		// 1 MB memory splitted into 32768 block of 32 byte.
+    output   [2:0]   o_subadr,         		// Block of 8 or 4 byte into a 32 byte block.
+    output  [15:0]   o_writeMask,
+
+    input  [255:0]   i_dataIn,
+    input            i_dataInValid,
+    output [255:0]   o_dataOut
 );
 
 //--------------------------------------
@@ -196,27 +199,18 @@ gpu	gpu_inst(
     .validDataOut	(o_validDataOut)
 );
 
-wire          s_busy;
-wire          s_dataInValid;
-wire [255:0]  s_dataIn;
-wire          s_command;
-wire [  1:0]  s_commandSize;
-wire          s_memwrite;
-wire [ 14:0]  s_adr32;
-wire [  2:0]  s_subAdr;
-wire [ 15:0]  s_mask;
-wire [255:0]  s_dataOut;
+assign o_command = command;
+assign busy		 = i_busy;
+assign o_commandSize = commandSize;
+    
+assign o_write	= memwrite;
+assign o_adr    = adr32;
+assign o_subadr = subAdr;
+assign o_writeMask = mask;
 
-assign busy			       = s_busy;
-assign dataInValid         = s_dataInValid;
-assign dataIn              = s_dataIn;
-assign s_command           = command;
-assign s_commandSize       = commandSize;
-assign s_memwrite          = memwrite;
-assign s_adr32             = adr32;
-assign s_subAdr            = subAdr;
-assign s_mask              = mask;
-assign s_dataOut           = dataOut;
+assign dataIn = i_dataIn;
+assign dataInValid = i_dataInValid;
+assign o_dataOut = dataOut;
 
 /*
 gpu_mem_cache bitFatCache (
@@ -249,6 +243,7 @@ gpu_mem_cache bitFatCache (
 );
 */
 
+/*
 hdlPSXDDR hdlPSXDDR_Instance (
 	// Global Connections
 	.i_clk			(clk),
@@ -277,5 +272,6 @@ hdlPSXDDR hdlPSXDDR_Instance (
 	.i_dataValidMem	(i_dataValidMem	),
 	.i_dataMem		(i_dataMem		)
 );
+*/
 
 endmodule
