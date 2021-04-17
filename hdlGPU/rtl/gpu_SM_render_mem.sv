@@ -222,10 +222,24 @@ always @(*) begin
 	endcase
 end
 
+reg  pInterlaceRender;
+reg  pGPU_REG_CurrentInterlaceField;
+always @(posedge i_clk) begin
+	if (!i_nrst) begin
+		pGPU_REG_CurrentInterlaceField	<= 1'b0;
+		pInterlaceRender				<= 1'b0;
+	end else begin
+		if ((currWorkState == RENDER_WAIT) && (|i_activateRender)) begin
+			pGPU_REG_CurrentInterlaceField	<= GPU_REG_CurrentInterlaceField;
+			pInterlaceRender				<= InterlaceRender;
+		end
+	end
+end
+
 wire selectPixelWriteMaskLine = (!pixelX[0] & stencilReadValue[0]) | (pixelX[0] & stencilReadValue[1]);
 wire isValidLinePixel =	(
 							(isLineInsideDrawArea 																			// VALID AREA
-							&& ((!InterlaceRender)    || (InterlaceRender && (GPU_REG_CurrentInterlaceField != pixelY[0])))	// NON INTERLACED OR INTERLACE BUT VALID AREA
+							&& ((!pInterlaceRender)    || (pInterlaceRender && (pGPU_REG_CurrentInterlaceField != pixelY[0])))	// NON INTERLACED OR INTERLACE BUT VALID AREA
 							&& ((GPU_REG_CheckMaskBit && (!selectPixelWriteMaskLine)) || (!GPU_REG_CheckMaskBit)))
 						);
 
@@ -235,9 +249,9 @@ wire isValidLinePixel =	(
 gpu_scan gpu_scan_instance(
 	.i_clk							(i_clk),
 
-	.i_InterlaceRender				(InterlaceRender),
+	.i_InterlaceRender				(pInterlaceRender),
 
-	.GPU_REG_CurrentInterlaceField	(GPU_REG_CurrentInterlaceField),
+	.GPU_REG_CurrentInterlaceField	(pGPU_REG_CurrentInterlaceField),
 	.i_RegX0						(RegX0),
 	.i_RegY0						(RegY0),
 

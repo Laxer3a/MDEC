@@ -85,8 +85,24 @@ reg	 [ 6:0] counterXSrc;
 reg [2:0]	selNextY;
 reg memoryWrite;
 
-wire signed [11:0] nextLineY    = pixelY + { 9'b0 , i_InterlaceRender , !i_InterlaceRender };	// +1 for normal mode, +2 for interlaced locked render primitives
-wire renderYOffsetInterlace		= (i_InterlaceRender ? (RegY0[0] ^ GPU_REG_CurrentInterlaceField) : 1'b0);
+reg  pInterlaceRender;
+reg  pGPU_REG_CurrentInterlaceField;
+
+always @(posedge i_clk)
+begin
+	if (i_rst) begin
+		pInterlaceRender				<= 1'b0;
+		pGPU_REG_CurrentInterlaceField	<= 1'b0;
+	end else begin
+		if ((currWorkState == RENDER_WAIT) && (i_activateFILL)) begin
+			pInterlaceRender				<= i_InterlaceRender;
+			pGPU_REG_CurrentInterlaceField	<= GPU_REG_CurrentInterlaceField;
+		end
+	end
+end
+
+wire signed [11:0] nextLineY    = pixelY + { 9'b0 , pInterlaceRender , !pInterlaceRender };	// +1 for normal mode, +2 for interlaced locked render primitives
+wire renderYOffsetInterlace		= (pInterlaceRender ? (RegY0[0] ^ pGPU_REG_CurrentInterlaceField) : 1'b0);
 
 always @(*)
 begin
