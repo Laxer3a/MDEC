@@ -7,7 +7,7 @@ module gpu_mem_cache
     ,input           gpu_command_i
     ,input  [  1:0]  gpu_size_i
     ,input           gpu_write_i
-    ,input  [ 14:0]  gpu_addr_lin_i
+    ,input  [ 14:0]  gpu_addr_i
     ,input  [  2:0]  gpu_sub_addr_i
     ,input  [ 15:0]  gpu_write_mask_i
     ,input  [255:0]  gpu_data_out_i
@@ -28,26 +28,21 @@ module gpu_mem_cache
     ,output [255:0]  mem_data_out_o
 );
 
-reg [31:0]  access_addr_q;
 
-// Swizzle here.   (Make swizzle for internal usage)
-wire [14:0] gpu_addr_i			= gpu_addr_lin_i;
-// Unswizzle here. (Make linear for memory access)
-wire [14:0] unswizzle_adr_out	= access_addr_q[14+5:5];
 
 //-----------------------------------------------------------------
-// This cache instance is 2 way set associative.
-// The total size is 16KB.
+// This cache instance is 1 way set associative.
+// The total size is 32KB.
 // The replacement policy is a limited pseudo random scheme
 // (between lines, toggling on line thrashing).
 // The cache is a write through cache, with allocate on read.
 //-----------------------------------------------------------------
 // Number of ways
-parameter GPU_CACHE_NUM_WAYS           = 2;
+parameter GPU_CACHE_NUM_WAYS           = 1;
 
 // Number of cache lines
-parameter GPU_CACHE_NUM_LINES          = 256;
-parameter GPU_CACHE_LINE_ADDR_W        = 8;
+parameter GPU_CACHE_NUM_LINES          = 1024;
+parameter GPU_CACHE_LINE_ADDR_W        = 10;
 
 // Line size (e.g. 32-bytes)
 parameter GPU_CACHE_LINE_SIZE_W        = 5;
@@ -56,13 +51,13 @@ parameter GPU_CACHE_LINE_WORDS         = 8;
 
 // Request -> tag address mapping
 parameter GPU_CACHE_TAG_REQ_LINE_L     = 5;  // GPU_CACHE_LINE_SIZE_W
-parameter GPU_CACHE_TAG_REQ_LINE_H     = 12; // GPU_CACHE_LINE_ADDR_W+GPU_CACHE_LINE_SIZE_W-1
-parameter GPU_CACHE_TAG_REQ_LINE_W     = 8;  // GPU_CACHE_LINE_ADDR_W
+parameter GPU_CACHE_TAG_REQ_LINE_H     = 14; // GPU_CACHE_LINE_ADDR_W+GPU_CACHE_LINE_SIZE_W-1
+parameter GPU_CACHE_TAG_REQ_LINE_W     = 10;  // GPU_CACHE_LINE_ADDR_W
 `define GPU_CACHE_TAG_REQ_RNG          GPU_CACHE_TAG_REQ_LINE_H:GPU_CACHE_TAG_REQ_LINE_L
 
 // Tag fields
-`define GPU_CACHE_TAG_ADDR_RNG          18:0
-parameter GPU_CACHE_TAG_ADDR_BITS       = 19;
+`define GPU_CACHE_TAG_ADDR_RNG          16:0
+parameter GPU_CACHE_TAG_ADDR_BITS       = 17;
 parameter GPU_CACHE_TAG_VALID_BIT       = GPU_CACHE_TAG_ADDR_BITS;
 parameter GPU_CACHE_TAG_DATA_W          = GPU_CACHE_TAG_VALID_BIT + 1;
 
@@ -70,7 +65,7 @@ parameter GPU_CACHE_TAG_DATA_W          = GPU_CACHE_TAG_VALID_BIT + 1;
 parameter GPU_CACHE_TAG_CMP_ADDR_L     = GPU_CACHE_TAG_REQ_LINE_H + 1;
 parameter GPU_CACHE_TAG_CMP_ADDR_H     = 32-1;
 parameter GPU_CACHE_TAG_CMP_ADDR_W     = GPU_CACHE_TAG_CMP_ADDR_H - GPU_CACHE_TAG_CMP_ADDR_L + 1;
-`define   GPU_CACHE_TAG_CMP_ADDR_RNG   31:13
+`define   GPU_CACHE_TAG_CMP_ADDR_RNG   31:15
 
 // Address mapping example:
 //  31          16 15 14 13 12 11 10 09 08 07 06 05 04 03 02 01 00
@@ -84,8 +79,11 @@ parameter GPU_CACHE_TAG_CMP_ADDR_W     = GPU_CACHE_TAG_CMP_ADDR_H - GPU_CACHE_TA
 //  |                    |- GPU_CACHE_TAG_CMP_ADDR_L
 //  |- GPU_CACHE_TAG_CMP_ADDR_H
 
+// ENCODE/DECODE
+wire [14:0] gpu_addr_twid_w    = { gpu_addr_i[6:2], gpu_addr_i[14:7], gpu_addr_i[1:0]};
+
 // Full address
-wire [31:0]                      gpu_addr_w = {12'b0, gpu_addr_i, gpu_sub_addr_i, 2'b0};
+wire [31:0]                      gpu_addr_w = {12'b0, gpu_addr_twid_w, gpu_sub_addr_i, 2'b0};
 
 // Tag addressing and match value
 wire [GPU_CACHE_TAG_REQ_LINE_W-1:0] req_line_addr_w  = gpu_addr_w[`GPU_CACHE_TAG_REQ_RNG];
@@ -118,7 +116,6 @@ localparam STATE_RELOOKUP    = 2'd3;
 reg [STATE_W-1:0]           next_state_r;
 reg [STATE_W-1:0]           state_q;
 
-reg [0:0]  replace_way_q;
 
 //-----------------------------------------------------------------
 // Lookup validation
@@ -136,6 +133,7 @@ else
 //-----------------------------------------------------------------
 // Flopped request
 //-----------------------------------------------------------------
+reg [31:0]  access_addr_q;
 reg [255:0] access_data_q;
 reg [15:0]  access_mask_q;
 reg         access_wr_q;
@@ -176,6 +174,10 @@ begin
 end
 
 wire [GPU_CACHE_TAG_CMP_ADDR_W-1:0] req_addr_tag_cmp_w = access_addr_q[`GPU_CACHE_TAG_CMP_ADDR_RNG];
+
+// ENCODE/DECODE
+wire [14:0] access_addr_twid_w    = access_addr_q[14+5:5];
+wire [14:0] access_addr_detwid_w  = { access_addr_twid_w[9:2], access_addr_twid_w[14:10], access_addr_twid_w[1:0]};
 
 //-----------------------------------------------------------------
 // TAG RAMS
@@ -226,7 +228,7 @@ begin
         tag0_write_r = 1'b1;
     // Line refill
     else if (state_q == STATE_REFILL)
-        tag0_write_r = mem_data_in_valid_i && (replace_way_q == 0);
+        tag0_write_r = mem_data_in_valid_i;
 end
 
 wire [GPU_CACHE_TAG_DATA_W-1:0] tag0_data_out_w;
@@ -248,43 +250,9 @@ wire [GPU_CACHE_TAG_ADDR_BITS-1:0] tag0_addr_bits_w = tag0_data_out_w[`GPU_CACHE
 // Tag hit?
 wire                               tag0_hit_w = tag0_valid_w ? (tag0_addr_bits_w == req_addr_tag_cmp_w) : 1'b0;
 
-// Tag RAM write enable (way 1)
-reg tag1_write_r;
-always @ *
-begin
-    tag1_write_r = 1'b0;
-
-    // Cache flush
-    if (state_q == STATE_FLUSH)
-        tag1_write_r = 1'b1;
-    // Line refill
-    else if (state_q == STATE_REFILL)
-        tag1_write_r = mem_data_in_valid_i && (replace_way_q == 1);
-end
-
-wire [GPU_CACHE_TAG_DATA_W-1:0] tag1_data_out_w;
-
-gpu_mem_cache_tag_ram
-u_tag1
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(tag_addr_r),
-  .data_i(tag_data_in_r),
-  .wr_i(tag1_write_r),
-  .data_o(tag1_data_out_w)
-);
-
-wire                               tag1_valid_w     = tag1_data_out_w[GPU_CACHE_TAG_VALID_BIT];
-wire [GPU_CACHE_TAG_ADDR_BITS-1:0] tag1_addr_bits_w = tag1_data_out_w[`GPU_CACHE_TAG_ADDR_RNG];
-
-// Tag hit?
-wire                               tag1_hit_w = tag1_valid_w ? (tag1_addr_bits_w == req_addr_tag_cmp_w) : 1'b0;
-
 
 wire tag_hit_any_w = 1'b0
                    | tag0_hit_w
-                   | tag1_hit_w
                     ;
 
 //-----------------------------------------------------------------
@@ -321,7 +289,7 @@ begin
     if (state_q == STATE_LOOKUP)
         data0_write_r = {16{access_wr_q}} & {16{access_valid_q & tag0_hit_w}} & access_mask_q;
     else if (state_q == STATE_REFILL)
-        data0_write_r = (mem_data_in_valid_i && replace_way_q == 0) ? 16'hFFFF : 16'h0000;
+        data0_write_r = mem_data_in_valid_i ? 16'hFFFF : 16'h0000;
 end
 
 wire [255:0] data0_data_out_w;
@@ -435,129 +403,6 @@ u_data0_7
 );
 
 
-// Data RAM write enable (way 1)
-reg [15:0] data1_write_r;
-always @ *
-begin
-    data1_write_r = 16'b0;
-
-    if (state_q == STATE_LOOKUP)
-        data1_write_r = {16{access_wr_q}} & {16{access_valid_q & tag1_hit_w}} & access_mask_q;
-    else if (state_q == STATE_REFILL)
-        data1_write_r = (mem_data_in_valid_i && replace_way_q == 1) ? 16'hFFFF : 16'h0000;
-end
-
-wire [255:0] data1_data_out_w;
-wire [255:0] data1_data_in_w = (state_q == STATE_REFILL) ? mem_data_in_i : access_data_q;
-
-wire [31:0]  data1_write_en_w;
-
-assign data1_write_en_w[0+1:0] = {2{data1_write_r[0]}};
-assign data1_write_en_w[2+1:2] = {2{data1_write_r[1]}};
-assign data1_write_en_w[4+1:4] = {2{data1_write_r[2]}};
-assign data1_write_en_w[6+1:6] = {2{data1_write_r[3]}};
-assign data1_write_en_w[8+1:8] = {2{data1_write_r[4]}};
-assign data1_write_en_w[10+1:10] = {2{data1_write_r[5]}};
-assign data1_write_en_w[12+1:12] = {2{data1_write_r[6]}};
-assign data1_write_en_w[14+1:14] = {2{data1_write_r[7]}};
-assign data1_write_en_w[16+1:16] = {2{data1_write_r[8]}};
-assign data1_write_en_w[18+1:18] = {2{data1_write_r[9]}};
-assign data1_write_en_w[20+1:20] = {2{data1_write_r[10]}};
-assign data1_write_en_w[22+1:22] = {2{data1_write_r[11]}};
-assign data1_write_en_w[24+1:24] = {2{data1_write_r[12]}};
-assign data1_write_en_w[26+1:26] = {2{data1_write_r[13]}};
-assign data1_write_en_w[28+1:28] = {2{data1_write_r[14]}};
-assign data1_write_en_w[30+1:30] = {2{data1_write_r[15]}};
-
-gpu_mem_cache_data_ram
-u_data1_0
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(data_addr_r),
-  .data_i(data1_data_in_w[31:0]),
-  .wr_i(data1_write_en_w[3:0]),
-  .data_o(data1_data_out_w[31:0])
-);
-
-gpu_mem_cache_data_ram
-u_data1_1
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(data_addr_r),
-  .data_i(data1_data_in_w[63:32]),
-  .wr_i(data1_write_en_w[7:4]),
-  .data_o(data1_data_out_w[63:32])
-);
-
-gpu_mem_cache_data_ram
-u_data1_2
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(data_addr_r),
-  .data_i(data1_data_in_w[95:64]),
-  .wr_i(data1_write_en_w[11:8]),
-  .data_o(data1_data_out_w[95:64])
-);
-
-gpu_mem_cache_data_ram
-u_data1_3
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(data_addr_r),
-  .data_i(data1_data_in_w[127:96]),
-  .wr_i(data1_write_en_w[15:12]),
-  .data_o(data1_data_out_w[127:96])
-);
-
-gpu_mem_cache_data_ram
-u_data1_4
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(data_addr_r),
-  .data_i(data1_data_in_w[159:128]),
-  .wr_i(data1_write_en_w[19:16]),
-  .data_o(data1_data_out_w[159:128])
-);
-
-gpu_mem_cache_data_ram
-u_data1_5
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(data_addr_r),
-  .data_i(data1_data_in_w[191:160]),
-  .wr_i(data1_write_en_w[23:20]),
-  .data_o(data1_data_out_w[191:160])
-);
-
-gpu_mem_cache_data_ram
-u_data1_6
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(data_addr_r),
-  .data_i(data1_data_in_w[223:192]),
-  .wr_i(data1_write_en_w[27:24]),
-  .data_o(data1_data_out_w[223:192])
-);
-
-gpu_mem_cache_data_ram
-u_data1_7
-(
-  .clk_i(clk_i),
-  .rst_i(rst_i),
-  .addr_i(data_addr_r),
-  .data_i(data1_data_in_w[255:224]),
-  .wr_i(data1_write_en_w[31:28]),
-  .data_o(data1_data_out_w[255:224])
-);
-
-
 //-----------------------------------------------------------------
 // Flush counter
 //-----------------------------------------------------------------
@@ -574,13 +419,6 @@ else
 //-----------------------------------------------------------------
 // Replacement Policy
 //----------------------------------------------------------------- 
-// Using random replacement policy - this way we cycle through the ways
-// when needing to replace a line.
-always @ (posedge clk_i )
-if (rst_i)
-    replace_way_q <= 0;
-else if (state_q == STATE_REFILL && mem_data_in_valid_i)
-    replace_way_q <= replace_way_q + 1;
 
 //-----------------------------------------------------------------
 // Output Result / Ack
@@ -601,7 +439,6 @@ begin
     begin
         case (1'b1)
         tag0_hit_w: data_r = data0_data_out_w;
-        tag1_hit_w: data_r = data1_data_out_w;
         endcase
     end
 
@@ -717,7 +554,7 @@ wire refill_request_w   = (state_q == STATE_LOOKUP && next_state_r == STATE_REFI
 
 assign mem_command_o    = (state_q == STATE_LOOKUP && gpu_write_w & can_accept_w) || (refill_request_w || mem_read_q);
 assign mem_write_o      = ~(refill_request_w || mem_read_q);
-assign mem_addr_o       = (refill_request_w || mem_read_q) ? unswizzle_adr_out : gpu_addr_lin_i;
+assign mem_addr_o       = (refill_request_w || mem_read_q) ? access_addr_detwid_w : gpu_addr_i;
 assign mem_write_mask_o = gpu_write_mask_i;
 assign mem_data_out_o   = gpu_data_out_i;
 assign mem_size_o       = GPU_CMDSZ_32_BYTE;
@@ -741,6 +578,43 @@ begin
         ;
     endcase
 end
+
+reg [31:0] stats_hits_q;
+reg [31:0] stats_miss_q;
+reg [31:0] stats_read_q;
+reg [31:0] stats_write_q;
+reg [31:0] stats_stalls_q;
+
+always @ (posedge clk_i )
+if (rst_i)
+    stats_hits_q   <= 32'b0;
+else if (state_q == STATE_LOOKUP && access_rd_q && tag_hit_any_w)
+    stats_hits_q   <= stats_hits_q + 32'd1;
+
+always @ (posedge clk_i )
+if (rst_i)
+    stats_miss_q   <= 32'b0;
+else if (state_q == STATE_LOOKUP && access_rd_q && !tag_hit_any_w)
+    stats_miss_q   <= stats_miss_q + 32'd1;
+
+always @ (posedge clk_i )
+if (rst_i)
+    stats_read_q   <= 32'b0;
+else if (gpu_read_w && gpu_accept_r)
+    stats_read_q   <= stats_read_q + 32'd1;
+
+always @ (posedge clk_i )
+if (rst_i)
+    stats_write_q   <= 32'b0;
+else if (gpu_write_w && gpu_accept_r)
+    stats_write_q   <= stats_write_q + 32'd1;
+
+always @ (posedge clk_i )
+if (rst_i)
+    stats_stalls_q   <= 32'b0;
+else if ((state_q != STATE_LOOKUP) || (gpu_command_i && gpu_busy_o))
+    stats_stalls_q   <= stats_stalls_q + 32'd1;
+
 `endif
 
 

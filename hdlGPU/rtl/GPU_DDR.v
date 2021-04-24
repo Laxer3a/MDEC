@@ -46,11 +46,13 @@ module GPU_DDR
 //	output	[15:0]	dbg_commmandCount,
 	output          o_dbg_canWrite,
 	output			o_dbg_error,
+	output	[6:0]	o_dbg_busy,
+	output [14:0]   o_adrPrefetch,
 
     // --------------------------------------
 	//   CPU Bus
     // --------------------------------------
-    input			i_gpuAdrA2, // Called A2 because multiple of 4
+    input	[1:0]	i_gpuAdrA,
     input			i_gpuSel,
     input			i_write,
     input			i_read,
@@ -142,6 +144,10 @@ gpu	gpu_inst(
 //	.dbg_commmandCount(dbg_commmandCount),
 	.dbg_canWrite	(o_dbg_canWrite),
 	.dbg_error		(o_dbg_error),
+	.dbg_busy		(o_dbg_busy),
+
+
+	.o_adrPrefetch	(o_adrPrefetch),
 
     // --------------------------------------
     // Memory Interface
@@ -190,7 +196,7 @@ gpu	gpu_inst(
     // --------------------------------------
 	//   CPU Bus
     // --------------------------------------
-    .gpuAdrA2		(i_gpuAdrA2), //), // Called A2 because multiple of 4
+    .gpuAdr			(i_gpuAdrA), 
     .gpuSel			(i_gpuSel),
     .write			(i_write),
     .read			(i_read),
@@ -198,6 +204,8 @@ gpu	gpu_inst(
     .cpuDataOut		(o_cpuDataOut),
     .validDataOut	(o_validDataOut)
 );
+
+`ifndef UNDEFINED_VALUE
 
 assign o_command = command;
 assign busy		 = i_busy;
@@ -212,7 +220,8 @@ assign dataIn = i_dataIn;
 assign dataInValid = i_dataInValid;
 assign o_dataOut = dataOut;
 
-/*
+`else
+
 gpu_mem_cache bitFatCache (
     // Inputs
     .clk_i					(clk),
@@ -220,7 +229,7 @@ gpu_mem_cache bitFatCache (
     .gpu_command_i			(command),
     .gpu_size_i				(commandSize),
     .gpu_write_i			(memwrite),
-    .gpu_addr_lin_i			(adr32),
+    .gpu_addr_i				(adr32),
     .gpu_sub_addr_i         (subAdr),
     .gpu_write_mask_i       (mask),
     .gpu_data_out_i         (dataOut),
@@ -230,18 +239,19 @@ gpu_mem_cache bitFatCache (
 	
 
     // Outputs
-    .mem_busy_i             (s_busy),
-    .mem_data_in_valid_i    (s_dataInValid),
-    .mem_data_in_i          (s_dataIn),
-    .mem_command_o          (s_command),
-    .mem_size_o             (s_commandSize),
-    .mem_write_o            (s_memwrite),
-    .mem_addr_o             (s_adr32),
-    .mem_sub_addr_o         (s_subAdr),
-    .mem_write_mask_o       (s_mask),
-    .mem_data_out_o         (s_dataOut)
+    .mem_busy_i             (i_busy),
+    .mem_data_in_valid_i    (i_dataInValid),
+    .mem_data_in_i          (i_dataIn),
+    .mem_command_o          (o_command),
+    .mem_size_o             (o_commandSize),
+    .mem_write_o            (o_write),
+    .mem_addr_o             (o_adr),
+    .mem_sub_addr_o         (o_subadr),
+    .mem_write_mask_o       (o_writeMask),
+    .mem_data_out_o         (o_dataOut)
 );
-*/
+
+`endif
 
 /*
 hdlPSXDDR hdlPSXDDR_Instance (

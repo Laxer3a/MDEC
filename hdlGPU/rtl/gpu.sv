@@ -10,6 +10,7 @@ See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
 `include "gpu_def.sv"
+`include "profile.sv"
 
 /*
     POSSIBLE OPTIMIZATION :
@@ -57,8 +58,12 @@ module gpu
 	input            gpu_p2m_accept_o,
 	
 //	output	[31:0]	mydebugCnt,
+`ifdef LAXER_STUFF
 	output          dbg_canWrite,
 	output			dbg_error,
+	output	[6:0]	dbg_busy,
+	output [14:0]		o_adrPrefetch,
+`endif
 
     // --------------------------------------
     // Timing / Display
@@ -112,7 +117,7 @@ module gpu
     // --------------------------------------
 	//   CPU Bus
     // --------------------------------------
-    input			gpuAdrA2, // Called A2 because multiple of 4
+    input	[1:0]	gpuAdr,
     input			gpuSel,
     input			write,
     input			read,
@@ -223,7 +228,7 @@ begin
 end
 
 assign display_res_x_o      = horizRes;
-assign display_res_y_o      = (GPU_REG_VerticalResolution & GPU_REG_IsInterlaced) ? 9'd480 : 9'd240;
+assign display_res_y_o      = GPU_REG_VerticalResolution ? 9'd480 : 9'd240;
 assign display_interlaced_o	= GPU_REG_IsInterlaced;
 assign display_x_o          = GPU_REG_DispAreaX;
 assign display_y_o          = GPU_REG_DispAreaY;
@@ -280,14 +285,16 @@ wire        inst_fifo_pop_w;
 wire [31:0] fifoDataOut;
 wire        accept_cv_data_w;
 wire        canWriteFIFO	= inst_fifo_space_w;
-wire        writeFifo		= (!gpuAdrA2 & gpuSel & write & canWriteFIFO) || (gpu_m2p_valid_o && (GPU_REG_DMADirection == DMA_CPUtoGP0));
+wire        writeFifo		= ((gpuAdr == 2'b00) & gpuSel & write & canWriteFIFO) || (gpu_m2p_valid_o && (GPU_REG_DMADirection == DMA_CPUtoGP0));
 
 wire        isFifoEmpty32  = ~inst_fifo_ready_w;
 
 // Command parser / cpu2vram can pop FIFO
 assign      inst_fifo_pop_w = readFifo | accept_cv_data_w;
 
+`ifdef LAXER_STUFF
 assign dbg_canWrite = canWriteFIFO;
+`endif
 
 // From OUTPUT Fifo (vram->cpu/dma)
 //---------------------------------------------------------------
@@ -295,7 +302,7 @@ wire        vc_pixels_valid_w;
 wire [31:0] vc_pixels_data_w;
 wire        vc_pixels_pop_w;
 
-wire        cpuReadFifoOut = (gpuSel & !gpuAdrA2) & read;
+wire        cpuReadFifoOut = (gpuSel & (gpuAdr == 2'b00)) & read;
 
 // Pop the vram->cpu FIFO if sending to the DMA (and it accepts) or when the CPU reads the data
 assign      vc_pixels_pop_w = ((GPU_REG_DMADirection == DMA_GP0toCPU) && gpu_p2m_accept_o) || cpuReadFifoOut;
@@ -347,7 +354,9 @@ wire		activateFill;
 //---------------------------------------------------------------
 wire [15:0]	stencilReadValue16;
 wire stencilError;
+`ifdef LAXER_STUFF
 assign dbg_error = stencilError; // TODO : should be sticky bit for LED ? done outside I guess...
+`endif
 
 // From Render Block
 //---------------------------------------------------------------
@@ -454,7 +463,7 @@ gpu_frontend gpu_frontend_instance (
 	.i_nRst							(i_nrst),
 	
 	.gpuSel							(gpuSel),
-	.gpuAdrA2						(gpuAdrA2),
+	.gpuAdr 						(gpuAdr),
 	.write							(write),
 	.read							(read),
 	
@@ -1012,6 +1021,10 @@ gpu_SM_FILL_mem gpu_SM_FILL_mem_inst(
 //		- Render
 // ------------------------------------------------------------------------------------------
 
+`ifdef LAXER_STUFF
+wire [7:0] prefetchU,prefetchV;
+`endif
+
 gpu_SM_render_mem gpu_SM_render_mem_inst(
 	.i_clk							(clk),
 	.i_nrst							(i_nrst),
@@ -1107,6 +1120,15 @@ gpu_SM_render_mem gpu_SM_render_mem_inst(
 //	.o_stencilReadSelect			(rdr_stencilReadSelect),
 	.i_stencilReadValue				(stencilReadValue16),
 
+
+`ifdef LAXER_STUFF
+	// -----------------------------------
+	// PREFETCH UV
+	// -----------------------------------
+	.o_prefetchU					(prefetchU),
+	.o_prefetchV					(prefetchV),
+`endif
+	
 	// -----------------------------------
 	// [DDR SIDE]
 	// -----------------------------------
@@ -1122,6 +1144,33 @@ gpu_SM_render_mem gpu_SM_render_mem_inst(
     .i_dataInValid					(rdr_mem_dataInValid),
     .o_dataOut						(rdr_mem_dataOut)
 );
+
+`ifdef LAXER_STUFF
+wire [18:0] adrTexPrefetch;
+// Prefetch thing...
+TEXUnit TEXUnitPrefetch(
+	// Register SETUP
+	.GPU_REG_TexBasePageX				(GPU_REG_TexBasePageX),
+	.GPU_REG_TexBasePageY				(GPU_REG_TexBasePageY),
+//		.GPU_REG_TextureXFlip				(GPU_REG_TextureXFlip),
+//		.GPU_REG_TextureYFlip				(GPU_REG_TextureYFlip),
+	.GPU_REG_TexFormat					(GPU_REG_TexFormat),
+	.GPU_REG_WindowTextureMaskX			(GPU_REG_WindowTextureMaskX),
+	.GPU_REG_WindowTextureMaskY			(GPU_REG_WindowTextureMaskY),
+	.GPU_REG_WindowTextureOffsetX		(GPU_REG_WindowTextureOffsetX),
+	.GPU_REG_WindowTextureOffsetY		(GPU_REG_WindowTextureOffsetY),
+	
+	// Dynamic stuff...
+	.coordU_L							(prefetchU),
+	.coordV_L							(prefetchV),
+	.coordU_R							(/*Not used*/),
+	.coordV_R							(/*Not used*/),
+	
+	.texelAdress_L						(adrTexPrefetch),	// HalfWord adress.
+	.texelAdress_R						(/*Not used*/)	// HalfWord adress.
+);
+assign o_adrPrefetch = adrTexPrefetch[18:4]; // 2 byte word -> 32 byte word 
+`endif
 
 // ------------------------------------------------------------------------------------------
 //	- Stencil Cache
@@ -1294,6 +1343,10 @@ begin
 end
 endfunction
 
+`ifdef LAXER_STUFF
+assign dbg_busy = { o_command, isRenderActive , isCopyVCActive , isCopyCVActive , isCopyVVActive , isFILLActive , inst_fifo_ready_w };
+`endif
+
 function [0:0] has_fifo_space; /*verilator public*/
 begin
     has_fifo_space = inst_fifo_space_w;
@@ -1310,6 +1363,7 @@ endfunction
 //-----------------------------------------------------------------
 // Debug logging
 //-----------------------------------------------------------------
+`ifdef ULTRA
 `ifdef verilator
 always @ (posedge clk)
 begin
@@ -1329,5 +1383,5 @@ begin
     end
 end
 `endif
-
+`endif
 endmodule

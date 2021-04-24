@@ -8,7 +8,7 @@ int triangleCounter = 0;
 
 int globalCycleCount = 0;
 
-#define CHECK_AGAINSTREF		(1)
+#define CHECK_AGAINSTREF		(0)
 #define DEBUG_TRIANGLE			(0)
 
 #if 0
@@ -83,7 +83,6 @@ int GPURdrCtx::RenderTriangle(Vertex* pVertex, u8 id0, u8 id1, u8 id2) {
 
 		ppVertex[2]->x = 128 + cos(a+3.159+b)*60;
 		ppVertex[2]->y = 128 + sin(a+3.159+b)*60;
-#endif
 
 		for (int n=0; n < 3; n++) {
 			int x = ppVertex[n]->x;
@@ -92,6 +91,7 @@ int GPURdrCtx::RenderTriangle(Vertex* pVertex, u8 id0, u8 id1, u8 id2) {
 				this->swBuffer[x + (y * 1024)] = 0x0;
 			}
 		}
+#endif
 
 		if (!primitiveSetup.Setup(*this,ppVertex,false /*NOT A LINE*/)) {
 			// Skip primitive.
@@ -111,7 +111,7 @@ int GPURdrCtx::RenderTriangle(Vertex* pVertex, u8 id0, u8 id1, u8 id2) {
 		isLine = false;
 
 		int pixelCounter = 0;
-	#if 1
+
 		Interpolator interp;
 		bool isOddStart	 = primitiveSetup.minTriDAY0 & 1;
 		int startOffset  = (this->interlaced && (isOddStart ^ this->currentInterlaceFrameOdd)) ? 1 : 0;
@@ -122,31 +122,15 @@ int GPURdrCtx::RenderTriangle(Vertex* pVertex, u8 id0, u8 id1, u8 id2) {
 		for (p.y = s.minTriDAY0 + startOffset; p.y <= s.maxTriDAY1; p.y += offsetY) {
 			for (p.x = s.minTriDAX0; p.x <= s.maxTriDAX1; p.x++) {
 				bool insideTriangle = primitiveSetup.perPixelTriangle(p.x,p.y,ppVertex);
-
-				if (insideTriangle) {
-//					printf("Tri:%i,%i\n",p.x,p.y);
-	//				this->swBuffer[p.x     + (p.y * 1024)] = TESTCOLOR;
-					this->swBuffer[p.x     + (p.y * 1024)] = 0xFF00;
-					pixelCounter++;
-//				} else {
-//					this->swBuffer[p.x     + (p.y * 1024)] = 0x0;
-				}
-	#if 0
 				// If p is on or inside all edges, render pixel.
-				if (primitiveSetup.perPixelTriangle(p.x,p.y,ppVertex)) {
-	#if CHECK_AGAINSTREF
-					this->swBuffer[p.x     + (p.y * 1024)] = TESTCOLOR;
-	#else
-	//				primitiveSetup.perPixelInterp(p.x,p.y,ppVertex,interp);
-	//				this->pixelPipeline(p.x,p.y,interp);
-	#endif
-					// RENDERING IS DONE BY NS function !!! Here is just reference pixel counter.
+				if (insideTriangle) {
+					primitiveSetup.perPixelInterp(p.x,p.y,ppVertex,interp);
+					this->pixelPipeline(p.x,p.y,interp);
 				}
-	#endif
 			}
 		}
-	#endif
 
+#if 0
 		int PSFurther = RenderTriangleFurtherPair(pVertex, id0, id1, id2);
 		if (pixelCounter != PSFurther) {
 			static int failure = 0;
@@ -163,6 +147,7 @@ int GPURdrCtx::RenderTriangle(Vertex* pVertex, u8 id0, u8 id1, u8 id2) {
 				}
 			}
 		}
+#endif
 		performRefresh(0,0);
 //	}
 

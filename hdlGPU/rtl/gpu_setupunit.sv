@@ -9,6 +9,7 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
+`include "profile.sv"
 `include "gpu_def.sv"
 
 module gpu_setupunit(
@@ -109,6 +110,11 @@ module gpu_setupunit(
 	output signed [11:0]		o_minTriDAX0,
 	output signed [11:0]		o_maxTriDAX1,
 	output signed [11:0]		o_minTriDAY0,
+	
+`ifdef LAXER_STUFF
+	output        [7:0]			o_prefetchU,
+	output        [7:0]			o_prefetchV,
+`endif
 	
 	// ------------------------------------------
 	// Output RGBUV per pixel (Left / Right pipeline)
@@ -585,6 +591,14 @@ module gpu_setupunit(
 	wire signed [PREC+8:0] offBR 		= offB + BSX;
 	wire signed [PREC+8:0] offUR 		= offU + USX;
 	wire signed [PREC+8:0] offVR 		= offV + VSX;
+
+	wire signed [PREC+8:0] offPrefUR 	= offU + ((i_scanDirectionR2L ? USX : -USX) * 16);
+	wire signed [PREC+8:0] offPrefVR 	= offV + ((i_scanDirectionR2L ? VSX : -VSX) * 16);
+	
+`ifdef LAXER_STUFF
+	assign o_prefetchU					= RegU0 + offPrefUR[PREC+7:PREC];
+	assign o_prefetchV					= RegV0 + offPrefVR[PREC+7:PREC];
+`endif
 	
 	assign o_pixRL 						= RegR0 + offR[PREC+7:PREC]; // TODO Here ?
 	assign o_pixGL 						= RegG0 + offG[PREC+7:PREC];

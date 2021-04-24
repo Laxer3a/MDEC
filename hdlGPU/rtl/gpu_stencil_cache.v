@@ -1,3 +1,5 @@
+`include "profile.sv"
+
 module gpu_stencil_cache
 (
     // Inputs
@@ -221,6 +223,7 @@ end
 
 assign stencil_rd_value_o = selOut;
 
+`ifdef ULTRA
 `ifdef verilator
 function write; /* verilator public */
 input  [31:0]   addr;
@@ -269,6 +272,8 @@ begin
 end
 endfunction
 `endif
+`endif // [ifdef ULTRA] Else fail my visual C++ setup, need to patch manually the C++ generated code each time.
+
 
 endmodule
 

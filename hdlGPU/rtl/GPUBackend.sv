@@ -420,8 +420,8 @@ module GPUBackend(
 	end
 	
 	wire writeCacheLine			= o_PixelBlockTransition[1] & (!i_pausePipeline);
-	wire writeSigL				= finalValidL & ((validTextureL & !noTexture) | noTexture);
-	wire writeSigR				= finalValidR & ((validTextureR & !noTexture) | noTexture);
+	wire writeSigL				= finalValidL  /* & ((validTextureL & !noTexture) | noTexture) */;
+	wire writeSigR				= finalValidR  /* & ((validTextureR & !noTexture) | noTexture) */;
 	
 	// MEMO BEFORE_TEXTURE : writeSig = (oValidPixelR | oValidPixelL);
 	wire        writeSig		= !i_pausePipeline & (writeSigL | writeSigR);

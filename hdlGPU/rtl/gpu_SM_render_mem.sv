@@ -9,6 +9,7 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
+`include "profile.sv"
 `include "gpu_def.sv"
 
 module gpu_SM_render_mem(
@@ -105,6 +106,11 @@ module gpu_SM_render_mem(
 	output	[14:0]			o_stencilReadAdr,
 	input	[15:0]			i_stencilReadValue,
 
+`ifdef LAXER_STUFF
+	output	[7:0]			o_prefetchU,
+	output	[7:0]			o_prefetchV,
+`endif
+	
 	// -----------------------------------
 	// [DDR SIDE]
 	// -----------------------------------
@@ -422,7 +428,12 @@ gpu_setupunit gpu_setupunit_inst(
 		
 	.i_scanDirectionR2L				(nextDir),
 	.i_dirReg						(dir),
-		
+
+`ifdef LAXER_STUFF
+	.o_prefetchU					(o_prefetchU),
+	.o_prefetchV					(o_prefetchV),
+`endif
+
 	.o_pixRL						(pixRL),
 	.o_pixGL						(pixGL),
 	.o_pixBL						(pixBL),
@@ -469,6 +480,63 @@ directCacheDoublePort directCacheDoublePortInst(
     .o_isHitB						(TexHit_c1R),
     .o_isMissB						(TexMiss_c1R)
 );
+
+`ifdef verilator
+//---------------------------------------------------------------------
+// PERFORMANCE COUNTER FOR TEX$ MISS / SUCCESS
+//---------------------------------------------------------------------
+reg pipeReqA; reg pipeReqB;
+reg pipepipeReqA; reg pipepipeReqB;
+reg prevTexHit_c1L; reg prevTexHit_c1R;
+
+always @(posedge i_clk)
+begin
+	pipeReqA 		<= requDataTex_c0L;
+	pipeReqB 		<= requDataTex_c0R;
+	pipepipeReqA	<= pipeReqA;
+	pipepipeReqB	<= pipeReqB;
+	prevTexHit_c1L	<= TexHit_c1L;
+	prevTexHit_c1R	<= TexHit_c1R;
+end
+
+reg [22:0] HitACounter;
+reg [22:0] HitBCounter;
+reg [22:0] TotalACounter;
+reg [22:0] TotalBCounter;
+
+always @(posedge i_clk)
+begin
+	if (!i_nrst) begin
+		HitACounter   <= 23'd0;
+		TotalACounter <= 23'd0;
+		HitBCounter   <= 23'd0;
+		TotalBCounter <= 23'd0;
+	end else begin
+		if (TexHit_c1L) begin
+			HitACounter   <= HitACounter   + 23'd1;
+			TotalACounter <= TotalACounter + 23'd1; 
+		end else begin
+			// !TexHit_c1L
+			// - (prevHit=1 & pipeReqA)
+			// - pipeReg & !pipepipeReg
+			if ((!pipepipeReqA & pipeReqA) | (pipeReqA & prevTexHit_c1L)) begin
+				TotalACounter <= TotalACounter + 23'd1;
+			end
+		end
+
+		if (TexHit_c1R) begin
+			HitBCounter   <= HitBCounter   + 23'd1;
+			TotalBCounter <= TotalBCounter + 23'd1; 
+		end else begin
+			if ((!pipepipeReqA & pipeReqA) | (pipeReqA & prevTexHit_c1L)) begin
+				TotalBCounter <= TotalBCounter + 23'd1;
+			end
+		end
+		
+	end
+end
+`endif
+//---------------------------------------------------------------------
 
 // ------------------------------------------------
 //   CLUT STUFF
@@ -914,7 +982,8 @@ begin
 	end
 	SETUP_INTERP_REAL:
 	begin
-		nextWorkState			= endInterpCounter ? WAIT_3 : SETUP_INTERP_REAL;
+		nextWorkState			= endInterpCounter ? WAIT_3 : SETUP_INTERP_REAL;	
+//		nextWorkState			= isNULLDET ? RENDER_WAIT : (endInterpCounter ? WAIT_3 : SETUP_INTERP_REAL);
 		incrementInterpCounter	= 1;
 	end
 	WAIT_3: // 4 cycles to wait
@@ -936,6 +1005,8 @@ begin
 					// And request ours. (Making sure we request when counter is not updated)
 					requClutCacheUpdate = (!ClutCacheWrite);
 					nextWorkState		= WAIT_2;
+//					requClutCacheUpdate = (!ClutCacheWrite) && (!isNULLDET);
+//					nextWorkState		= isNULLDET ? RENDER_WAIT : WAIT_2;
 				end else begin
 					nextWorkState		= WAIT_1;
 				end
@@ -969,6 +1040,7 @@ begin
 	begin
 		loadNext = 1;
 		if (earlyTriangleReject) begin	// Bounding box and draw area do not intersect at all.
+//		if (earlyTriangleReject || isNULLDET) begin	// Bounding box and draw area do not intersect at all.
 			nextWorkState	= RENDER_WAIT;
 		end else begin
 			nextWorkState	= START_LINE_TEST_LEFT;
@@ -1054,6 +1126,7 @@ begin
 	end
 	SNAKE: // 11
 	begin
+//		if (isBottomInsideBBox) begin // DET not used before because of pipeline latency.
 		if (isBottomInsideBBox && (!isNULLDET)) begin // DET not used before because of pipeline latency.
 			// TODO : For now pipeline LOCK scanning. Can try later to unlock...
 				loadNext	= 1;

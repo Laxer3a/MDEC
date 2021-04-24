@@ -17,7 +17,7 @@ module gpu_frontend(
 	//  CPU Side
 	//----------------------------
 	input					gpuSel,
-	input					gpuAdrA2,
+	input	[1:0]  		    gpuAdr,
 	input					write,
 	input					read,
 	
@@ -156,16 +156,30 @@ reg [31:0] dataOut;
 reg        dataOutValid;
 always @(*)
 begin
-	// Register +4 Read
-	if (gpuAdrA2) begin
-		dataOut	=  reg1Out;
-	end else begin
+	dataOut = 32'b0;
+
+	case (gpuAdr)
+	2'd0: // 1F801810h
+	begin
 		if (i_useVCCopyFIFOOut) begin
 			dataOut = i_valueVCCopyFIFOOut;
 		end else begin
 			dataOut	= regGpuInfo;
 		end
 	end
+	2'd1: // 1F801814h
+	begin
+		dataOut	=  reg1Out;
+	end
+	2'd2:  // 1F801818h
+	begin
+		dataOut = {o_GPU_REG_GP1MasterTexDisable, o_GPU_REG_RangeX0, o_GPU_REG_DispAreaY, o_GPU_REG_DispAreaX};
+	end
+	2'd3:  // 1F80181ch
+	begin
+		dataOut = {o_GPU_REG_RangeY1, o_GPU_REG_RangeY0, o_GPU_REG_RangeX1};
+	end
+	endcase
 end
 
 always @(posedge i_clk) begin
@@ -189,7 +203,7 @@ assign cpuDataOutValid	= pDataOutValid;
 	
 wire parserWaitingNewCommand;
 
-wire writeGP1		=  gpuAdrA2 & gpuSel & write;
+wire writeGP1		=  (gpuAdr == 2'b01) & gpuSel & write;
 
 wire cmdGP1			= writeGP1 & (cpuDataIn[29:27] == 3'd0); // Short cut for most commands.
 wire cmdGP1_8		= writeGP1 & (cpuDataIn[29:27] == 3'd1); // Short cut for most commands.

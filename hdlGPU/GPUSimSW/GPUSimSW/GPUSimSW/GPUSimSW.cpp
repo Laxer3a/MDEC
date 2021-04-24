@@ -70,6 +70,7 @@ int GetCurrentParserState(VGPU_DDR* mod) {
 
 unsigned int RGB	(int r, int g, int b)	{ return (r & 0xFF) | ((g & 0xFF)<<8) | ((b & 0xFF)<<16);	}
 unsigned int Point	(int x, int y)			{ return (x & 0x7FFF) | ((y & 0x7FFF)<<16);					}
+unsigned int UV     (int u, int v)			{ return (u & 0xFF) | ((v & 0xFF)<<8);						}
 
 u8* buffer32Bit;
 
@@ -83,6 +84,180 @@ GPUCommandGen* getCommandGen() {
 u8* heatMapRGB;
 u8* heatMapEntries[64*512];
 int  heatMapEntriesCount = 0;
+
+struct CacheSim {
+	int CACHE_LINE_BIT = 10;	// 1024 entries -> 32 KB for 1024.
+	int CACHE_LINE		= 1<<CACHE_LINE_BIT;
+	
+	CacheSim(int mode, int lineCount) {
+		swizzlingMode = mode;
+		CACHE_LINE_BIT	= lineCount;
+		CACHE_LINE		= 1<<CACHE_LINE_BIT;
+		valid = new bool[CACHE_LINE];
+		tag   = new u32 [CACHE_LINE];
+		fetch = new u32 [CACHE_LINE];
+		memset(valid,false,CACHE_LINE * sizeof(bool));
+		prefetch[0] = -1;
+		prefetch[1] = -1;
+		prefetch[2] = -1;
+		prefetch[3] = -1;
+	}
+
+	~CacheSim() {
+		delete[] valid;
+		delete[] tag;
+		delete[] fetch;
+	}
+
+	int		swizzlingMode;
+	// 
+	bool*	valid;
+	u32*	tag;
+	u32*	fetch;
+	u32		prefetch[4];
+	
+	bool isCacheHit(u32 addr) {
+#if 0
+		return true;
+#else
+		// Go through internal conversion
+		u32 saddr = addrSwizzling(addr);
+
+		// 
+		u32 index  = saddr & (CACHE_LINE-1);
+		u32 tagA   = saddr >> CACHE_LINE_BIT;
+		if (valid[index] && (tagA == tag[index])) {
+			return true;
+		} else {
+			for (int n=0; n < 4; n++) {
+				if (prefetch[n] == saddr) {
+					// Copy prefetched line to cache real.
+					markCache(addr,-1);
+
+					markCache(addr-1,0);
+					markCache(addr+1,1);
+					markCache(addr+64,2);
+					return true;
+				}
+			}
+
+			return false; // No entry.
+		}
+#endif
+	}
+
+	void markCache(u32 addr, int prefetchSlot) {
+		// Go through internal conversion
+		u32 saddr = addrSwizzling(addr);
+		u32 tagA  = saddr >> CACHE_LINE_BIT;
+		u32 index = saddr & (CACHE_LINE-1);
+
+		if (prefetchSlot == -1) {
+			valid[index]	= true;
+			tag  [index]	= tagA;
+		} else {
+			prefetch[prefetchSlot] = saddr;
+		}
+	}
+	
+	u32 addrSwizzling(u32 addr) {
+		u32 newAddr = addr;
+		int adrBlockH;
+		int adrBlockX;
+		int adrBlockV;
+		int adrBlockY;
+
+		switch (swizzlingMode) {
+		case 1:
+			// 64x64
+			adrBlockH  = addr & 0x3;			// 4x16 = 64 pixel
+			adrBlockX  = (addr>>2) & 0xF;		// 16 block of 64 pixels.
+
+			adrBlockV  = (addr >> 6) & 63;		// 64 vertical.
+			adrBlockY  = ((addr >> 6)>>6) & 7;  // 8 block
+			newAddr = adrBlockH | (adrBlockV<<2) | (adrBlockX<<(2+6)) | (adrBlockY<<(2+6+4));
+			break;
+		case 2:
+			// 128x64
+			adrBlockH  = addr & 0x7;			// 8x16 = 128 pixel
+			adrBlockX  = (addr>>3) & 0x7;		// 8 block of 128 pixels.
+
+			adrBlockV  = (addr >> 6) & 63;		// 64 vertical.
+			adrBlockY  = ((addr >> 6)>>6) & 7;  // 8 block
+			newAddr = adrBlockH | (adrBlockV<<3) | (adrBlockX<<(3+6)) | (adrBlockY<<(3+6+3));
+			break;
+		case 3:
+			// 256x64
+			adrBlockH  = addr & 0xF;			// 8x16 = 128 pixel
+			adrBlockX  = (addr>>4) & 0x3;		// 8 block of 128 pixels.
+
+			adrBlockV  = (addr >> 6) & 63;		// 64 vertical.
+			adrBlockY  = ((addr >> 6)>>6) & 7;  // 8 block
+			newAddr = adrBlockH | (adrBlockV<<4) | (adrBlockX<<(4+6)) | (adrBlockY<<(4+6+2));
+			break;
+		case 4:
+			// 64x128
+			adrBlockH  = addr & 0x3;			// 4x16 = 64 pixel
+			adrBlockX  = (addr>>2) & 0xF;		// 16 block of 64 pixels.
+
+			adrBlockV  = (addr >> 6) & 127;		// 128 vertical.
+			adrBlockY  = ((addr >> 6)>>7) & 3;
+			newAddr = adrBlockH | (adrBlockV<<2) | (adrBlockX<<(2+7)) | (adrBlockY<<(2+7+4));
+			break;
+		case 5:
+			// 128x128
+			adrBlockH  = addr & 0x7;			// 8x16 = 128 pixel
+			adrBlockX  = (addr>>3) & 0x7;		// 8 block of 128 pixels.
+
+			adrBlockV  = (addr >> 6) & 127;		// 128 vertical.
+			adrBlockY  = ((addr >> 6)>>7) & 3;
+			newAddr = adrBlockH | (adrBlockV<<3) | (adrBlockX<<(3+7)) | (adrBlockY<<(3+7+3));
+			break;
+		case 6:
+			// 256x128
+			// YYYYYYYYY.XXXXXX
+			// 876543210.543210
+			// YYVVVVVVV.XXHHHH => 22VVVVVVVHHHH
+			adrBlockH  = addr & 0xF;			// 16x16 = 256 pixel
+			adrBlockX  = (addr>>4) & 3;			// 
+			adrBlockV  = (addr >> 6) & 127;		// 128 vertical.
+			adrBlockY  = ((addr >> 6)>>7) & 3;
+			newAddr = adrBlockH | (adrBlockV<<4) | (adrBlockX<<(4+7)) | (adrBlockY<<(4+7+2));
+		case 7:
+			// 64x256
+			adrBlockH  = addr & 0x3;			// 4x16 = 64 pixel
+			adrBlockX  = (addr>>2) & 0xF;		// 16 block of 64 pixels.
+
+			adrBlockV  = (addr >> 6) & 255;		// 256 vertical.
+			adrBlockY  = ((addr >> 6)>>8) & 1;
+			newAddr = adrBlockH | (adrBlockV<<2) | (adrBlockX<<(2+8)) | (adrBlockY<<(2+8+4));
+			break;
+		case 8:
+			// 128x256
+			adrBlockH  = addr & 0x7;			// 8x16 = 128 pixel
+			adrBlockX  = (addr>>3) & 0x7;		// 8 block of 128 pixels.
+
+			adrBlockV  = (addr >> 6) & 255;		// 256 vertical.
+			adrBlockY  = ((addr >> 6)>>8) & 1;
+			newAddr = adrBlockH | (adrBlockV<<3) | (adrBlockX<<(3+8)) | (adrBlockY<<(3+8+3));
+			break;
+		case 9:
+			// 256x256
+			adrBlockH  = addr & 0xF;			// 16x16 = 256 pixel
+			adrBlockX  = (addr>>4) & 3;			// 
+
+			adrBlockV  = (addr >> 6) & 255;		// 256 vertical.
+			adrBlockY  = ((addr >> 6)>>8) & 1;
+			newAddr = adrBlockH | (adrBlockV<<4) | (adrBlockX<<(4+8)) | (adrBlockY<<(4+8+2));
+			break;
+		default:
+			// No remapping.
+			newAddr = addr;
+			break;	
+		}
+		return newAddr;
+	}
+};
 
 void SetWriteHeat(int adr) {
 	// Convert 32 byte block ID into pixel start.
@@ -106,14 +281,15 @@ void SetWriteHeat(int adr) {
 	}
 }
 
-void SetReadHeat(int adr) {
+void SetReadHeat(int adr, bool cacheMiss) {
 	// Convert 32 byte block ID into pixel start.
 	u8* basePix = &heatMapRGB[adr*64];
+	int offset = cacheMiss ? 2 : 1;
 	for (int n=0; n < heatMapEntriesCount; n++) {
 		if (heatMapEntries[n] == basePix) {
 			// Update R
 			for (int n=0; n < 16; n++) {
-				basePix[(n*4) + 1] = 255;
+				basePix[(n*4) + offset] = 255;
 			}
 			break;
 		}
@@ -122,7 +298,7 @@ void SetReadHeat(int adr) {
 	if (heatMapEntriesCount < 64*512) {
 		heatMapEntries[heatMapEntriesCount++] = basePix;
 		for (int n=0; n < 16; n++) {
-			basePix[n*4 + 1] = 255;
+			basePix[n*4 + offset] = 255;
 		}
 	}
 }
@@ -131,17 +307,17 @@ void UpdateHeatMap() {
 	for (int n=0; n < heatMapEntriesCount; n++) {
 		u8* basePix = heatMapEntries[n];
 		
-		
-		if ((basePix[0] != 0) || (basePix[1] != 0)) {
-			bool exitR = basePix[0] <= 32;
-			bool exitG = basePix[1] <= 32;
+		if ((basePix[0] != 0) || (basePix[1] != 0) || (basePix[2] != 0)) {
+			bool exitR = basePix[0] <= 24;
+			bool exitG = basePix[1] <= 24;
+			bool exitB = basePix[2] <= 24;
 
 			if (!exitR) {
 				u8 v = basePix[0] - 1;
 				for (int n=0; n < 16; n++) {
 					basePix[(n*4)] = v;
 				}
-				if (v==32) {
+				if (v==24) {
 					exitR = true;
 				}
 			}
@@ -151,12 +327,22 @@ void UpdateHeatMap() {
 				for (int n=0; n < 16; n++) {
 					basePix[(n*4)+1] = v;
 				}
-				if (v==32) {
+				if (v==24) {
 					exitG = true;
 				}
 			}
 
-			if (exitG & exitR) {
+			if (!exitB) {
+				u8 v = basePix[2] - 1;
+				for (int n=0; n < 16; n++) {
+					basePix[(n*4)+2] = v;
+				}
+				if (v==24) {
+					exitB = true;
+				}
+			}
+
+			if (exitG & exitR & exitB) {
 				// Memcpy
 				for (int m=n+1; m < heatMapEntriesCount; m++) {
 					heatMapEntries[m-1] = heatMapEntries[m]; 
@@ -508,6 +694,19 @@ void loadGPUCommands(const char* fileName, GPUCommandGen& commandGenerator) {
 
 int main(int argcount, char** args)
 {
+	int swizzleMode = 0;
+	int cacheLineCount  = 10;
+	int contentNumber = 0;
+	if (argcount > 3) {
+		// Swizzle type
+		swizzleMode = atoi(args[1]);		// 0..9
+		// Memory cache line log2
+		cacheLineCount = atoi(args[2]);		// 9,10,11,12
+		// Content number.
+		contentNumber = atoi(args[3]);		// -1,1,2,3,4,5,6,7,9,28,29
+	}
+	// 2,3,4,5,6,7,9,28,29
+
 //	cacheMapping();
 //	return 0;
 
@@ -525,6 +724,7 @@ int main(int argcount, char** args)
 	const char* fileName = NULL;
 
 	bool skipScan = false;
+/*
 	while (parseArg < argcount) {
 		if (strcmp(args[parseArg],"-nolog")==0) {
 			skipScan = true;
@@ -538,6 +738,7 @@ int main(int argcount, char** args)
 			fileName = args[parseArg++];
 		}
 	}
+*/
 	int sL    = 0;
 
 	enum DEMO {
@@ -558,13 +759,25 @@ int main(int argcount, char** args)
 		TEST_A,
 	};
 
-//	DEMO manual		= TEST_A;
-//	DEMO manual		= USE_AVOCADO_DATA;
-	DEMO manual		= USE_DUMP_SIM;
+	DEMO manual		= USE_AVOCADO_DATA;
+	int source = 3; // ,5 : SW Namco Logo wrong, Score
+	
+//	DEMO manual		= USE_DUMP_SIM;
 	const char* dumpFileName   = "E:\\MDEC\\gran_turismo2.dump";
-	const char* log_inFileName = "E:\\MDEC\\gran_turismo2-sim-91.txt";
+	const char* log_inFileName = "E:\\MDEC\\single_frame_gt2_91.txt";
 
 //	DEMO manual		= TESTSUITE;
+	switch (contentNumber) {
+	case -1:
+		manual = USE_DUMP_SIM;
+		break;
+	default:
+		manual = USE_AVOCADO_DATA;
+		source = contentNumber;
+		break;
+	}
+
+//	manual		= TEST_A;
 
 	bool compare     = false;
 
@@ -576,12 +789,21 @@ int main(int argcount, char** args)
 
 	// HW
 	bool useScanRT   = false;
-	int  lengthCycle = 2350000;
+	int  lengthCycle = 750000;
 
-	const int READ_LATENCY = 1;
+	bool removeVisuals = false;
+
+
+	const int READ_LATENCY = 20;
 
 	// 9,17,12 = Very good test for stencil.
-	int source = 7; // ,5 : SW Namco Logo wrong, Score
+
+	// - Get cycle count !!!
+	// Content
+	// -1,
+	// Cache format:
+	// Size:line count (9..12 =>16..128KB 10 bit=32 KB)
+	// Swizzling :
 
 	switch (source) {
 	case  0:  binSrc = fopen("E:\\JPSX\\Avocado\\FF7Station","rb");				break; // GOOD COMPLETE
@@ -625,13 +847,14 @@ int main(int argcount, char** args)
 
 
 
-	bool useScan = (fileName ? (!skipScan) : useScanRT) & !useSWRender;
+	bool useScan = (fileName ? (!skipScan) : useScanRT) /* & !useSWRender*/;
 
 	// ------------------------------------------------------------------
 	// Export Buffer as PNG ?
 	// ------------------------------------------------------------------
 	// Put background for debug.
 	const bool	useCheckedBoard				= false;
+	const bool useVRAMDump					= true;
 
 	// ------------------------------------------------------------------
 	// Fake VRAM PSX
@@ -642,14 +865,16 @@ int main(int argcount, char** args)
 	unsigned char* refStencil = new unsigned char[16384 * 32]; 
 
 	int readCount = 0;
+	int uniqueReadCount = 0;
+	int readHit = 0;
+	int readMiss = 0;
+	bool* uniqueReadsAdr = new bool[1024*1024];
+	memset(uniqueReadsAdr,0,1024*1024*sizeof(bool));
 
 	memset(buffer,0,1024*1024);
 //	memset(&buffer[2048],0x00,2048*511);
 //	rasterTest((u16*)buffer);
 
-	if (useCheckedBoard) {
-		drawCheckedBoard(buffer);
-	}
 
 	// ------------------------------------------------------------------
 	// [Instance of verilated GPU & custom VCD Generator]
@@ -657,6 +882,33 @@ int main(int argcount, char** args)
 	VGPU_DDR* mod		= new VGPU_DDR();
 	VCScanner*	pScan   = new VCScanner();
 				pScan->init(4000);
+
+	if (useCheckedBoard) {
+		drawCheckedBoard(buffer);
+		u16* p = (u16*)buffer;
+		int id = 0;
+		for (int y=0; y < 512; y++) {
+			for (int x=0; x < 1024; x++) {
+				*p++ = id & 0x7FFF;
+				id++;
+			}
+		}
+	}
+
+	if (useVRAMDump) {
+		FILE* fd = fopen("dump.vram","rb");
+		u16* buff16 = (u16*)buffer;
+		fread(buffer,sizeof(u16),1024*512,fd);
+
+		// ----- Sync Stencil cache and VRAM state.
+		for (int y=0; y < 512; y++) {
+			for (int x=0; x < 1024; x++) {
+				bool bBit    = (buff16[x + (y*1024)] & 0x8000) ? true : false;
+				setStencil(mod,x,y,bBit);
+			}
+		}
+		fclose(fd);
+	}
 
 #if 0
 	u16 fuckPointList[] = {
@@ -1364,6 +1616,7 @@ int main(int argcount, char** args)
 	switch (demo) {
 	case TEST_A:
 	{
+		/*
 		commandGenerator.writeRaw(0xE3000000 | (0<<0) | (0<<10));
 		commandGenerator.writeRaw(0xE4000000 | (320<<0) | (240<<10));
 
@@ -1371,6 +1624,87 @@ int main(int argcount, char** args)
         commandGenerator.writeRaw(0x171c7aac);
         commandGenerator.writeRaw(0x271db0f7);
         commandGenerator.writeRaw(0x001d88ba);
+		*/
+/*
+		// Fail Single pixel.
+        commandGenerator.writeRaw(0x2cccd0d4);
+        commandGenerator.writeRaw(0x01be00fa);
+        commandGenerator.writeRaw(0x53751e17);
+        commandGenerator.writeRaw(0x0153010d);
+        commandGenerator.writeRaw(0x0348f913);
+        commandGenerator.writeRaw(0x0111003b);
+        commandGenerator.writeRaw(0x776cc799);
+        commandGenerator.writeRaw(0x00270105);
+        commandGenerator.writeRaw(0x320869a3);
+*/
+/*
+                commandGenerator.writeRaw(0x265fa7b1);
+                commandGenerator.writeRaw(0x01cd0101);
+                commandGenerator.writeRaw(0x224a6692);
+                commandGenerator.writeRaw(0x001e0086);
+                commandGenerator.writeRaw(0x4248164d);
+                commandGenerator.writeRaw(0x00ed0087);
+                commandGenerator.writeRaw(0x13ca588e);
+*/
+
+/*
+                commandGenerator.writeRaw(0x24FFFFFF);
+                commandGenerator.writeRaw(Point(257, 237));
+                commandGenerator.writeRaw(0x224a0000 | UV(0x92,0x66));
+                commandGenerator.writeRaw(Point(134,30));
+                commandGenerator.writeRaw(0x42480000 | UV(0x4D,0x16));
+                commandGenerator.writeRaw(Point(135,237));
+                commandGenerator.writeRaw(UV(0x8E,0x58));
+*/
+
+				commandGenerator.writeRaw(0x01000000);
+                commandGenerator.writeRaw(0x35599b7f);
+                commandGenerator.writeRaw(0x00190102);
+                commandGenerator.writeRaw(0x11ad0f2c);
+                commandGenerator.writeRaw(0x2d9e6a75);
+                commandGenerator.writeRaw(0x0097006c);
+                commandGenerator.writeRaw(0x4a48d631);
+                commandGenerator.writeRaw(0x12baf6e4);
+                commandGenerator.writeRaw(0x00ed0095);
+                commandGenerator.writeRaw(0x0a280f6d);
+/*
+                commandGenerator.writeRaw(0x24FFFFFF);
+                commandGenerator.writeRaw(Point(257, 177));
+                commandGenerator.writeRaw(0x224a0000 | UV(255,0));
+                commandGenerator.writeRaw(Point(134,30));
+                commandGenerator.writeRaw(0x42480000 | UV(0,255));
+                commandGenerator.writeRaw(Point(135,177));
+                commandGenerator.writeRaw(UV(255,128));
+*/
+
+/*
+		// Fail 239 pixels.
+//  1st  Color1+Command    (CcBbGgRrh)
+        commandGenerator.writeRaw(0x3cb875f0);
+//  2nd  Vertex1           (YyyyXxxxh)
+        commandGenerator.writeRaw(Point(251,164)); // 
+//  3rd  Texcoord1+Palette (ClutYyXxh)
+        commandGenerator.writeRaw(0x2f9ef876);
+//  4th  Color2            (00BbGgRrh)
+        commandGenerator.writeRaw(0x0609f6df);
+//  5th  Vertex2           (YyyyXxxxh)
+        commandGenerator.writeRaw(Point(20,103));
+//  6th  Texcoord2+Texpage (PageYyXxh)
+        commandGenerator.writeRaw(0x0c98772f);
+//  7th  Color3            (00BbGgRrh)
+        commandGenerator.writeRaw(0x12149a1c);
+//  8th  Vertex3           (YyyyXxxxh)
+        commandGenerator.writeRaw(Point(50,339));
+//  9th  Texcoord3         (0000YyXxh)
+        commandGenerator.writeRaw(0x1f2c50fe);
+// (10th) Color4           (00BbGgRrh) (if any)
+        commandGenerator.writeRaw(0x2b1613ae);
+// (11th) Vertex4          (YyyyXxxxh) (if any)
+        commandGenerator.writeRaw(Point(8,129));
+// (12th) Texcoord4        (0000YyXxh) (if any)
+        commandGenerator.writeRaw(0x21193333);	// 0x33 -> 51,51
+*/
+
 /*
 		commandGenerator.writeRaw(0x20FF00FF);
 		commandGenerator.writeRaw(0x00000020);
@@ -2345,6 +2679,10 @@ int main(int argcount, char** args)
 	int prevCommandParseState = -1;
 	int prevCommandWorkState  = -1;
 
+	int readTexture = 0;
+	int readBGOrClut = 0;
+	int writeCount = 0;
+
 //	TestSuite(bufferRGBA, window);
 
 //	ThinTriangles(bufferRGBA, window);
@@ -2353,9 +2691,7 @@ int main(int argcount, char** args)
 	if (useSWRender || compare) {
 		RenderCommandSoftware(bufferRGBA, buffer, commandGenerator,window);
 		printTotalTimeCycle();
-		if (!compare) {
-			return 0;
-		}
+		return 0;
 	}
 
 //	Sleep(5000);
@@ -2366,6 +2702,8 @@ int main(int argcount, char** args)
 #else
 		= true;
 #endif
+
+	CacheSim* cache = new CacheSim(swizzleMode,cacheLineCount);
 
 	int primitiveCount = 0;
 
@@ -2404,7 +2742,7 @@ int main(int argcount, char** args)
 			//
 			// Update window every 2048 cycle.
 			//
-			if (updateBuff) {
+			if (updateBuff && !removeVisuals) {
 //			if (((clockCnt & 0x3F)==0)) {
 				Convert16To32(buffer, bufferRGBA);
 //				Convert16To32((u8*)swBuffer, bufferRGBA);
@@ -2414,7 +2752,7 @@ int main(int argcount, char** args)
 				updateBuff = false;
 
 				int diffClock = clockCnt - prevClockCnt;
-				printf("Clock %i (%i)\n",clockCnt,currentCommandID);
+				// printf("Clock %i (%i)\n",clockCnt,currentCommandID);
 				prevClockCnt = clockCnt;				
 
 				if (state < 0)
@@ -2452,12 +2790,12 @@ int main(int argcount, char** args)
 
 		};
 
-		mod->i_busy = 0; // rand() & 1;
+		mod->i_busy = rand() & 1;
 
 		mod->clk    = 1;
 		mod->eval();
 
-		if (useHeatMap) {
+		if (useHeatMap && !removeVisuals) {
 			if ((clockCnt>>1 & 31) == 0) {
 				UpdateHeatMap();
 				int state = mfb_update(window,bufferRGBA);
@@ -2487,6 +2825,8 @@ int main(int argcount, char** args)
 			if (useHeatMap) { SetWriteHeat(burstAdr>>5); }
 
 			int baseAdr = burstAdr;
+
+			writeCount++;
 /*
 			if (baseAdr != (mod->o_targetAddr<<3)) {
 				printf("WRITE ERROR !\n");
@@ -2600,9 +2940,34 @@ int main(int argcount, char** args)
 				burstSizeRead	= mod->o_commandSize;
 				burstAdr		= (mod->o_adr<<5) | (mod->o_subadr<<2);
 				readCount++;
-				if (useHeatMap) { SetReadHeat(burstAdr>>5); }
+				if (burstSizeRead == 0) {
+					readTexture++;
+				} else {
+					readBGOrClut++;
+				}
+
+				if (uniqueReadsAdr[mod->o_adr] == false) {
+					uniqueReadsAdr[mod->o_adr] = true;
+					uniqueReadCount++;
+				}
+
 				transactionRead = true;
-				readLatency = READ_LATENCY;
+
+				if (cache->isCacheHit(mod->o_adr)) {
+					readLatency = 1;
+					readHit++;
+				} else {
+					readLatency = READ_LATENCY;
+					cache->markCache(mod->o_adr,-1);
+					cache->markCache(mod->o_adr+1,0);
+					cache->markCache(mod->o_adr-1,1);
+					cache->markCache(mod->o_adr+64,2);
+//					cache->markCache(mod->o_adrPrefetch,-1);
+//					printf("Dist %i\n",mod->o_adr - mod->o_adrPrefetch);
+					// cache->markCache(mod->o_adr+2,3);
+					readMiss++;
+				}
+				if (useHeatMap) { SetReadHeat(burstAdr>>5,readLatency > 1); }
 			}
 		}
 
@@ -2611,7 +2976,7 @@ int main(int argcount, char** args)
 		// -----------------------------------------
 		mod->i_write		= 0;
 		mod->i_gpuSel		= 0;
-		mod->i_gpuAdrA2		= 0;
+		mod->i_gpuAdrA		= 0;
 		mod->i_cpuDataIn	= 0;
 
 		// Cheat... should read system register like any normal CPU...
@@ -2636,9 +3001,9 @@ int main(int argcount, char** args)
 			if (uploadData) {
 				mod->i_gpuSel		= 1;
 				if (commandGenerator.isGP1()) {
-					mod->i_gpuAdrA2		= 1;
+					mod->i_gpuAdrA		= 1;
 				} else {
-					mod->i_gpuAdrA2		= 0;
+					mod->i_gpuAdrA		= 0;
 				}
 				mod->i_write		= 1;
 				mod->i_cpuDataIn	= commandGenerator.getRawCommand();
@@ -2658,6 +3023,16 @@ int main(int argcount, char** args)
 		// PNG SCREEN SHOT PER CYCLE IF NEEDED.
 		// ----
 		clockCnt++;
+
+		static int doNothing = 0;
+		if (mod->o_dbg_busy & (~(8|16))) {
+			doNothing = 0;
+		} else {
+			doNothing++;
+			if (doNothing > 200) {
+				break;
+			}
+		}
 	}
 
 	//
@@ -2685,8 +3060,6 @@ int main(int argcount, char** args)
 	}
 #endif
 
-	 mfb_close(window);
-
 	//
 	// ALWAYS WRITE A FRAME AT THE END : BOTH STENCIL AND VRAM.
 	//
@@ -2699,21 +3072,38 @@ int main(int argcount, char** args)
 		printf("\n");
 	}
 	*/
+	printf("Content ID %i / CacheLines %i / Cache Structure %i\n",contentNumber,cacheLineCount,swizzleMode);
+	printf("Cycle Count : %i\n",clockCnt / 2);
+	printf("Read Memory : %i\n",readMiss);
+	printf("Read Hit : %i\n",readHit);
+	printf("Read Miss : %i\n",readMiss);
+	printf("Unique Read Count : %i\n",uniqueReadCount);
+	printf("Read Count Texture : %i\n",readTexture);
+	printf("Read Count BG or Clut : %i\n",readBGOrClut);
+	printf("Write Count : %i\n",writeCount);
 
-	for (int y = 0; y<4; y++) {
-		for (int x = 0; x<5; x++) {
-			printf("%04x,",(((u16*)buffer)[x+(y*1024)]));
+	fflush(stdout);
+
+	if (argcount > 3) {
+		char bufferName[256];
+		char bufferNameMsk[256];
+		sprintf(bufferName,"output_%i_%i_%i.png",swizzleMode,cacheLineCount,contentNumber);
+		sprintf(bufferNameMsk,"output_msk%i_%i_%i.png",swizzleMode,cacheLineCount,contentNumber);
+ 		int errorCount = dumpFrame(mod, bufferName, bufferNameMsk,buffer,clockCnt>>1, true);
+	} else {
+ 		int errorCount = dumpFrame(mod, "output.png", "output_msk.png",buffer,clockCnt>>1, true);
+		if (errorCount) {
+	//		printf("STENCIL PROBLEM"); while (1) {}
 		}
-	}
-
- 	int errorCount = dumpFrame(mod, "output.png", "output_msk.png",buffer,clockCnt>>1, true);
-	if (errorCount) {
-//		printf("STENCIL PROBLEM"); while (1) {}
 	}
 
 	if (compare) {
 		compareBuffers(buffer, refBuffer);
 	}
+
+	 mfb_close(window);
+
+	delete cache;
 
 	delete [] buffer;
 	delete [] refBuffer;

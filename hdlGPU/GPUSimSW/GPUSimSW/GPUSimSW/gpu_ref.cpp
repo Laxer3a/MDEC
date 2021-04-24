@@ -457,6 +457,7 @@ u16  GPURdrCtx::sampleTexture(u8 Upixel, u8 Vpixel) {
 	int U = Upixel;
 	int V = Vpixel;
 	u16 pixel;
+
 	switch (this->textFormat2) {
 	case 0:
 	{
@@ -467,7 +468,7 @@ u16  GPURdrCtx::sampleTexture(u8 Upixel, u8 Vpixel) {
 		int vramAdr = (U & 0x3FF) + (V*1024);
 		pixel = this->swBuffer[vramAdr];
 		u8 palIndex = (pixel >> (subPix * 4)) & 0xf;
-		pixel = this->swBuffer[((palIndex + this->rtClutX) & 0x3FF) + (this->rtClutY*1024)];
+		pixel = this->palette[palIndex];
 	}
 	break;
 	case 1:
@@ -479,7 +480,7 @@ u16  GPURdrCtx::sampleTexture(u8 Upixel, u8 Vpixel) {
 		int vramAdr = (U & 0x3FF) + (V*1024);
 		pixel = this->swBuffer[vramAdr];
 		u8 palIndex = (pixel >> (subPix * 8)) & 0xFF;
-		pixel = this->swBuffer[((palIndex + (this->rtClutX)) & 0x3FF) + (this->rtClutY*1024)];
+		pixel = this->palette[palIndex];
 	}
 	break;
 	case 2:
@@ -687,6 +688,15 @@ void GPURdrCtx::pixelPipeline(s16 x, s16 y, Interpolator& interp) {
 		u8 tr,tg,tb;
 		u8 uCoord,vCoord;
 		this->textureUnit(interp.uinterp,interp.vinterp,/*out*/uCoord,/*out*/vCoord);
+
+#if 0
+		{
+			int U = (uCoord>>2) + (this->pageX4);
+			int V = vCoord      + (this->pageY1);
+			long long int vramAdr = (U & 0x3FF) + (V*1024);	//	printf("X:%i,Y:%i->U:%i,V:%i->Adr:%p\n",x,y,uCoord,vCoord,vramAdr);
+		}
+#endif
+
 		u16 texel = this->sampleTexture(uCoord,vCoord);
 		tr		=  texel      & 0x1F;
 		tg		= (texel>> 5) & 0x1F;
@@ -3011,7 +3021,9 @@ nextCommand:
 			// Fill command.
 			isSizedPrimitive = true;
 			break;
-
+		case 1:
+			continueLoop = false; // Nop
+			break;
 		}
 		rtIsTextured		= false;
 		break;
@@ -3128,6 +3140,7 @@ nextCommand:
 			case 0:
 				rtClutX = ((operand >> 16)     & 0x3F) * 16;
 				rtClutY = (operand >> (16+6)) & 0x1FF;
+				memcpy(palette,&this->swBuffer[rtClutX + rtClutY*1024],256*2);
 				break;
 			case 1: 
 				pageX4  = ((operand >> 16) & 0xF) * 64;
