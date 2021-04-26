@@ -6,6 +6,8 @@
 
 #define DUMPWAV
 
+#include <verilated_vcd_c.h>
+
 #include <inttypes.h>
 typedef struct wavfile_header_s {
 	char ChunkID[4];   /*  4   */
@@ -456,7 +458,7 @@ int main()
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	const bool	useScan					= true;
+	const bool	useScan					= false;
 	const int   useScanRange			= false;
 	const int	scanStartCycle			= 30;
 	const int	scanEndCycle			= 50;
@@ -480,11 +482,15 @@ int main()
 		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramM[n] = 0;
 	}
 
-	registerVerilatedMemberIntoScanner(mod,pScan);
-
+	// registerVerilatedMemberIntoScanner(mod,pScan);
 	// Associate my VCD Scanner to the verilated object.
+	VerilatedVcdC   tfp;
 	if (useScan) {
-		pScan->addPlugin(new ValueChangeDump_Plugin("spuLogREAD.vcd"));
+		Verilated::traceEverOn(true);
+		VL_PRINTF("Enabling GTKWave Trace Output...\n");
+
+		mod->trace (&tfp, 99);
+		tfp.open ("spu_waves.vcd");
 	}
 
 	// ------------------------------------------------------------------
@@ -579,7 +585,7 @@ int main()
 	bool scanConstraint = false;
 
 	loader("E:\\ff7-101-the-prelude.spudump");
-#define SAMPLE_COUNT	(10)
+#define SAMPLE_COUNT	(22000)
 
 #ifdef DUMPWAV
 	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");
@@ -610,6 +616,11 @@ int main()
 
 		mod->i_clk    = 1;
 		mod->eval();
+
+		if (useScan) {
+			tfp.dump(clockCnt);
+		}
+		clockCnt++;
 
 		scanConstraint = waitCount >= StartRecord; // mod->SPU_IF__DOT__SPU_instance__DOT__currVoice >= 24 /* (waitCount > scanFrom)*/
 					  /* && (mod->SPU__DOT__PValidSample) */;
@@ -676,11 +687,6 @@ int main()
 
 // Generate VCD if needed
 
-		if (useScan && scanConstraint) {
-			pScan->eval(clockCnt);
-			clockCnt++;
-		}
-
 		//-------------------------------------------------------------------------------------
 		// SIMULATED VRAM READ/WRITE
 		// Very basic and stupid protocol :
@@ -691,10 +697,11 @@ int main()
 
 		mod->i_clk = 0;
 		mod->eval();
-		if (useScan && scanConstraint) {
-			pScan->eval(clockCnt);
-			clockCnt++;
+
+		if (useScan) {
+			tfp.dump(clockCnt);
 		}
+		clockCnt++;
 
 #if 0
 		int revCounter = mod->SPU_IF__DOT__SPU_instance__DOT__reverbCnt;
