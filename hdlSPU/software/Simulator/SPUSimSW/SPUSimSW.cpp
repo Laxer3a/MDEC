@@ -350,7 +350,7 @@ void interpreter(int counter) {
 					uploadSize = size;
 					uploadPtr  = 0;
 					bytesWritten = 0;
-					printf("UPLOAD START @clk %i\n",counter);
+//					printf("UPLOAD START @clk %i\n",counter);
 					pState = UPLOAD_DATA;
 				} else {
 					printf("Unknown opcode %c (%d) @ 0x%x, breaking\n", opcode, opcode, ptrData-1);
@@ -458,10 +458,7 @@ int main()
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	const bool	useScan					= false;
-	const int   useScanRange			= false;
-	const int	scanStartCycle			= 30;
-	const int	scanEndCycle			= 50;
+	const bool	useScan					= true;
 
 	// ------------------------------------------------------------------
 	// Fake SPU RAM PSX.
@@ -585,7 +582,7 @@ int main()
 	bool scanConstraint = false;
 
 	loader("E:\\ff7-101-the-prelude.spudump");
-#define SAMPLE_COUNT	(88000)
+#define SAMPLE_COUNT	(19800)
 
 #ifdef DUMPWAV
 	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");
@@ -593,6 +590,7 @@ int main()
 #endif
 
 	int StartRecord = 0;
+	bool dolog = false;
 
 	while ((waitCount < 768* SAMPLE_COUNT)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 		//	&& (clockCnt < (350*2))			// ADDITION TEST IF GPU GET STUCK TO EXIT : GLOBAL COUNTER.
@@ -617,7 +615,7 @@ int main()
 		mod->i_clk    = 1;
 		mod->eval();
 
-		if (useScan) {
+		if (useScan && dolog) {
 			tfp.dump(clockCnt);
 		}
 		clockCnt++;
@@ -658,6 +656,9 @@ int main()
 			PCM16_stereo_t buffer_p;
 			buffer_p.left  = mod->AOUTL;
 			buffer_p.right = mod->AOUTR;
+			if (buffer_p.left || buffer_p.right) {
+				dolog = true;
+			}
 			// printf("%x\n", mod->SPU__DOT__reg_adpcmCurrAdr[0]);
 			int ret = fwrite(&buffer_p, sizeof(PCM16_stereo_t), 1, dumpWav);
 		}
@@ -698,7 +699,7 @@ int main()
 		mod->i_clk = 0;
 		mod->eval();
 
-		if (useScan) {
+		if (useScan && dolog) {
 			tfp.dump(clockCnt);
 		}
 		clockCnt++;
@@ -1050,7 +1051,7 @@ void validateUpload(VSPU_IF* mod, bool useCPU, VCScanner* pScan, int* time) {
 				// Wait...
 //				printf("%i",status);
 			} else {
-				printf("%x\n",(0x2000 + n));
+//				printf("%x\n",(0x2000 + n));
 				for (int p=0; p<32; p++) {
 					writeReg(0x1F801DA8,0x2000+n, pScan, time);					// start adr
 					n++;
