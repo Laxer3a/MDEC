@@ -334,10 +334,10 @@ begin
 		regSoundRAMDataXFerCtrl		<= 16'h4;
 		reg_ignoreLoadRepeatAddress	<= 24'd0;
 		reg_endx					= 24'd0;
-		regRingBufferIndex			= 9'd0;
+		regRingBufferIndex			<= 9'd0;
 		regIsLastADPCMBlk			= 1'b0;
 		reg_isRepeatADPCMFlag		= 1'b0;
-		reverb_CounterWord			= 18'd0;
+		reverb_CounterWord			<= 18'd0;
 	end else begin
 		if (internalWrite) begin
 			if (isD80_DFF) begin		// D80~DFF
@@ -424,7 +424,7 @@ begin
 					// 5'h10: [1F801DA0] Do nothing... (WEIRD reg)
 					5'h11:	begin
 								reg_mBase			<= dataIn;		// 1F801DA2h - 1A2h
-								reverb_CounterWord	= 18'd0;
+								reverb_CounterWord	<= 18'd0;
 							end
 					5'h12:	reg_ramIRQAddr		<= dataIn;			// 1F801DA4h - 1A4h
 					5'h13:	begin									// 1F801DA6h - 1A6h
@@ -579,7 +579,7 @@ begin
 		end
 		
 		if (ctrlSendOut) begin
-			regRingBufferIndex = regRingBufferIndex + 9'd1;
+			regRingBufferIndex <= regRingBufferIndex + 9'd1;
 		end
 		
 		// Updated each time a new sample is issued over the voice.
@@ -601,9 +601,9 @@ begin
 				// reverb_CounterWord     >= 262144 + ~reg_mBase+1 -1
 				// reverb_CounterWord     >=          ~reg_mBase+1 -1  (262144 out of range 17:0, loop counter, not needed), +1-1 simplify.
 				// replace                ==          ~reg_mBase
-				reverb_CounterWord = 18'd0;
+				reverb_CounterWord <= 18'd0;
 			end else begin
-				reverb_CounterWord = reverb_CounterWord + 18'd1;
+				reverb_CounterWord <= reverb_CounterWord + 18'd1;
 			end
 		end
 	end // end reset
