@@ -1,10 +1,11 @@
 #include "GPUCommandGen.h"
 
-GPUCommandGen::GPUCommandGen():readCounter(0),writeCounter(0)
+GPUCommandGen::GPUCommandGen(bool forceRamWrite):readCounter(0),writeCounter(0)
 {
 	commandsHead	= new bool[SIZE_ARRAY];
 	commandGP1      = new u8  [SIZE_ARRAY];
 	commands        = new u32 [SIZE_ARRAY];
+	timeStamps		= new u64 [SIZE_ARRAY];
 	diff			= 0;
 	colorsV[0].r	= 0; colorsV[0].g = 0; colorsV[0].b = 0;
 	noColor			= true;
@@ -18,10 +19,17 @@ GPUCommandGen::GPUCommandGen():readCounter(0),writeCounter(0)
 	srcVertex		= 0;
 	clutFlag		= 0;
 	pageFlag		= 0;
+	currStamp       = 0;
+
+	if (forceRamWrite) {
+		writeRaw(0xE3000000);
+		writeRaw(0xE4000000 | (1023) | (511<<10));
+	}
 }
 
 GPUCommandGen::~GPUCommandGen()
 {
+	delete[] timeStamps;
 	delete[] commandsHead;
 	delete[] commandGP1;
 	delete[] commands;
@@ -42,6 +50,7 @@ GPUCommandGen::~GPUCommandGen()
 
 bool GPUCommandGen::writeRaw			(u32 word, bool isCommand, u8 isGP1) {
 	if (diff >= 0) {
+		timeStamps  [writeCounter  ] = currStamp;
 		commandsHead[writeCounter  ] = isCommand;
 		commandGP1  [writeCounter  ] = isGP1;
 		commands    [writeCounter++] = word;

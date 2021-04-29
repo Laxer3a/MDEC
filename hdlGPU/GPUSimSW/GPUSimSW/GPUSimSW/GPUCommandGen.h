@@ -9,6 +9,7 @@ struct VertexCmdGen {
 typedef unsigned char u8;
 typedef unsigned int  u32;
 typedef unsigned short u16;
+typedef unsigned long long int u64;
 
 struct Color {
 	u8  r;
@@ -70,7 +71,7 @@ struct Rect {
 
 class GPUCommandGen {
 public:
-	GPUCommandGen();
+	GPUCommandGen(bool forceRamWrite);
 	~GPUCommandGen();
 	
 	// (2)
@@ -124,6 +125,8 @@ public:
 
 	bool writeGP1			(u32 word);
 
+	inline void setTime		(u64 val) { currStamp = val; }
+
 	bool writeRaw			(u32 word, bool head, u8 gp1);
 	bool writeRaw			(u32 word);
 	void resetBuffer		() { readCounter = 0; writeCounter = 0; diff = 0; }
@@ -134,6 +137,11 @@ public:
 	u8	 isGP1				();
 
 	u32	 getRawCommand		();
+	u64* getRawTiming		(u32& size) {
+		size = writeCounter - readCounter;
+		return &timeStamps[readCounter];
+	}
+
 	u32* getRawCommands		(u32& size) {
 		size = writeCounter - readCounter;
 		return &commands[readCounter];
@@ -146,9 +154,11 @@ private:
 	void genParams			(int cnt, bool NOTEX);
 	static const int SIZE_ARRAY = 10000000;
 	
+	u64*			timeStamps;
 	u32*			commands;	// 2 MB Enough, in case we transfer textures...
 	bool*			commandsHead;
 	u8*				commandGP1;
+	u64				currStamp;
 	u32				readCounter;
 	u32				writeCounter;
 	int				diff;

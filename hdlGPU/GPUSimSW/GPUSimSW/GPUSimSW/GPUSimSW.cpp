@@ -30,7 +30,7 @@ class VGPU_DDR;
 
 #include "gpu_ref.h"
 
-void RenderCommandSoftware(u8* bufferRGBA, u8* srcBuffer, GPUCommandGen& commandGenerator,struct mfb_window *window);
+void RenderCommandSoftware(u8* bufferRGBA, u8* srcBuffer, u64 maxTime, GPUCommandGen& commandGenerator,struct mfb_window *window);
 void RandomBenchTriangle(u8* bufferRGBA, struct mfb_window *window);
 void ThinTriangles(u8* bufferRGBA, struct mfb_window *window);
 void TestSuite(u8* bufferRGBA, struct mfb_window *window);
@@ -568,6 +568,36 @@ u64 ValueHexAfter(u8* start, u8* pattern) {
     return result;
 }
 
+u64 ValueIntAfter(u8* start, u8* pattern) {
+	// Only space and 0..9
+	// Stop on others.
+    u8* res = found(start, pattern);
+    u64 result = -1;
+    if (res) {
+        result = 0;
+
+        while (*res == ' ') {
+            res++;
+        }
+
+        // parse all spaces
+        while (*res >= '0' && *res <= '9') {
+            result = (result * 10) + (*res - '0');
+            res++;
+        }
+    }
+    return result;
+}
+
+u64 GetTime(u8* start, u64& lastTime) {
+	u64 result = ValueIntAfter(start, (u8*)" @ ");
+    if ((result != -1) && result > lastTime) {
+        lastTime = result;
+    }
+    return result;
+}
+
+
 void loadGPUCommands(const char* fileName, GPUCommandGen& commandGenerator) {
     FILE* file = fopen(fileName, "rb");
 
@@ -639,8 +669,11 @@ void loadGPUCommands(const char* fileName, GPUCommandGen& commandGenerator) {
 				u32 addr = ValueHexAfter(p,(u8*)"]:");
 				u32 value= ValueHexAfter(p,(u8*)"= ");
 				u8  mask = ValueHexAfter(p,(u8*)"mask=");
+
+				u64 time = GetTime(p, finalTime);
 				
 				if (param=found(p,(u8*)"GPU")) {
+					commandGenerator.setTime(time);
 					if ((addr & 0x7) == 0) {
 						commandGenerator.writeRaw(value);
 					} else {
@@ -1333,7 +1366,7 @@ int main(int argcount, char** args)
 	*/
 
 	// This is the object used in the main loop to store/send 32 bit word to the GPU.
-	GPUCommandGen	commandGenerator;
+	GPUCommandGen	commandGenerator(true);
 
 	gCommandReg = &commandGenerator;
 
@@ -2689,7 +2722,7 @@ int main(int argcount, char** args)
 //	RandomBenchTriangle(bufferRGBA, window);
 
 	if (useSWRender || compare) {
-		RenderCommandSoftware(bufferRGBA, buffer, commandGenerator,window);
+		RenderCommandSoftware(bufferRGBA, buffer,(u64)-1,commandGenerator,window);
 		printTotalTimeCycle();
 		return 0;
 	}
@@ -3225,12 +3258,14 @@ void rendercallback(GPURdrCtx& ctx, void* userContext,u8 commandID, u32 commandN
 	// printf("%02x (%i)\n",commandID,commandNumber);
 }
 
-void RenderCommandSoftware(u8* bufferRGBA, u8* srcBuffer, GPUCommandGen& commandGenerator,struct mfb_window *window) {
+void RenderCommandSoftware(u8* bufferRGBA, u8* srcBuffer, u64 maxTime, GPUCommandGen& commandGenerator,struct mfb_window *window) {
 	u8* swBuffer = new u8[1024*1024];
 	memcpy(swBuffer, srcBuffer, 1024*1024);
 
 	u32 commandCount;
 	u32* p = commandGenerator.getRawCommands(commandCount);
+	u64* pStamp = commandGenerator.getRawTiming(commandCount);
+
 	u8* pGP1 = commandGenerator.getGP1Args();
 	// PSX Context.
 	GPURdrCtx psxGPU;
@@ -3242,7 +3277,7 @@ void RenderCommandSoftware(u8* bufferRGBA, u8* srcBuffer, GPUCommandGen& command
 	cbCtx.bufferRGBA	= bufferRGBA;
 
 	// Run the rendering of the commands...
-	psxGPU.commandDecoder(p,pGP1,commandCount,rendercallback,&cbCtx);
+	psxGPU.commandDecoder(p,pStamp,pGP1,commandCount,rendercallback,&cbCtx, maxTime);
 
 	dumpFrame(NULL, "output_sw.png", "output_msk_sw.png",swBuffer,0, true);
 

@@ -98,8 +98,8 @@ begin
         GPU_REG_WindowTextureOffsetY<= 5'd0;
         GPU_REG_DrawAreaX0			<= 10'd0;
         GPU_REG_DrawAreaY0			<= 10'd0; // 8:0 on old GPU.
-        GPU_REG_DrawAreaX1			<= 10'd1023;	//
-        GPU_REG_DrawAreaY1			<= 10'd511;		//
+        GPU_REG_DrawAreaX1			<= 10'd0;
+        GPU_REG_DrawAreaY1			<= 10'd0;
         GPU_REG_ForcePixel15MaskSet <= 0;
         GPU_REG_CheckMaskBit		<= 0;
     end else begin

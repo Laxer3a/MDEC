@@ -447,9 +447,6 @@ void Convert16To32(u8* buffer, u8* data) {
 GPURdrCtx::GPURdrCtx() {
 	// Reset everything to zero for now.
 	memset(this,0,sizeof(GPURdrCtx));
-	// same as our gpu.
-	this->drAreaX1_10	= 1023;
-	this->drAreaY1_9	= 511;
 	GP1_MasterTexDisable = false;
 }
 
@@ -2928,7 +2925,7 @@ void GPURdrCtx::loadColor(u32 operand) {
 	}
 }
 
-void GPURdrCtx::commandDecoder(u32* pStream, u8* isGP1, u32 size, postRendercallback callback_, void* userContext_) {
+void GPURdrCtx::commandDecoder(u32* pStream, u64* pTimeStamps, u8* isGP1, u32 size, postRendercallback callback_, void* userContext_, u64 maxTime) {
 	u32* pStreamE = &pStream[size];
 
 	callback	= callback_;
@@ -2948,6 +2945,11 @@ nextCommand:
 	}
 #else
 	u32 command = *pStream++;
+    u64 time    = *pTimeStamps++;
+
+    if (time > maxTime) {
+        return;
+    }
 
 	if (*isGP1++) {
 		if ((command >> 24) == 0x08) {
@@ -3121,7 +3123,7 @@ nextCommand:
 
 		// -----------------------------------------
 		// [Load Vertex]
-		operand = *pStream++;
+		operand = *pStream++; pTimeStamps++;
 		s16 x = (((s32)operand)<<(16+5))>>(16+5);
 		s16 y = (((s32)operand)<<    5 )>>(16+5);
 		u8  topV = (operand>>24);
@@ -3130,7 +3132,7 @@ nextCommand:
 		// -----------------------------------------
 
 		if (rtIsTextured) {
-			operand = *pStream++;
+			operand = *pStream++; pTimeStamps++;
 
 			// Read TexCoord + Palette or texPage or nothing (step 0,1, Nothing=2,3)
 			// [Load UV]
@@ -3158,7 +3160,7 @@ nextCommand:
 			{
 			case 0:
 				// [Load Size]
-				operand = *pStream++;
+				operand = *pStream++; pTimeStamps++;
 				width	=   operand     & 0x03FF;
 				height	= (operand>>16) & 0x01FF;
 				break;
@@ -3281,6 +3283,7 @@ nextCommand:
 
 		if (isPerVtxCol && continueLoop) {
 			operand	= *pStream++; // Load NEXT COLOR IF NEEDED.
+            pTimeStamps++;
 		}
 
 		isFirstVertex = false;
