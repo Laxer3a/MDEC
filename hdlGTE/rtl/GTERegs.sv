@@ -443,6 +443,202 @@ begin
 	end
 end
 
+`ifdef verilator 
+always @ (posedge i_clk)
+begin
+	//------------------------------------------
+	// RGB FIFO
+	//------------------------------------------
+
+	// R Fifo
+	if (p_wb.pushR | cpuWrtCRGB[0]) $display(" [GTE_WRB] CRGB0 R %02x = %02x", DR_RGB0 , p_wb.pushR ? CRGB1.r   : i_dataIn[ 7: 0]); // R
+	if (p_wb.pushR | cpuWrtCRGB[1]) $display(" [GTE_WRB] CRGB1 R %02x = %02x", DR_RGB1 , p_wb.pushR ? CRGB2.r   : i_dataIn[ 7: 0]); // R
+	if (p_wb.pushR | cpuWrtCRGB[2]) $display(" [GTE_WRB] CRGB2 R %02x = %02x", DR_RGB2 , p_wb.pushR ? gteWR.colV: i_dataIn[ 7: 0]); // R
+	// G Fifo
+	if (p_wb.pushG | cpuWrtCRGB[0]) $display(" [GTE_WRB] CRGB0 G %02x = %02x", DR_RGB0 , p_wb.pushG ? CRGB1.g   : i_dataIn[15: 8]); // G
+	if (p_wb.pushG | cpuWrtCRGB[1]) $display(" [GTE_WRB] CRGB1 G %02x = %02x", DR_RGB1 , p_wb.pushG ? CRGB2.g   : i_dataIn[15: 8]); // G
+	if (p_wb.pushG | cpuWrtCRGB[2]) $display(" [GTE_WRB] CRGB2 G %02x = %02x", DR_RGB2 , p_wb.pushG ? gteWR.colV: i_dataIn[15: 8]); // G
+	// B    Fifo
+	// Code Fifo (Move on BLUE)
+	if (p_wb.pushB | cpuWrtCRGB[0]) $display(" [GTE_WRB] CRGB0 B %02x = %02x", DR_RGB0 , p_wb.pushB ? CRGB1.b   : i_dataIn[23:16]); // B
+	if (p_wb.pushB | cpuWrtCRGB[1]) $display(" [GTE_WRB] CRGB1 B %02x = %02x", DR_RGB1 , p_wb.pushB ? CRGB2.b   : i_dataIn[23:16]); // B
+	if (p_wb.pushB | cpuWrtCRGB[2]) $display(" [GTE_WRB] CRGB2 B %02x = %02x", DR_RGB2 , p_wb.pushB ? gteWR.colV: i_dataIn[23:16]); // B
+	if (p_wb.pushB | cpuWrtCRGB[0]) $display(" [GTE_WRB] CRGB0 C %02x = %02x", DR_RGB0 , p_wb.pushB ? CRGB1.c   : i_dataIn[31:24]); // Code
+	if (p_wb.pushB | cpuWrtCRGB[1]) $display(" [GTE_WRB] CRGB1 C %02x = %02x", DR_RGB1 , p_wb.pushB ? CRGB2.c   : i_dataIn[31:24]); // Code
+	if (p_wb.pushB | cpuWrtCRGB[2]) $display(" [GTE_WRB] CRGB2 C %02x = %02x", DR_RGB2 , p_wb.pushB ? CRGB.c    : i_dataIn[31:24]); // Code
+	
+	// Cache codeReg
+	if (cpuWrtCRGB[3]) begin
+		$display(" [GTE_WRB] CRGB R %02x = %02x", DR_RGBC, i_dataIn[ 7: 0]);
+		$display(" [GTE_WRB] CRGB G %02x = %02x", DR_RGBC, i_dataIn[15: 8]);
+		$display(" [GTE_WRB] CRGB B %02x = %02x", DR_RGBC, i_dataIn[23:16]);
+		$display(" [GTE_WRB] CRGB C %02x = %02x", DR_RGBC, i_dataIn[31:24]);
+	end
+
+	//------------------------------------------
+	// XYZ FIFO
+	//------------------------------------------
+	
+	// SX Fifo
+	if (wrtFSPX | cpuWrtSXY[0]) $display(" [GTE_WRB] SXY0 (X0) %02x-L = %04x", DR_SXY0,wrtFSPX ? SX1 : i_dataIn[15: 0]);
+	if (wrtFSPX | cpuWrtSXY[1]) $display(" [GTE_WRB] SXY1 (X1) %02x-L = %04x", DR_SXY1,wrtFSPX ? SX2 : i_dataIn[15: 0]);
+	if (wrtFSPX | cpuWrtSXY[2]) $display(" [GTE_WRB] SXY2 (X2) %02x-L = %04x", DR_SXY2,dataPathSX);
+	// SY Fifo
+	if (wrtFSPY | cpuWrtSXY[0]) $display(" [GTE_WRB] SXY0 (Y0) %02x-L = %04x", DR_SXY0,wrtFSPY ? SY1 : i_dataIn[31:16]);
+	if (wrtFSPY | cpuWrtSXY[1]) $display(" [GTE_WRB] SXY1 (Y1) %02x-L = %04x", DR_SXY1,wrtFSPY ? SY2 : i_dataIn[31:16]);
+	if (wrtFSPY | cpuWrtSXY[2]) $display(" [GTE_WRB] SXY2 (Y2) %02x-L = %04x", DR_SXY2,dataPathSY);
+	
+	// SZ Fifo : No$ spec wrong : GTE ONLY FIFO. Not CPU SIDE !
+	if (wrtFSPZ | cpuWrtSZ [0]) $display(" [GTE_WRB] SZ0 %02x-L = %04x", DR_SZ0_,wrtFSPZ ? SZ1 : i_dataIn[15: 0]);
+	if (wrtFSPZ | cpuWrtSZ [1]) $display(" [GTE_WRB] SZ1 %02x-L = %04x", DR_SZ1_,wrtFSPZ ? SZ2 : i_dataIn[15: 0]);
+	if (wrtFSPZ | cpuWrtSZ [2]) $display(" [GTE_WRB] SZ2 %02x-L = %04x", DR_SZ2_,wrtFSPZ ? SZ3 : i_dataIn[15: 0]);
+	if (wrtFSPZ | cpuWrtSZ [3]) $display(" [GTE_WRB] SZP %02x-L = %04x", DR_SZP_,dataPathSZ);
+
+	//------------------------------------------
+	// CPU & GTE INTERNAL WRITES
+	//------------------------------------------
+	
+	// OTZ
+	if (((i_regID == DR_OTZ_) & i_WritReg) | p_wb.wrOTZ  ) $display(" [GTE_WRB] OTZ %02x-L = %04x", DR_OTZ_, p_wb.wrOTZ ? gteWR.OTZV : i_dataIn[15: 0]);
+	// IRO,IR1,IR2,IR3
+	if (((i_regID == DR_IR0_) & i_WritReg) | p_wb.wrIR[0]) $display(" [GTE_WRB] IR0 %02x-L = %04x", DR_IR0_, p_wb.wrIR[0] ? gteWR.IR0  : i_dataIn[15: 0]);
+	if (((i_regID == DR_IR1_) & i_WritReg) | wrIRGB | p_wb.wrIR[1]) begin
+		if (wrIRGB) begin
+			$display(" [GTE_WRB] IR1 %02x = %04x",DR_IR1_, R16);
+		end else begin
+			$display(" [GTE_WRB] IR1 %02x = %04x",DR_IR1_, p_wb.wrIR[1] ? gteWR.IR13 : i_dataIn[15: 0]);
+		end
+	end
+	if (((i_regID == DR_IR2_) & i_WritReg) | wrIRGB | p_wb.wrIR[2]) begin
+		if (wrIRGB) begin
+			$display(" [GTE_WRB] IR2 %02x = %04x",DR_IR2_, G16);
+		end else begin
+			$display(" [GTE_WRB] IR2 %02x = %04x",DR_IR2_, p_wb.wrIR[2] ? gteWR.IR13 : i_dataIn[15: 0]);
+		end
+	end
+	if (((i_regID == DR_IR3_) & i_WritReg) | wrIRGB | p_wb.wrIR[3]) begin
+		if (wrIRGB) begin
+			$display(" [GTE_WRB] IR3 %02x = %04x",DR_IR3_, B16);
+		end else begin
+			$display(" [GTE_WRB] IR3 %02x = %04x",DR_IR3_, p_wb.wrIR[3] ? gteWR.IR13 : i_dataIn[15: 0]);
+		end
+	end
+	// MAC0,MAC1,MAC2,MAC3
+	if (((i_regID == DR_MAC0) & i_WritReg) | p_wb.wrMAC[0]) $display(" [GTE_WRB] MAC0 %02x = %08x",DR_MAC0, p_wb.wrMAC[0] ? gteWR.MAC0  : i_dataIn);
+	if (((i_regID == DR_MAC1) & i_WritReg) | p_wb.wrMAC[1]) $display(" [GTE_WRB] MAC1 %02x = %08x",DR_MAC1, p_wb.wrMAC[1] ? gteWR.MAC13 : i_dataIn);
+	if (((i_regID == DR_MAC2) & i_WritReg) | p_wb.wrMAC[2]) $display(" [GTE_WRB] MAC2 %02x = %08x",DR_MAC2, p_wb.wrMAC[2] ? gteWR.MAC13 : i_dataIn);
+	if (((i_regID == DR_MAC3) & i_WritReg) | p_wb.wrMAC[3]) $display(" [GTE_WRB] MAC3 %02x = %08x",DR_MAC3, p_wb.wrMAC[3] ? gteWR.MAC13 : i_dataIn);
+	
+	if ((i_regID == CR_FLAGS___) & i_WritReg) begin
+		$display(" [GTE_WRB] FLAGS %02x = (18 bit) %06x",CR_FLAGS___, i_dataIn[30:12]);
+	end else begin
+		if (i_loadInstr) begin
+			$display(" [GTE_WRB] FLAGS %02x = (18 bit) %06x",CR_FLAGS___, gteWR.updateFlags);
+		end else begin
+			$display(" [GTE_WRB] FLAGS %02x = (18 bit) %06x",CR_FLAGS___, FLAGS | gteWR.updateFlags);
+		end
+	end
+
+	//------------------------------------------
+	// CPU ONLY WRITES
+	//------------------------------------------
+	if ((i_regID == DR_VXY0) & i_WritReg) $display(" [GTE_WRB] VY0 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+	if ((i_regID == DR_VXY0) & i_WritReg) $display(" [GTE_WRB] VX0 %02x-L = %04x", i_regID, i_dataIn[15:0 ] );
+	if ((i_regID == DR_VZ0_) & i_WritReg) $display(" [GTE_WRB] VZ0 %02x-L = %04x", i_regID, i_dataIn[15:0 ] );
+	// VX1,VY1,VZ1
+	if ((i_regID == DR_VXY1) & i_WritReg) $display(" [GTE_WRB] VY1 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+	if ((i_regID == DR_VXY1) & i_WritReg) $display(" [GTE_WRB] VX1 %02x-L = %04x", i_regID, i_dataIn[15:0 ] );
+	if ((i_regID == DR_VZ1_) & i_WritReg) $display(" [GTE_WRB] VZ1 %02x-L = %04x", i_regID, i_dataIn[15:0 ] );
+	// VX2,VY2,VZ2
+	if ((i_regID == DR_VXY2) & i_WritReg) $display(" [GTE_WRB] VY2 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+	if ((i_regID == DR_VXY2) & i_WritReg) $display(" [GTE_WRB] VX2 %02x-L = %04x", i_regID, i_dataIn[15:0 ] );
+	if ((i_regID == DR_VZ2_) & i_WritReg) $display(" [GTE_WRB] VZ2 %02x-L = %04x", i_regID, i_dataIn[15:0 ] );
+	// ------------------------------------------------------
+	if ((i_regID == CR_RT11RT12) & i_WritReg) begin
+		$display(" [GTE_WRB] R12 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] R11 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_RT13RT21) & i_WritReg) begin
+		$display(" [GTE_WRB] R21 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] R13 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_RT22RT23) & i_WritReg) begin
+		$display(" [GTE_WRB] R23 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] R22 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_RT31RT32) & i_WritReg) begin
+		$display(" [GTE_WRB] R32 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] R31 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_RT33____) & i_WritReg) begin
+		$display(" [GTE_WRB] R33 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	// ------------------------------------------------------
+	if ((i_regID == CR_L11L12__) & i_WritReg) begin
+		$display(" [GTE_WRB] L12 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] L11 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_L13L21__) & i_WritReg) begin
+		$display(" [GTE_WRB] L21 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] L13 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_L22L23__) & i_WritReg) begin
+		$display(" [GTE_WRB] L23 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] L22 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_L31L32__) & i_WritReg) begin
+		$display(" [GTE_WRB] L32 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] L31 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_L33_____) & i_WritReg) begin
+		$display(" [GTE_WRB] L33 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	// ------------------------------------------------------
+	if ((i_regID == CR_LR1LR2__) & i_WritReg) begin
+		$display(" [GTE_WRB] LR2 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] LR1 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_LR3LG1__) & i_WritReg) begin
+		$display(" [GTE_WRB] LG1 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] LR3 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_LG2LG3__) & i_WritReg) begin
+		$display(" [GTE_WRB] LG3 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] LG2 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_LB1LB2__) & i_WritReg) begin
+		$display(" [GTE_WRB] LB2 %02x-H = %04x", i_regID, i_dataIn[31:16] );
+		$display(" [GTE_WRB] LB1 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	if ((i_regID == CR_LB3_____) & i_WritReg) begin
+		$display(" [GTE_WRB] LB3 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	end
+	// ------------------------------------------------------
+	if ((i_regID == CR_H_______) & i_WritReg) $display(" [GTE_WRB] H %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	if ((i_regID == CR_DQA_____) & i_WritReg) $display(" [GTE_WRB] DQA %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	if ((i_regID == CR_ZSF3____) & i_WritReg) $display(" [GTE_WRB] ZFS3 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	if ((i_regID == CR_ZSF4____) & i_WritReg) $display(" [GTE_WRB] ZFS4 %02x-L = %04x", i_regID, i_dataIn[15:0]  );
+	
+	if ((i_regID == CR_TRX_____) & i_WritReg) $display(" [GTE_WRB] TRX %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_TRY_____) & i_WritReg) $display(" [GTE_WRB] TRY %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_TRZ_____) & i_WritReg) $display(" [GTE_WRB] TRZ %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_RBK_____) & i_WritReg) $display(" [GTE_WRB] RBK %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_GBK_____) & i_WritReg) $display(" [GTE_WRB] GBK %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_BBK_____) & i_WritReg) $display(" [GTE_WRB] BBK %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_RFC_____) & i_WritReg) $display(" [GTE_WRB] RFC %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_GFC_____) & i_WritReg) $display(" [GTE_WRB] GFC %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_BFC_____) & i_WritReg) $display(" [GTE_WRB] BFC %02x = %08x", i_regID, i_dataIn );
+	
+	if ((i_regID == CR_OFX_____) & i_WritReg) $display(" [GTE_WRB] OFX %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_OFY_____) & i_WritReg) $display(" [GTE_WRB] OFY %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == CR_DQB_____) & i_WritReg) $display(" [GTE_WRB] DQB %02x = %08x", i_regID, i_dataIn );
+
+	if ((i_regID == DR_RES1    ) & i_WritReg) $display(" [GTE_WRB] RES1 %02x = %08x", i_regID, i_dataIn );
+	if ((i_regID == DR_LZCS    ) & i_WritReg) $display(" [GTE_WRB] RESLCSZ %02x = %08x", i_regID, i_dataIn );
+
+end
+`endif
+
 wire [5:0] cntLeadInput; // 1..32 Value output
 LeadCountS32 instLeadCount(
 	.value	(REG_lzcs),
