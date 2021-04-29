@@ -69,7 +69,7 @@ module SPU(
 );
 
 reg [23:0] debugCnt; always @(posedge i_clk)
-begin debugCnt = (n_rst == 0) ? 24'd0 : debugCnt + 24'd1; end
+begin debugCnt <= (n_rst == 0) ? 24'd0 : debugCnt + 24'd1; end
 
 /* Decide if we loop ADSR cycle counter when reach 0 or 1 ?
 	0 = Number of cycle + 1 evaluation !
@@ -282,9 +282,9 @@ reg PInternalWrite;
 always @(posedge i_clk)
 begin
 	if (n_rst == 0) begin
-		PInternalWrite = 1'b0;
+		PInternalWrite <= 1'b0;
 	end else begin
-		PInternalWrite = internalWrite;
+		PInternalWrite <= internalWrite;
 	end
 end
 */
