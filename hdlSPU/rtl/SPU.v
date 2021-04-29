@@ -305,8 +305,8 @@ begin
 		reg_mainVolRight			<= 16'h0;
 		reg_reverbVolLeft			<= 16'h0;
 		reg_reverbVolRight			<= 16'h0;
-		reg_kon						= 24'h0;
-		reg_koff					= 24'h0;
+		reg_kon						<= 24'h0;
+		reg_koff					<= 24'h0;
 		reg_kEvent					<= 24'h0;
 		reg_kMode					<= 24'h0;
 		reg_pmon					<= 24'h0;
@@ -333,11 +333,11 @@ begin
 		reg_CDAudioEnabled			<= 1'b0;
 		regSoundRAMDataXFerCtrl		<= 16'h4;
 		reg_ignoreLoadRepeatAddress	<= 24'd0;
-		reg_endx					= 24'd0;
+		reg_endx					<= 24'd0;
 		regRingBufferIndex			<= 9'd0;
-		regIsLastADPCMBlk			= 1'b0;
-		reg_isRepeatADPCMFlag		= 1'b0;
 		reverb_CounterWord			<= 18'd0;
+		regIsLastADPCMBlk			<= 1'b0;
+		reg_isRepeatADPCMFlag		<= 1'b0;
 	end else begin
 		if (internalWrite) begin
 			if (isD80_DFF) begin		// D80~DFF
@@ -352,7 +352,7 @@ begin
 					5'h02:	reg_reverbVolLeft	<= dataIn;			// 1F801D84h - 184h
 					5'h03:	reg_reverbVolRight	<= dataIn;			// 1F801D86h - 186h
 					5'h04:	begin
-								reg_kon [15: 0]		= dataIn;		// 1F801D88h - 188h
+								reg_kon [15: 0]		<= dataIn;		// 1F801D88h - 188h
 								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] <= 1; reg_kMode [0] <= 1; end
 								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] <= 1; reg_kMode [1] <= 1; end
 								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] <= 1; reg_kMode [2] <= 1; end
@@ -371,7 +371,7 @@ begin
 								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] <= 1; reg_kMode[15] <= 1; end
 							end
 					5'h05:	begin									// 1F801D8Ah - 18Ah
-								reg_kon [23:16]		= dataIn[7:0];
+								reg_kon [23:16]		<= dataIn[7:0];
 								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] <= 1; reg_kMode[16] <= 1; end
 								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] <= 1; reg_kMode[17] <= 1; end
 								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] <= 1; reg_kMode[18] <= 1; end
@@ -382,7 +382,7 @@ begin
 								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] <= 1; reg_kMode[23] <= 1; end
 							end
 					5'h06:	begin									// 1F801D8Ch - 18Ch
-								reg_koff[15: 0]		= dataIn;			
+								reg_koff[15: 0]		<= dataIn;			
 								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] <= 1; reg_kMode [0] <= 0; end
 								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] <= 1; reg_kMode [1] <= 0; end
 								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] <= 1; reg_kMode [2] <= 0; end
@@ -401,7 +401,7 @@ begin
 								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] <= 1; reg_kMode[15] <= 0; end
 							end
 					5'h07:	begin									// 1F801D8Eh - 18Eh
-								reg_koff[23:16]		= dataIn[7:0];		
+								reg_koff[23:16]		<= dataIn[7:0];		
 								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] <= 1; reg_kMode[16] <= 0; end
 								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] <= 1; reg_kMode[17] <= 0; end
 								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] <= 1; reg_kMode[18] <= 0; end
@@ -516,11 +516,11 @@ begin
 				// Force reset counter to accept new 'state'.
 				reg_adsrCycleCount[currVoice] = CHANGE_ADSR_AT;
 				if (reg_kMode[currVoice]) begin // Voice start [TODO : have bit that said voice is stopped and check it : reg_endx ?]
+					reg_adsrState	[currVoice] <= ADSR_ATTACK;
+					reg_endx		[currVoice] <= 1'b0;
 					reg_currentAdsrVOL[currVoice] = 15'd0;
 					reg_adpcmCurrAdr[currVoice] = currV_startAddr;
-					reg_adsrState	[currVoice] = ADSR_ATTACK;
 					reg_adpcmPos	[currVoice] = 17'd0;
-					reg_endx		[currVoice] = 1'b0;
 					reg_adpcmPrev	[currVoice] = 32'd0;
 					
 					if (reg_ignoreLoadRepeatAddress[currVoice] == 1'b0) begin
@@ -530,15 +530,15 @@ begin
 					// Optionnal... can't stay for ever... ? What's the point, else everything ends up 1.
 					// reg_kon			[currVoice] = 1'b0;
 				end else begin
-					reg_adsrState	[currVoice] = ADSR_RELEASE;
-					reg_koff		[currVoice] = 1'b0;
+					reg_adsrState	[currVoice] <= ADSR_RELEASE;
+					reg_koff		[currVoice] <= 1'b0;
 				end
 			end
 			reg_kEvent			[currVoice] <= 1'b0; // Reset Event.
 		end
 		
 		if (clearKON) begin
-			reg_kon[currVoice] = 1'b0;
+			reg_kon[currVoice] <= 1'b0;
 		end
 		
 		
@@ -547,17 +547,17 @@ begin
 		end
 		
 		if (setEndX) begin
-			reg_isRepeatADPCMFlag	= isRepeatADPCMFlag; // Store value for later usage a few cycles later...
-			regIsLastADPCMBlk		= 1'b1;
+			reg_isRepeatADPCMFlag	<= isRepeatADPCMFlag; // Store value for later usage a few cycles later...
+			regIsLastADPCMBlk		<= 1'b1;
 		end else if (isNotEndADPCMBlock) begin
-			regIsLastADPCMBlk		= 1'b0;
+			regIsLastADPCMBlk		<= 1'b0;
 		end
 		
 		if (updateVoiceADPCMAdr) begin
 			if (regIsLastADPCMBlk && (!currV_NON)) begin		// NON checked here : we don't want RELEASE and ENDX to happen in Noise Mode. -> Garbage ADPCM can modify things.
-				reg_endx		[currVoice] = 1'b1;
+				reg_endx		[currVoice] <= 1'b1;
 				if ((!reg_isRepeatADPCMFlag)) begin 	// Voice must be in ADPCM mode to use flag.
-					reg_adsrState	  [currVoice] = ADSR_RELEASE;
+					reg_adsrState	  [currVoice] <= ADSR_RELEASE;
 					reg_currentAdsrVOL[currVoice] = 15'd0;
 				end
 			end
@@ -591,7 +591,7 @@ begin
 			reg_currentAdsrVOL[currVoice]	= nextAdsrVol;
 		end
 		if (updateADSRState) begin
-			reg_adsrState[currVoice]		= nextAdsrState;
+			reg_adsrState[currVoice]		<= nextAdsrState;
 		end
 		if (ctrlSendOut & side22Khz) begin
 			//  if counter == last valid index -> loop to zero.
