@@ -496,11 +496,11 @@ begin
 					end
 					if (addr[3:1]==3'b110) begin
 						// 1F801xxCh - Voice 0..23 Current ADSR volume (R/W) (0..+7FFFh) (or -8000h..+7FFFh on manual write)
-						reg_currentAdsrVOL[channelAdr]	= dataIn[14:0];
+						reg_currentAdsrVOL[channelAdr] <= dataIn[14:0];
 					end
 					if (addr[3:1]==3'b111) begin
 						reg_ignoreLoadRepeatAddress	[channelAdr] <= 1'b1;
-						reg_repeatAddr				[channelAdr] = dataIn;
+						reg_repeatAddr				[channelAdr] <= dataIn;
 					end
 				end // else 1xxxxx.xxxx <--- ELSE
 					// Current volume L/R channels. (1F801E00h..1F801E5Fh)
@@ -514,17 +514,17 @@ begin
 		if (check_Kevent) begin
 			if (reg_kEvent[currVoice]) begin	// KON or KOFF occured to this channel...
 				// Force reset counter to accept new 'state'.
-				reg_adsrCycleCount[currVoice] = CHANGE_ADSR_AT;
+				reg_adsrCycleCount[currVoice] <= CHANGE_ADSR_AT;
 				if (reg_kMode[currVoice]) begin // Voice start [TODO : have bit that said voice is stopped and check it : reg_endx ?]
 					reg_adsrState	[currVoice] <= ADSR_ATTACK;
 					reg_endx		[currVoice] <= 1'b0;
-					reg_currentAdsrVOL[currVoice] = 15'd0;
-					reg_adpcmCurrAdr[currVoice] = currV_startAddr;
-					reg_adpcmPos	[currVoice] = 17'd0;
-					reg_adpcmPrev	[currVoice] = 32'd0;
+					reg_currentAdsrVOL[currVoice] <= 15'd0;
+					reg_adpcmCurrAdr[currVoice] <= currV_startAddr;
+					reg_adpcmPos	[currVoice] <= 17'd0;
+					reg_adpcmPrev	[currVoice] <= 32'd0;
 					
 					if (reg_ignoreLoadRepeatAddress[currVoice] == 1'b0) begin
-						reg_repeatAddr[currVoice] = currV_startAddr;
+						reg_repeatAddr[currVoice] <= currV_startAddr;
 					end
 
 					// Optionnal... can't stay for ever... ? What's the point, else everything ends up 1.
@@ -543,7 +543,7 @@ begin
 		
 		
 		if (setAsStart) begin
-			reg_repeatAddr	[currVoice] = currV_adpcmCurrAdr;
+			reg_repeatAddr	[currVoice] <= currV_adpcmCurrAdr;
 		end
 		
 		if (setEndX) begin
@@ -558,20 +558,20 @@ begin
 				reg_endx		[currVoice] <= 1'b1;
 				if ((!reg_isRepeatADPCMFlag)) begin 	// Voice must be in ADPCM mode to use flag.
 					reg_adsrState	  [currVoice] <= ADSR_RELEASE;
-					reg_currentAdsrVOL[currVoice] = 15'd0;
+					reg_currentAdsrVOL[currVoice] <= 15'd0;
 				end
 			end
-			reg_adpcmCurrAdr[currVoice] = regIsLastADPCMBlk ? currV_repeatAddr : {currV_adpcmCurrAdr + 16'd2};	// Skip 16 byte for next ADPCM block.
+			reg_adpcmCurrAdr[currVoice] <= regIsLastADPCMBlk ? currV_repeatAddr : {currV_adpcmCurrAdr + 16'd2};	// Skip 16 byte for next ADPCM block.
 		end
 		
 		if (updateVoiceADPCMPos) begin
 			// If next block, point to the correct SAMPLE and SUB sample position.
 			// else           point to the correct SAMPLE with INDEX and sub sample position.
-			reg_adpcmPos[currVoice]		= { {nextNewBlock ? 3'd0 : nextADPCMPos[16:14]} , nextADPCMPos[13:0] };
+			reg_adpcmPos[currVoice]		<= { {nextNewBlock ? 3'd0 : nextADPCMPos[16:14]} , nextADPCMPos[13:0] };
 		end
 
 		if (updateVoiceADPCMPrev) begin
-			reg_adpcmPrev[currVoice]	= reg_tmpAdpcmPrev;
+			reg_adpcmPrev[currVoice]	<= reg_tmpAdpcmPrev;
 		end
 
 		if (incrXFerAdr) begin
@@ -584,11 +584,11 @@ begin
 		
 		// Updated each time a new sample is issued over the voice.
 		if (validSampleStage2) begin
-			reg_adsrCycleCount[currVoice]	= nextAdsrCycle;
+			reg_adsrCycleCount[currVoice]	<= nextAdsrCycle;
 		end
 		// Updated each time a new sample AND counter reach ZERO.
 		if (updateADSRVolReg) begin
-			reg_currentAdsrVOL[currVoice]	= nextAdsrVol;
+			reg_currentAdsrVOL[currVoice]	<= nextAdsrVol;
 		end
 		if (updateADSRState) begin
 			reg_adsrState[currVoice]		<= nextAdsrState;
