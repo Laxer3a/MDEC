@@ -301,38 +301,38 @@ always @(posedge i_clk)
 begin
 	if (n_rst == 0)
 	begin
-		reg_mainVolLeft				= 16'h0;
-		reg_mainVolRight			= 16'h0;
-		reg_reverbVolLeft			= 16'h0;
-		reg_reverbVolRight			= 16'h0;
+		reg_mainVolLeft				<= 16'h0;
+		reg_mainVolRight			<= 16'h0;
+		reg_reverbVolLeft			<= 16'h0;
+		reg_reverbVolRight			<= 16'h0;
 		reg_kon						= 24'h0;
 		reg_koff					= 24'h0;
-		reg_kEvent					= 24'h0;
-		reg_kMode					= 24'h0;
-		reg_pmon					= 24'h0;
-		reg_non						= 24'h0;
-		reg_eon						= 24'h0;
-		reg_mBase					= 16'h0;
-		reg_ramIRQAddr				= 16'h0;
-		reg_dataTransferAddr		= 16'h0;
-		reg_CDVolumeL				= 16'h0;
-		reg_CDVolumeR				= 16'h0;
-		reg_ExtVolumeL				= 16'h0;
-		reg_ExtVolumeR				= 16'h0;
-		reg_SPUEnable				= 1'b0;
-		reg_SPUNotMuted				= 1'b0;
-		reg_NoiseFrequShift			= 4'b0000;
-		reg_NoiseFrequStep			= 4'b1100;
-		reg_NoiseStepStore			= 2'b00;
-		reg_ReverbEnable			= 1'b0;
-		reg_SPUIRQEnable			= 1'b0;
-		reg_SPUTransferMode			= 2'b00;	// STOP Transfer by default.
-		reg_ExtReverbEnabled		= 1'b0;
-		reg_CDAudioReverbEnabled	= 1'b0;
-		reg_ExtEnabled				= 1'b0;
-		reg_CDAudioEnabled			= 1'b0;
-		regSoundRAMDataXFerCtrl		= 16'h4;
-		reg_ignoreLoadRepeatAddress	= 24'd0;
+		reg_kEvent					<= 24'h0;
+		reg_kMode					<= 24'h0;
+		reg_pmon					<= 24'h0;
+		reg_non						<= 24'h0;
+		reg_eon						<= 24'h0;
+		reg_mBase					<= 16'h0;
+		reg_ramIRQAddr				<= 16'h0;
+		reg_dataTransferAddr		<= 16'h0;
+		reg_CDVolumeL				<= 16'h0;
+		reg_CDVolumeR				<= 16'h0;
+		reg_ExtVolumeL				<= 16'h0;
+		reg_ExtVolumeR				<= 16'h0;
+		reg_SPUEnable				<= 1'b0;
+		reg_SPUNotMuted				<= 1'b0;
+		reg_NoiseFrequShift			<= 4'b0000;
+		reg_NoiseFrequStep			<= 4'b1100;
+		reg_NoiseStepStore			<= 2'b00;
+		reg_ReverbEnable			<= 1'b0;
+		reg_SPUIRQEnable			<= 1'b0;
+		reg_SPUTransferMode			<= 2'b00;	// STOP Transfer by default.
+		reg_ExtReverbEnabled		<= 1'b0;
+		reg_CDAudioReverbEnabled	<= 1'b0;
+		reg_ExtEnabled				<= 1'b0;
+		reg_CDAudioEnabled			<= 1'b0;
+		regSoundRAMDataXFerCtrl		<= 16'h4;
+		reg_ignoreLoadRepeatAddress	<= 24'd0;
 		reg_endx					= 24'd0;
 		regRingBufferIndex			= 9'd0;
 		regIsLastADPCMBlk			= 1'b0;
@@ -347,115 +347,115 @@ begin
 					case (addr[5:1])	
 					// D8x ---------------
 					// [Address IN WORD, not in BYTE LIKE COMMENTS !!! Take care]
-					5'h00:	reg_mainVolLeft		= dataIn;			// 1F801D80h - 180h
-					5'h01:	reg_mainVolRight	= dataIn;			// 1F801D82h - 182h
-					5'h02:	reg_reverbVolLeft	= dataIn;			// 1F801D84h - 184h
-					5'h03:	reg_reverbVolRight	= dataIn;			// 1F801D86h - 186h
+					5'h00:	reg_mainVolLeft		<= dataIn;			// 1F801D80h - 180h
+					5'h01:	reg_mainVolRight	<= dataIn;			// 1F801D82h - 182h
+					5'h02:	reg_reverbVolLeft	<= dataIn;			// 1F801D84h - 184h
+					5'h03:	reg_reverbVolRight	<= dataIn;			// 1F801D86h - 186h
 					5'h04:	begin
 								reg_kon [15: 0]		= dataIn;		// 1F801D88h - 188h
-								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] = 1; reg_kMode [0] = 1; end
-								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] = 1; reg_kMode [1] = 1; end
-								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] = 1; reg_kMode [2] = 1; end
-								if (dataIn [3] & (reg_kEvent [ 3]==0)) begin reg_kEvent [3] = 1; reg_kMode [3] = 1; end
-								if (dataIn [4] & (reg_kEvent [ 4]==0)) begin reg_kEvent [4] = 1; reg_kMode [4] = 1; end
-								if (dataIn [5] & (reg_kEvent [ 5]==0)) begin reg_kEvent [5] = 1; reg_kMode [5] = 1; end
-								if (dataIn [6] & (reg_kEvent [ 6]==0)) begin reg_kEvent [6] = 1; reg_kMode [6] = 1; end
-								if (dataIn [7] & (reg_kEvent [ 7]==0)) begin reg_kEvent [7] = 1; reg_kMode [7] = 1; end
-								if (dataIn [8] & (reg_kEvent [ 8]==0)) begin reg_kEvent [8] = 1; reg_kMode [8] = 1; end
-								if (dataIn [9] & (reg_kEvent [ 9]==0)) begin reg_kEvent [9] = 1; reg_kMode [9] = 1; end
-								if (dataIn[10] & (reg_kEvent [10]==0)) begin reg_kEvent[10] = 1; reg_kMode[10] = 1; end
-								if (dataIn[11] & (reg_kEvent [11]==0)) begin reg_kEvent[11] = 1; reg_kMode[11] = 1; end
-								if (dataIn[12] & (reg_kEvent [12]==0)) begin reg_kEvent[12] = 1; reg_kMode[12] = 1; end
-								if (dataIn[13] & (reg_kEvent [13]==0)) begin reg_kEvent[13] = 1; reg_kMode[13] = 1; end
-								if (dataIn[14] & (reg_kEvent [14]==0)) begin reg_kEvent[14] = 1; reg_kMode[14] = 1; end
-								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] = 1; reg_kMode[15] = 1; end
+								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] <= 1; reg_kMode [0] <= 1; end
+								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] <= 1; reg_kMode [1] <= 1; end
+								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] <= 1; reg_kMode [2] <= 1; end
+								if (dataIn [3] & (reg_kEvent [ 3]==0)) begin reg_kEvent [3] <= 1; reg_kMode [3] <= 1; end
+								if (dataIn [4] & (reg_kEvent [ 4]==0)) begin reg_kEvent [4] <= 1; reg_kMode [4] <= 1; end
+								if (dataIn [5] & (reg_kEvent [ 5]==0)) begin reg_kEvent [5] <= 1; reg_kMode [5] <= 1; end
+								if (dataIn [6] & (reg_kEvent [ 6]==0)) begin reg_kEvent [6] <= 1; reg_kMode [6] <= 1; end
+								if (dataIn [7] & (reg_kEvent [ 7]==0)) begin reg_kEvent [7] <= 1; reg_kMode [7] <= 1; end
+								if (dataIn [8] & (reg_kEvent [ 8]==0)) begin reg_kEvent [8] <= 1; reg_kMode [8] <= 1; end
+								if (dataIn [9] & (reg_kEvent [ 9]==0)) begin reg_kEvent [9] <= 1; reg_kMode [9] <= 1; end
+								if (dataIn[10] & (reg_kEvent [10]==0)) begin reg_kEvent[10] <= 1; reg_kMode[10] <= 1; end
+								if (dataIn[11] & (reg_kEvent [11]==0)) begin reg_kEvent[11] <= 1; reg_kMode[11] <= 1; end
+								if (dataIn[12] & (reg_kEvent [12]==0)) begin reg_kEvent[12] <= 1; reg_kMode[12] <= 1; end
+								if (dataIn[13] & (reg_kEvent [13]==0)) begin reg_kEvent[13] <= 1; reg_kMode[13] <= 1; end
+								if (dataIn[14] & (reg_kEvent [14]==0)) begin reg_kEvent[14] <= 1; reg_kMode[14] <= 1; end
+								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] <= 1; reg_kMode[15] <= 1; end
 							end
 					5'h05:	begin									// 1F801D8Ah - 18Ah
 								reg_kon [23:16]		= dataIn[7:0];
-								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] = 1; reg_kMode[16] = 1; end
-								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] = 1; reg_kMode[17] = 1; end
-								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] = 1; reg_kMode[18] = 1; end
-								if (dataIn [3] & (reg_kEvent [19]==0)) begin reg_kEvent[19] = 1; reg_kMode[19] = 1; end
-								if (dataIn [4] & (reg_kEvent [20]==0)) begin reg_kEvent[20] = 1; reg_kMode[20] = 1; end
-								if (dataIn [5] & (reg_kEvent [21]==0)) begin reg_kEvent[21] = 1; reg_kMode[21] = 1; end
-								if (dataIn [6] & (reg_kEvent [22]==0)) begin reg_kEvent[22] = 1; reg_kMode[22] = 1; end
-								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] = 1; reg_kMode[23] = 1; end
+								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] <= 1; reg_kMode[16] <= 1; end
+								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] <= 1; reg_kMode[17] <= 1; end
+								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] <= 1; reg_kMode[18] <= 1; end
+								if (dataIn [3] & (reg_kEvent [19]==0)) begin reg_kEvent[19] <= 1; reg_kMode[19] <= 1; end
+								if (dataIn [4] & (reg_kEvent [20]==0)) begin reg_kEvent[20] <= 1; reg_kMode[20] <= 1; end
+								if (dataIn [5] & (reg_kEvent [21]==0)) begin reg_kEvent[21] <= 1; reg_kMode[21] <= 1; end
+								if (dataIn [6] & (reg_kEvent [22]==0)) begin reg_kEvent[22] <= 1; reg_kMode[22] <= 1; end
+								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] <= 1; reg_kMode[23] <= 1; end
 							end
 					5'h06:	begin									// 1F801D8Ch - 18Ch
 								reg_koff[15: 0]		= dataIn;			
-								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] = 1; reg_kMode [0] = 0; end
-								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] = 1; reg_kMode [1] = 0; end
-								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] = 1; reg_kMode [2] = 0; end
-								if (dataIn [3] & (reg_kEvent [ 3]==0)) begin reg_kEvent [3] = 1; reg_kMode [3] = 0; end
-								if (dataIn [4] & (reg_kEvent [ 4]==0)) begin reg_kEvent [4] = 1; reg_kMode [4] = 0; end
-								if (dataIn [5] & (reg_kEvent [ 5]==0)) begin reg_kEvent [5] = 1; reg_kMode [5] = 0; end
-								if (dataIn [6] & (reg_kEvent [ 6]==0)) begin reg_kEvent [6] = 1; reg_kMode [6] = 0; end
-								if (dataIn [7] & (reg_kEvent [ 7]==0)) begin reg_kEvent [7] = 1; reg_kMode [7] = 0; end
-								if (dataIn [8] & (reg_kEvent [ 8]==0)) begin reg_kEvent [8] = 1; reg_kMode [8] = 0; end
-								if (dataIn [9] & (reg_kEvent [ 9]==0)) begin reg_kEvent [9] = 1; reg_kMode [9] = 0; end
-								if (dataIn[10] & (reg_kEvent [10]==0)) begin reg_kEvent[10] = 1; reg_kMode[10] = 0; end
-								if (dataIn[11] & (reg_kEvent [11]==0)) begin reg_kEvent[11] = 1; reg_kMode[11] = 0; end
-								if (dataIn[12] & (reg_kEvent [12]==0)) begin reg_kEvent[12] = 1; reg_kMode[12] = 0; end
-								if (dataIn[13] & (reg_kEvent [13]==0)) begin reg_kEvent[13] = 1; reg_kMode[13] = 0; end
-								if (dataIn[14] & (reg_kEvent [14]==0)) begin reg_kEvent[14] = 1; reg_kMode[14] = 0; end
-								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] = 1; reg_kMode[15] = 0; end
+								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] <= 1; reg_kMode [0] <= 0; end
+								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] <= 1; reg_kMode [1] <= 0; end
+								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] <= 1; reg_kMode [2] <= 0; end
+								if (dataIn [3] & (reg_kEvent [ 3]==0)) begin reg_kEvent [3] <= 1; reg_kMode [3] <= 0; end
+								if (dataIn [4] & (reg_kEvent [ 4]==0)) begin reg_kEvent [4] <= 1; reg_kMode [4] <= 0; end
+								if (dataIn [5] & (reg_kEvent [ 5]==0)) begin reg_kEvent [5] <= 1; reg_kMode [5] <= 0; end
+								if (dataIn [6] & (reg_kEvent [ 6]==0)) begin reg_kEvent [6] <= 1; reg_kMode [6] <= 0; end
+								if (dataIn [7] & (reg_kEvent [ 7]==0)) begin reg_kEvent [7] <= 1; reg_kMode [7] <= 0; end
+								if (dataIn [8] & (reg_kEvent [ 8]==0)) begin reg_kEvent [8] <= 1; reg_kMode [8] <= 0; end
+								if (dataIn [9] & (reg_kEvent [ 9]==0)) begin reg_kEvent [9] <= 1; reg_kMode [9] <= 0; end
+								if (dataIn[10] & (reg_kEvent [10]==0)) begin reg_kEvent[10] <= 1; reg_kMode[10] <= 0; end
+								if (dataIn[11] & (reg_kEvent [11]==0)) begin reg_kEvent[11] <= 1; reg_kMode[11] <= 0; end
+								if (dataIn[12] & (reg_kEvent [12]==0)) begin reg_kEvent[12] <= 1; reg_kMode[12] <= 0; end
+								if (dataIn[13] & (reg_kEvent [13]==0)) begin reg_kEvent[13] <= 1; reg_kMode[13] <= 0; end
+								if (dataIn[14] & (reg_kEvent [14]==0)) begin reg_kEvent[14] <= 1; reg_kMode[14] <= 0; end
+								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] <= 1; reg_kMode[15] <= 0; end
 							end
 					5'h07:	begin									// 1F801D8Eh - 18Eh
 								reg_koff[23:16]		= dataIn[7:0];		
-								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] = 1; reg_kMode[16] = 0; end
-								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] = 1; reg_kMode[17] = 0; end
-								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] = 1; reg_kMode[18] = 0; end
-								if (dataIn [3] & (reg_kEvent [19]==0)) begin reg_kEvent[19] = 1; reg_kMode[19] = 0; end
-								if (dataIn [4] & (reg_kEvent [20]==0)) begin reg_kEvent[20] = 1; reg_kMode[20] = 0; end
-								if (dataIn [5] & (reg_kEvent [21]==0)) begin reg_kEvent[21] = 1; reg_kMode[21] = 0; end
-								if (dataIn [6] & (reg_kEvent [22]==0)) begin reg_kEvent[22] = 1; reg_kMode[22] = 0; end
-								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] = 1; reg_kMode[23] = 0; end
+								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] <= 1; reg_kMode[16] <= 0; end
+								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] <= 1; reg_kMode[17] <= 0; end
+								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] <= 1; reg_kMode[18] <= 0; end
+								if (dataIn [3] & (reg_kEvent [19]==0)) begin reg_kEvent[19] <= 1; reg_kMode[19] <= 0; end
+								if (dataIn [4] & (reg_kEvent [20]==0)) begin reg_kEvent[20] <= 1; reg_kMode[20] <= 0; end
+								if (dataIn [5] & (reg_kEvent [21]==0)) begin reg_kEvent[21] <= 1; reg_kMode[21] <= 0; end
+								if (dataIn [6] & (reg_kEvent [22]==0)) begin reg_kEvent[22] <= 1; reg_kMode[22] <= 0; end
+								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] <= 1; reg_kMode[23] <= 0; end
 							end
 					// D9x ---------------
-					5'h08:	reg_pmon[15: 1]		= dataIn[15:1];		// 1F801D90h - 190h /* By reset also reg_pmon[0] = 1'b0; */
-					5'h09:	reg_pmon[23:16]		= dataIn[7:0];		// 1F801D92h - 192h
-					5'h0A:	reg_non [15: 0]		= dataIn;			// 1F801D94h - 194h
-					5'h0B:	reg_non [23:16]		= dataIn[7:0];		// 1F801D96h - 196h
-					5'h0C:	reg_eon [15: 0]		= dataIn;			// 1F801D98h - 198h
-					5'h0D:	reg_eon [23:16]		= dataIn[7:0];		// 1F801D9Ah - 19Ah
+					5'h08:	reg_pmon[15: 1]		<= dataIn[15:1];		// 1F801D90h - 190h /* By reset also reg_pmon[0] = 1'b0; */
+					5'h09:	reg_pmon[23:16]		<= dataIn[7:0];		// 1F801D92h - 192h
+					5'h0A:	reg_non [15: 0]		<= dataIn;			// 1F801D94h - 194h
+					5'h0B:	reg_non [23:16]		<= dataIn[7:0];		// 1F801D96h - 196h
+					5'h0C:	reg_eon [15: 0]		<= dataIn;			// 1F801D98h - 198h
+					5'h0D:	reg_eon [23:16]		<= dataIn[7:0];		// 1F801D9Ah - 19Ah
 					// 5'h0E: Do nothing ENDX is READONLY.			// 1F801D9Ch - 19Ch
 					// 5'h0F: Do nothing ENDX is READONLY.			// 1F801D9Eh - 19Eh
 					// DAx ---------------
 					// 5'h10: [1F801DA0] Do nothing... (WEIRD reg)
 					5'h11:	begin
-								reg_mBase			= dataIn;		// 1F801DA2h - 1A2h
+								reg_mBase			<= dataIn;		// 1F801DA2h - 1A2h
 								reverb_CounterWord	= 18'd0;
 							end
-					5'h12:	reg_ramIRQAddr		= dataIn;			// 1F801DA4h - 1A4h
+					5'h12:	reg_ramIRQAddr		<= dataIn;			// 1F801DA4h - 1A4h
 					5'h13:	begin									// 1F801DA6h - 1A6h
 								// Adress (dataIn) is multiple x8 in byte adress.
-								reg_dataTransferAddr	 = dataIn;
-								reg_dataTransferAddrCurr = {dataIn, 2'd0}; // x8 in byte -> 4x in half-word.
+								reg_dataTransferAddr	 <= dataIn;
+								reg_dataTransferAddrCurr <= {dataIn, 2'd0}; // x8 in byte -> 4x in half-word.
 							end
 					5'h14:	begin									// 1F801DA8h - 1A8h
 								// FIFO INPUT implemented, just not done here.
 							end
 					5'h15:	begin // SPU Control register			// 1F801DAAh - 1AAh
-							reg_SPUEnable		= dataIn[15];
-							reg_SPUNotMuted		= dataIn[14];
-							reg_NoiseFrequShift	= dataIn[13:10];
-							reg_NoiseFrequStep	= negNoiseStep; // See logic with dataIn[9:8];
-							reg_NoiseStepStore	= dataIn[9:8];
-							reg_ReverbEnable	= dataIn[7];
-							reg_SPUIRQEnable	= dataIn[6];
-							reg_SPUTransferMode	= dataIn[5:4];
-							reg_ExtReverbEnabled		= dataIn[3];
-							reg_CDAudioReverbEnabled	= dataIn[2];
-							reg_ExtEnabled		= dataIn[1];
-							reg_CDAudioEnabled	= dataIn[0];
+							reg_SPUEnable		<= dataIn[15];
+							reg_SPUNotMuted		<= dataIn[14];
+							reg_NoiseFrequShift	<= dataIn[13:10];
+							reg_NoiseFrequStep	<= negNoiseStep; // See logic with dataIn[9:8];
+							reg_NoiseStepStore	<= dataIn[9:8];
+							reg_ReverbEnable	<= dataIn[7];
+							reg_SPUIRQEnable	<= dataIn[6];
+							reg_SPUTransferMode	<= dataIn[5:4];
+							reg_ExtReverbEnabled		<= dataIn[3];
+							reg_CDAudioReverbEnabled	<= dataIn[2];
+							reg_ExtEnabled		<= dataIn[1];
+							reg_CDAudioEnabled	<= dataIn[0];
 							end
-					5'h16:	regSoundRAMDataXFerCtrl = dataIn;
+					5'h16:	regSoundRAMDataXFerCtrl <= dataIn;
 					// 5'h17:	SPUSTAT is READ ONLY.
 					// DBx ---------------
-					5'h18:	reg_CDVolumeL		= dataIn;
-					5'h19:	reg_CDVolumeR		= dataIn;
-					5'h1A:	reg_ExtVolumeL		= dataIn;
-					5'h1B:	reg_ExtVolumeR		= dataIn;
+					5'h18:	reg_CDVolumeL		<= dataIn;
+					5'h19:	reg_CDVolumeR		<= dataIn;
+					5'h1A:	reg_ExtVolumeL		<= dataIn;
+					5'h1B:	reg_ExtVolumeR		<= dataIn;
 					// 5'h1C: Current Main Volume Left
 					// 5'h1D: Current Main Volume Right
 					// 5'h1E: 4B/DF
@@ -472,35 +472,35 @@ begin
 					// 010xxx.xxxx
 					if (addr[3:1]==3'b000) begin
 						// 1F801xx0h - Voice 0..23 Volume Left
-						reg_volumeL[channelAdr]	= dataIn;
+						reg_volumeL[channelAdr]	<= dataIn;
 					end
 					if (addr[3:1]==3'b001) begin
 						// 1F801xx2h - Voice 0..23 Volume Right
-						reg_volumeR[channelAdr]	= dataIn;
+						reg_volumeR[channelAdr]	<= dataIn;
 					end
 					if (addr[3:1]==3'b010) begin
 						// 1F801xx4h - Voice 0..23 ADPCM Sample Rate    (R/W) [15:0] (VxPitch)
-						reg_sampleRate[channelAdr]	= dataIn;
+						reg_sampleRate[channelAdr]	<= dataIn;
 					end
 					if (addr[3:1]==3'b011) begin
 						// 1F801xx6h - Voice 0..23 ADPCM Start Address
-						reg_startAddr[channelAdr]	= dataIn;
+						reg_startAddr[channelAdr]	<= dataIn;
 					end
 					if (addr[3:1]==3'b100) begin
 						// 1F801xx8h LSB - Voice 0..23 Attack/Decay/Sustain/Release (ADSR) (32bit) [15:0]x2
-						reg_adsrLo[channelAdr]		= dataIn;
+						reg_adsrLo[channelAdr]		<= dataIn;
 					end
 					if (addr[3:1]==3'b101) begin
 						// 1F801xx8h (xxA) MSB - Voice 0..23 Attack/Decay/Sustain/Release (ADSR) (32bit) [15:0]x2
-						reg_adsrHi[channelAdr]		= dataIn;
+						reg_adsrHi[channelAdr]		<= dataIn;
 					end
 					if (addr[3:1]==3'b110) begin
 						// 1F801xxCh - Voice 0..23 Current ADSR volume (R/W) (0..+7FFFh) (or -8000h..+7FFFh on manual write)
 						reg_currentAdsrVOL[channelAdr]	= dataIn[14:0];
 					end
 					if (addr[3:1]==3'b111) begin
-						reg_ignoreLoadRepeatAddress[channelAdr] = 1'b1;
-						reg_repeatAddr[channelAdr] = dataIn;
+						reg_ignoreLoadRepeatAddress	[channelAdr] <= 1'b1;
+						reg_repeatAddr				[channelAdr] = dataIn;
 					end
 				end // else 1xxxxx.xxxx <--- ELSE
 					// Current volume L/R channels. (1F801E00h..1F801E5Fh)
@@ -534,7 +534,7 @@ begin
 					reg_koff		[currVoice] = 1'b0;
 				end
 			end
-			reg_kEvent			[currVoice] = 1'b0; // Reset Event.
+			reg_kEvent			[currVoice] <= 1'b0; // Reset Event.
 		end
 		
 		if (clearKON) begin
@@ -575,7 +575,7 @@ begin
 		end
 
 		if (incrXFerAdr) begin
-			reg_dataTransferAddrCurr = reg_dataTransferAddrCurr + 18'd1; // One half-word increment.
+			reg_dataTransferAddrCurr <= reg_dataTransferAddrCurr + 18'd1; // One half-word increment.
 		end
 		
 		if (ctrlSendOut) begin
@@ -623,7 +623,7 @@ reg incrXFerAdr;
 always @ (posedge i_clk) 
 begin
 	internalReadPipe	= internalRead;
-	incrXFerAdr			= readFIFO | (SPUDACK && isDMAXferRD);
+	incrXFerAdr			<= readFIFO | (SPUDACK && isDMAXferRD);
 end
 
 

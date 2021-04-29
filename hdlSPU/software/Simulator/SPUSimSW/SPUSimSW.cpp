@@ -322,7 +322,7 @@ void interpreter(int counter) {
 				if (opcode == 'X') {
 					// if (ptrData>1) return;
 				}else if (opcode == 'V') {
-					printf("VSYNC WAIT STARTED @clk %i\n",counter);
+//					printf("VSYNC WAIT STARTED @clk %i\n",counter);
 					pState = WAIT_VSYNC;
 				}else if (opcode == 'W') {
 					uint32_t addr = 0;
@@ -485,7 +485,7 @@ int main()
 	if (useScan) {
 		registerVerilatedMemberIntoScanner(mod, pScan);
 
-		pScan->addPlugin(new ValueChangeDump_Plugin("spu_custom_waves.vcd"));
+		pScan->addPlugin(new ValueChangeDump_Plugin("spu_custom_waves_post.vcd"));
 
 		Verilated::traceEverOn(true);
 		VL_PRINTF("Enabling GTKWave Trace Output...\n");
