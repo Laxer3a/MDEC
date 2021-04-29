@@ -458,7 +458,7 @@ int main()
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	const bool	useScan					= true;
+	const bool	useScan					= false;
 
 	// ------------------------------------------------------------------
 	// Fake SPU RAM PSX.
@@ -483,6 +483,10 @@ int main()
 	// Associate my VCD Scanner to the verilated object.
 	VerilatedVcdC   tfp;
 	if (useScan) {
+		registerVerilatedMemberIntoScanner(mod, pScan);
+
+		pScan->addPlugin(new ValueChangeDump_Plugin("spu_custom_waves.vcd"));
+
 		Verilated::traceEverOn(true);
 		VL_PRINTF("Enabling GTKWave Trace Output...\n");
 
@@ -582,7 +586,8 @@ int main()
 	bool scanConstraint = false;
 
 	loader("E:\\ff7-101-the-prelude.spudump");
-#define SAMPLE_COUNT	(19800)
+// #define SAMPLE_COUNT	(19800)
+#define SAMPLE_COUNT	(88000)
 
 #ifdef DUMPWAV
 	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");
@@ -616,6 +621,7 @@ int main()
 		mod->eval();
 
 		if (useScan && dolog) {
+			pScan->eval(clockCnt);
 			tfp.dump(clockCnt);
 		}
 		clockCnt++;
@@ -700,6 +706,7 @@ int main()
 		mod->eval();
 
 		if (useScan && dolog) {
+			pScan->eval(clockCnt);
 			tfp.dump(clockCnt);
 		}
 		clockCnt++;
@@ -1103,17 +1110,13 @@ void validateDownload(VSPU_IF* mod, VCScanner* pScan, int* time) {
 		}
 
 		mod->i_clk = 0; mod->eval();
-		pScan->eval(*time); *time = *time +1;
+//		pScan->eval(*time); *time = *time +1;
 
 		mod->i_clk = 1; mod->eval();
-		pScan->eval(*time); *time = *time +1;
+//		pScan->eval(*time); *time = *time +1;
 
 		mod->SPUDACK = (hadReq) ? 1 : 0;
 	}
-
-	pScan->shutdown();
-
-
 }
 
 void processUpload(VSPU_IF* mod) {
