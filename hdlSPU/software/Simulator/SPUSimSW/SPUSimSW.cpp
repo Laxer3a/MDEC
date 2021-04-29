@@ -339,7 +339,7 @@ void interpreter(int counter) {
 						// 5-4   Sound RAM Transfer Mode (0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread))
 						int mode = (data>>4) & 3;
 						lastSPUSetup = data & (~(3<<4)); // Setup without transfer mode.
-						printf("  Transfer mode:%i (0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread)\n",mode);
+//						printf("  Transfer mode:%i (0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread)\n",mode);
 					}
 					W(addr, data);
 				}else if (opcode == 'F') {
@@ -369,7 +369,7 @@ void interpreter(int counter) {
 
 				bytesWritten += 2;
 				if (bytesWritten % 32 == 0 || (uploadPtr == uploadSize)) { // 32 item or block is smaller than 32
-					printf("UPLOAD PAUSE @clk %i\n",counter);
+//					printf("UPLOAD PAUSE @clk %i\n",counter);
 					pState = UPLOAD_WRITEMODE;
 				}
 			}
@@ -387,7 +387,7 @@ void interpreter(int counter) {
 			break;
 		case UPLOAD_DIGEST2:
 			if ((mod->dataOut & (1<<10)) == 0) { // PREVIOUS READ RESULT
-				printf("UPLOAD CONTINUE @clk %i\n",counter);
+//				printf("UPLOAD CONTINUE @clk %i\n",counter);
 				if (uploadPtr < uploadSize) {
 					// Still block to do...
 					pState = UPLOAD_DATA;
@@ -585,7 +585,7 @@ int main()
 	bool scanConstraint = false;
 
 	loader("E:\\ff7-101-the-prelude.spudump");
-#define SAMPLE_COUNT	(22000)
+#define SAMPLE_COUNT	(88000)
 
 #ifdef DUMPWAV
 	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");
@@ -1095,7 +1095,7 @@ void validateDownload(VSPU_IF* mod, VCScanner* pScan, int* time) {
 	for (n=0; n < 0x1000; ) {
 		bool hadReq = (mod->SPUDREQ == 1);
 		if (hadReq) {
-			printf("%i->%i\n",0x2000+n, mod->dataOut);
+//			printf("%i->%i\n",0x2000+n, mod->dataOut);
 			n++;
 		} else {
 			mod->dataIn  = 0;

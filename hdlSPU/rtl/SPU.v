@@ -289,9 +289,13 @@ begin
 end
 */
 
-reg updateVoiceADPCMAdr;
+reg updateVoiceADPCMAdr,updateADSRState,updateADSRVolReg,clearKON;
 reg regIsLastADPCMBlk;
 reg reg_isRepeatADPCMFlag;
+wire [22:0] nextAdsrCycle;
+wire  [1:0]	nextAdsrState;
+wire [14:0] nextAdsrVol;
+
 
 always @(posedge i_clk)
 begin
@@ -550,7 +554,7 @@ begin
 		end
 		
 		if (updateVoiceADPCMAdr) begin
-			if (regIsLastADPCMBlk && (!NON)) begin		// NON checked here : we don't want RELEASE and ENDX to happen in Noise Mode. -> Garbage ADPCM can modify things.
+			if (regIsLastADPCMBlk && (!currV_NON)) begin		// NON checked here : we don't want RELEASE and ENDX to happen in Noise Mode. -> Garbage ADPCM can modify things.
 				reg_endx		[currVoice] = 1'b1;
 				if ((!reg_isRepeatADPCMFlag)) begin 	// Voice must be in ADPCM mode to use flag.
 					reg_adsrState	  [currVoice] = ADSR_RELEASE;
@@ -583,10 +587,10 @@ begin
 			reg_adsrCycleCount[currVoice]	= nextAdsrCycle;
 		end
 		// Updated each time a new sample AND counter reach ZERO.
-		if (validSampleStage2 & reachZero) begin
+		if (updateADSRVolReg) begin
 			reg_currentAdsrVOL[currVoice]	= nextAdsrVol;
 		end
-		if (changeADSRState) begin
+		if (updateADSRState) begin
 			reg_adsrState[currVoice]		= nextAdsrState;
 		end
 		if (ctrlSendOut & side22Khz) begin
@@ -770,6 +774,17 @@ wire  [15:0] currV_repeatAddr	= reg_repeatAddr[currVoice];
 wire  [16:0] currV_adpcmPos		= reg_adpcmPos	[currVoice];
 wire  [15:0] currV_adpcmCurrAdr	= reg_adpcmCurrAdr[currVoice];
 wire  [31:0] currV_adpcmPrev	= reg_adpcmPrev	[currVoice];
+wire 				currV_KON			= reg_kon [currVoice];
+wire 				currV_PMON			= reg_pmon[currVoice];
+wire				currV_EON			= reg_eon [currVoice];
+wire  signed [14:0] currV_VolumeL		= reg_volumeL	[currVoice][14:0];
+wire  signed [14:0] currV_VolumeR		= reg_volumeR	[currVoice][14:0];
+wire		 		currV_NON			= reg_non [currVoice];
+wire  [14:0] 		currV_AdsrVol		= reg_SPUEnable ? reg_currentAdsrVOL[currVoice] : 15'd0;
+wire  [15:0] 		currV_AdsrLo		= reg_adsrLo	[currVoice];
+wire  [15:0] 		currV_AdsrHi		= reg_adsrHi	[currVoice];
+wire   [1:0] 		currV_AdsrState		= reg_adsrState	[currVoice];
+wire  [22:0] 		currV_AdsrCycleCount= reg_adsrCycleCount[currVoice];
 
 // -----------------------------------------------------------------
 // INTERNAL TIMING & STATE SECTION
@@ -1379,57 +1394,28 @@ end
 // B.[Write when mode is not read FIFO to SPU RAM but write back to SPU RAM     ] Ex. Reverb, Voice1/3, CD Channels.
 assign writeSPURAM	= pipeReadFIFO | (!isFIFOWR & SPUMemWRSel[2]);
 
-wire  KON = reg_kon [currVoice];
-wire PMON = reg_pmon[currVoice];
-wire  EON = reg_eon [currVoice];
-
 // --------------------------------------------------------------------------------------
 //		Stage 0A : ADPCM Adress computation (common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-//--------------------------------------------------
-//  INPUT
-//--------------------------------------------------
+wire  [16:0] nextADPCMPos;
+wire         nextNewBlock,nextNewLine;
+reg   [15:0] prevChannelVxOut;
 
-wire signed [15:0]  VxPitch		= currV_sampleRate;
-reg  signed [15:0]	prevChannelVxOut;
-//--------------------------------------------------
-/*
-Step = VxPitch                  ;range +0000h..+FFFFh (0...705.6 kHz)						s4.12
-IF PMON.Bit(x)=1 AND (x>0)      ;pitch modulation enable
-	Factor = VxOUTX(x-1)          ;range -8000h..+7FFFh (prev voice amplitude)
-	Factor = Factor+8000h         ;range +0000h..+FFFFh (factor = 0.00 .. 1.99)				s1.15 -> -0.99,+0.99
-	Step=SignExpand16to32(Step)   ;hardware glitch on VxPitch>7FFFh, make sign
-	Step = (Step * Factor) SAR 15 ;range 0..1FFFFh (glitchy if VxPitch>7FFFh -> VxPitch as signed value) 6.26 -> 11
-	Step=Step AND 0000FFFFh       ;hardware glitch on VxPitch>7FFFh, kill sign
-IF Step>3FFFh then Step=4000h   ;range +0000h..+3FFFh (0.. 176.4kHz)
-*/
-// Convert S16 to U16 (Add +0x8000)
-wire SgnS2U						= prevChannelVxOut[15] ^ 1'b1;
-// Select Previous output modulation or standard pitch.
-wire 				pitchSel	= PMON   /* & (currVoice != 5'd0)  <--- Done at HW Setup */;
-wire signed	[16:0]	pitchMul	= pitchSel 	? { SgnS2U,SgnS2U,prevChannelVxOut[14:0] }	// -0.999,+0.999 pitch
-											: { 17'h8000 }; 							// 1.0 positive
-// Compute new pitch
-wire signed [32:0]  mulPitch	= pitchMul * VxPitch;
-wire        [15:0]	tmpRes		= mulPitch[30:15];
-// Clamp over 4000.
-wire				 GT4000		= tmpRes[14] | tmpRes[15];
-wire				nGT4000		= !GT4000;
-wire		[13:0]	lowPart		= tmpRes[13:0] & {14{nGT4000}};
-//--------------------------------------------------
-//  OUTPUT
-//--------------------------------------------------
-wire  [16:0]	nextPitch	= { 2'b0, GT4000, lowPart };
-wire  [16:0] nextADPCMPos	= currV_adpcmPos + nextPitch;
-wire         nextNewBlock	= nextADPCMPos[16:14] > 3'd6;
-wire		 nextNewLine    = nextADPCMPos[16:14] != currV_adpcmPos[16:14];	// Change of line.
-
-// PB : not well defined arch here... TODO : What in case of START. pure 0.
+spu_ADPCMnextAdr spu_ADPCMnextAdr_inst(
+	.i_currV_adpcmPos		(currV_adpcmPos),
+	.i_currV_sampleRate		(currV_sampleRate),
+	.i_prevChannelVxOut		(prevChannelVxOut),
+	.i_currPMON				(currV_PMON),
+	
+	.o_nextADPCMPos			(nextADPCMPos),
+	.o_nextNewBlock			(nextNewBlock),
+	.o_nextNewLine			(nextNewLine)
+);
 
 // --------------------------------------------------------------------------------------
 //		Stage 0 : ADPCM Input -> Output		(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-wire isNullADSR         = (AdsrVol==15'd0);
+wire isNullADSR         = (currV_AdsrVol==15'd0);
 wire newSampleReady		= (adpcmSubSample == currV_adpcmPos[13:12]) & updatePrev;	// Only when state machine output SAMPLE from SPU RAM and valid ADPCM out.
 wire launchInterpolator = (adpcmSubSample == 2'd3) & updatePrev;					// Interpolator must run when no more write done.
 
@@ -1494,129 +1480,33 @@ NoiseUnit NoiseUnit_inst(
 // --------------------------------------------------------------------------------------
 //	[COMPLETED]	Stage 2 : Select ADPCM / Noise 	(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-wire		NON							= reg_non [currVoice];
-wire signed [15:0] ChannelValue			= NON ? noiseLevel : (validSampleStage2 ? voiceSample : 16'd0); // [TODO ADDED DEBUG WITH VALID SAMPLE. -> REMOVE]
-wire  signed [14:0] currV_VolumeL		= reg_volumeL	[currVoice][14:0];
-wire  signed [14:0] currV_VolumeR		= reg_volumeR	[currVoice][14:0];
+wire signed [15:0] ChannelValue			= currV_NON ? noiseLevel : (validSampleStage2 ? voiceSample : 16'd0); // [TODO ADDED DEBUG WITH VALID SAMPLE. -> REMOVE]
 
-// --------------------------------------------------------------------------------------
-//		Stage 3A : Compute ADSR        	(common : once every 32 cycle)
-// --------------------------------------------------------------------------------------
-wire  [14:0] AdsrVol			= reg_SPUEnable ? reg_currentAdsrVOL[currVoice] : 15'd0;
-wire  [15:0] AdsrLo				= reg_adsrLo	[currVoice];
-wire  [15:0] AdsrHi				= reg_adsrHi	[currVoice];
-wire   [1:0] AdsrState			= reg_adsrState	[currVoice];
-wire  [22:0] AdsrCycleCount		= reg_adsrCycleCount[currVoice];
+spu_ADSRUpdate spu_ADSRUpdate_instance (
+	.i_validSampleStage2	(validSampleStage2),
 
-reg 				EnvExponential;
-reg 				EnvDirection;
-reg signed [4:0]	EnvShift;
-reg signed [3:0]	EnvStep;
-reg [15:0]			EnvLevel;
-reg [1:0]           computedNextAdsrState;
-reg                 cmpLevel;
-
-wire [4:0]  	susLvl = { 1'b0, AdsrLo[3:0] } + { 5'd1 };
-wire [15:0]	EnvSusLevel= { susLvl, 11'd0 };
-
-wire [1:0] tstState = changeADSRState ? nextAdsrState : AdsrState;
-always @(*) begin
-	case (AdsrState)
-	// ---- Activated only from KON
-	ADSR_ATTACK : computedNextAdsrState = KON ? ADSR_ATTACK : ADSR_DECAY; // A State -> D State if KON cleared, else stay on ATTACK.
-	ADSR_DECAY  : computedNextAdsrState = ADSR_SUSTAIN;
-	ADSR_SUSTAIN: computedNextAdsrState = ADSR_SUSTAIN;
-	// ---- Activated only from KOFF
-	ADSR_RELEASE: computedNextAdsrState = ADSR_RELEASE;
-	endcase
+	.reg_SPUEnable			(reg_SPUEnable),
+	.curr_KON				(currV_KON),
+	.curr_AdsrVOL			(currV_AdsrVol),
+	.curr_AdsrLo			(currV_AdsrLo),
+	.curr_AdsrHi			(currV_AdsrHi),
+	.curr_AdsrState			(currV_AdsrState),
+	.curr_AdsrCycleCount	(currV_AdsrCycleCount),
 	
-	case (AdsrState)
-	ADSR_ATTACK : cmpLevel = 1;
-	ADSR_DECAY  : cmpLevel = 1;
-	ADSR_SUSTAIN: cmpLevel = 0;
-	ADSR_RELEASE: cmpLevel = 0;
-	endcase
-	
-	case (tstState)
-	ADSR_ATTACK: // A State
-	begin
-		EnvExponential	= AdsrLo[15];
-		EnvDirection	= 0;						// INCR
-		EnvShift		= AdsrLo[14:10];			// 0..+1F
-		EnvStep			= { 2'b01, ~AdsrLo[9:8] };	// +7..+4
-	end
-	ADSR_DECAY: // D State
-	begin
-		EnvExponential	= 1'b1;						// Exponential
-		EnvDirection	= 1;						// DECR
-		EnvShift		= { 1'b0, AdsrLo[7:4] };	// 0..+0F
-		EnvStep			= 4'b1000;					// -8
-	end
-	ADSR_SUSTAIN: // S State
-	begin
-		EnvExponential	= AdsrHi[15];
-		EnvDirection	= AdsrHi[14];				// INCR/DECR
-		EnvShift		= AdsrHi[12:8];				// 0..+1F
-		// +7/+6/+5/+4 if INCREASE
-		//	0 00 : 0111
-		//  0 01 : 0110
-		//  0 10 : 0101
-		//  0 11 : 0100
-		// -8/-7/-6/-5 if DECREASE
-		//	1 00 : 1000 -8
-		//  1 01 : 1001 -7
-		//  1 10 : 1010 -6
-		//  1 11 : 1011 -5
-		EnvStep			= { AdsrHi[14] , !AdsrHi[14] , AdsrHi[14] ? AdsrHi[7:6] : ~AdsrHi[7:6] };
-	end
-	ADSR_RELEASE: // R State	
-	begin
-		EnvExponential	= AdsrHi[5];
-		EnvDirection	= 1;						// DECR
-		EnvShift		= AdsrHi[4:0];				// 0..+1F
-		EnvStep			= 4'b1000;					// -8
-	end
-	endcase
-end
+	.o_updateADSRState		(updateADSRState),
+	.o_updateADSRVolReg		(updateADSRVolReg),
+	.o_clearKON				(clearKON),
 
-wire shift2ExpIncr = EnvExponential & !EnvDirection & (AdsrVol > 15'h6000);
-wire step2ExpDecr  = EnvExponential & EnvDirection;
-
-wire [22:0] cycleCountStart;
-wire signed [14:0] adsrStep;
-	
-ADSRCycleCountModule ADSRCycleCountInstance
-(
-	.i_EnvShift				(EnvShift),
-	.i_EnvStep				(EnvStep),
-	.i_adsrLevel			(AdsrVol),		// 0..+7FFF
-	.i_shift2ExpIncr		(shift2ExpIncr),
-	.i_step2ExpDecr			(step2ExpDecr),
-	.o_CycleCount			(cycleCountStart),
-	.o_AdsrStep				(adsrStep)
+	.o_nextAdsrState		(nextAdsrState),
+	.o_nextAdsrVol			(nextAdsrVol),
+	.o_nextAdsrCycle		(nextAdsrCycle)
 );
-
-wire [22:0] decAdsrCycle    = AdsrCycleCount + { 23{1'b1} } /* Same as AdsrCycleCount - 1 */;
-wire		reachZero		= (AdsrCycleCount == CHANGE_ADSR_AT); // Go to next state when reach 1 or 0 ??? (Take care of KON event setting current voice to 1 or 0 cycle)
-wire		tooBigLvl		= (      AdsrVol ==    15'h7FFF) && (AdsrState == ADSR_ATTACK);
-wire        tooLowLvl		= ({1'b0,AdsrVol} < EnvSusLevel) && (AdsrState == ADSR_DECAY );
-wire		changeADSRState	= validSampleStage2 & reachZero & ((cmpLevel & (tooBigLvl | tooLowLvl)) | (!cmpLevel));
-
-wire [22:0] nextAdsrCycle	= reachZero ? cycleCountStart : decAdsrCycle;
-
-// TODO : On Sustain, should stop adding adsrStep when reachZero
-wire [14:0] nextAdsrVol;
-wire [16:0] tmpVolStep		= {2'b0, AdsrVol} + {adsrStep[14],adsrStep[14],adsrStep};
-clampSPositive #(.INW(17),.OUTW(15)) ClampADSRVolume(.valueIn(tmpVolStep),.valueOut(nextAdsrVol));
-
-wire  [1:0]	nextAdsrState	= computedNextAdsrState;
-wire		clearKON		= reachZero & KON & validSampleStage2;
 
 /*
 	4. Detect value threshold and change state.
  */
 
-wire signed [15:0] sAdsrVol = {1'b0, AdsrVol};
+wire signed [15:0] sAdsrVol = {1'b0, currV_AdsrVol};
 wire signed [30:0] tmpVxOut = ChannelValue * sAdsrVol;
 wire signed [15:0] vxOut	 = tmpVxOut[30:15];	// 1.15 bit precision.
 
@@ -1647,7 +1537,7 @@ always @(posedge i_clk) begin
 	if (PValidSample) begin
 		sumL = sumL + { {5{applyLVol[30]}},applyLVol[30:15]};
 		sumR = sumR + { {5{applyRVol[30]}},applyRVol[30:15]};
-		if (EON) begin
+		if (currV_EON) begin
 			sumReverb = sumReverb + { {5{reverbApply[15]}}, reverbApply };
 		end
 	end else begin
