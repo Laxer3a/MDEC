@@ -622,7 +622,7 @@ reg internalReadPipe;
 reg incrXFerAdr;
 always @ (posedge i_clk) 
 begin
-	internalReadPipe	= internalRead;
+	internalReadPipe	<= internalRead;
 	incrXFerAdr			<= readFIFO | (SPUDACK && isDMAXferRD);
 end
 
@@ -802,14 +802,14 @@ always @(posedge i_clk)
 begin
 	if (n_rst == 0)
 	begin
-		voiceCounter		= 5'd0;
-		currVoice6Bit		= 6'd0;
+		voiceCounter		<= 5'd0;
+		currVoice6Bit		<= 6'd0;
 	end else begin
 		if (isLastCycle) begin
-			voiceCounter = 5'd0;
-			currVoice6Bit	= currVoice6Bit + 6'd1;
+			voiceCounter 	<= 5'd0;
+			currVoice6Bit	<= currVoice6Bit + 6'd1;
 		end else begin
-			voiceCounter = voiceCounter + 5'd1; 
+			voiceCounter 	<= voiceCounter + 5'd1; 
 		end
 	end
 end
@@ -821,22 +821,22 @@ wire signed [15:0] sampleOutADPCMRAW;
 always @(posedge i_clk)
 begin
 	if (loadPrev) begin
-		currV_shift		= i_dataInRAM[3:0];
-		currV_filter	= i_dataInRAM[6:4];
+		currV_shift		<= i_dataInRAM[3:0];
+		currV_filter	<= i_dataInRAM[6:4];
 	end
 	
 	if (reg_SPUIRQEnable && (reg_ramIRQAddr==o_adrRAM[17:2])) begin
-		reg_SPUIRQSet = 1'b1;
+		reg_SPUIRQSet <= 1'b1;
 	end
 	if (reg_SPUIRQEnable == 1'b0 /* || (n_rst == 0) */) begin // On Reset, enable will reset the IRQ with 1 cycle latency... No need for n_rst signal.
 		// Acknowledge if IRQ was set.
-		reg_SPUIRQSet = 1'b0;
+		reg_SPUIRQSet <= 1'b0;
 	end
 	if (loadPrev) begin
-		reg_tmpAdpcmPrev = currV_adpcmPrev;
+		reg_tmpAdpcmPrev <= currV_adpcmPrev;
 	end
 	if (updatePrev) begin
-		reg_tmpAdpcmPrev = { reg_tmpAdpcmPrev[15:0], sampleOutADPCMRAW };
+		reg_tmpAdpcmPrev <= { reg_tmpAdpcmPrev[15:0], sampleOutADPCMRAW };
 	end
 end
 
@@ -866,9 +866,9 @@ reg [7:0] reverbCnt;
 always @(posedge i_clk)
 begin
 	if (currVoice[4:3] != 2'd3) begin
-		reverbCnt = 8'd0;
+		reverbCnt <= 8'd0;
 	end else begin
-		reverbCnt = reverbCnt + 8'd1;
+		reverbCnt <= reverbCnt + 8'd1;
 	end
 end
 
@@ -936,7 +936,7 @@ wire signed [15:0] clampedAddC = addC[15:0];
 reg  signed [15:0] accReverb;
 always @(posedge i_clk)
 begin
-	accReverb = clampedAddC;
+	accReverb <= clampedAddC;
 end
 
 reg [15:0] adrB;
