@@ -1514,10 +1514,10 @@ reg signed [15:0] PvxOut;
 reg PValidSample;
 always @(posedge i_clk) begin
 	if (storePrevVxOut) begin
-		prevChannelVxOut = vxOut;
+		prevChannelVxOut <= vxOut;
 	end
-	PvxOut			= validSampleStage2 ? vxOut : 16'd0; // [TODO DEBUG LOGIC MUX -> REMOVE]
-	PValidSample	= validSampleStage2;
+	PvxOut			<= validSampleStage2 ? vxOut : 16'd0; // [TODO DEBUG LOGIC MUX -> REMOVE]
+	PValidSample	<= validSampleStage2;
 end
 
 // --------------------------------------------------------------------------------------
@@ -1535,16 +1535,16 @@ reg signed [20:0] sumReverb;
 wire signed [15:0] reverbApply = side22Khz ? applyRVol[30:15] : applyLVol[30:15];
 always @(posedge i_clk) begin
 	if (PValidSample) begin
-		sumL = sumL + { {5{applyLVol[30]}},applyLVol[30:15]};
-		sumR = sumR + { {5{applyRVol[30]}},applyRVol[30:15]};
+		sumL <= sumL + { {5{applyLVol[30]}},applyLVol[30:15]};
+		sumR <= sumR + { {5{applyRVol[30]}},applyRVol[30:15]};
 		if (currV_EON) begin
-			sumReverb = sumReverb + { {5{reverbApply[15]}}, reverbApply };
+			sumReverb <= sumReverb + { {5{reverbApply[15]}}, reverbApply };
 		end
 	end else begin
 		if (clearSum) begin
-			sumL		= 21'd0;
-			sumR		= 21'd0;
-			sumReverb	= 21'd0;
+			sumL		<= 21'd0;
+			sumR		<= 21'd0;
+			sumReverb	<= 21'd0;
 		end
 	end
 end
@@ -1559,19 +1559,19 @@ reg  signed [15:0] regValueReverbLeft,regValueReverbRight;
 
 always @(posedge i_clk) begin
 	if (inputL) begin
-		reg_CDRomInL = CDRomInL; 
+		reg_CDRomInL <= CDRomInL; 
 	end
 	if (inputR) begin
-		reg_CDRomInR = CDRomInR;
+		reg_CDRomInR <= CDRomInR;
 	end
 
 	if (ctrlSendOut) begin
 		if (side22Khz) begin
 			// Right Side
-			regValueReverbRight = valueReverbFinal;
+			regValueReverbRight <= valueReverbFinal;
 		end else begin
 			// Left Side
-			regValueReverbLeft  = valueReverbFinal;
+			regValueReverbLeft  <= valueReverbFinal;
 		end
 	end
 end

@@ -275,7 +275,7 @@ void W(int addr, int data) {
 //	mod->SPUDACK = 0;
 //	mod->SRD     = 0;
 	mod->SWRO    = 1;
-	printf("WRITE [%08x] = %04x\n",addr,data);
+//	printf("WRITE [%08x] = %04x\n",addr,data);
 	mod->addr    = addr - 0x1f801c00; // 10 bit.
 	mod->dataIn	 = data;
 }
