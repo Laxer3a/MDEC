@@ -29,7 +29,6 @@ module spu_front (
 
 	,input	[ 4:0]			i_currVoice
 	
-	,input	[3:0]			i_negNoiseStep
 	,input					i_check_Kevent
 	,input					i_clearKON
 	,input					i_incrXFerAdr
@@ -224,12 +223,26 @@ reg regIsLastADPCMBlk;
 reg reg_isRepeatADPCMFlag;
 //-----------------------------------------
 
+
+
+//-----------------------------------------
+// Conversion logic for write
+//-----------------------------------------
+reg [3:0] negNoiseStep;
+always @(*) begin
+	case (i_dataIn[9:8])
+	2'b00: negNoiseStep = 4'b1100;	// -4
+	2'b01: negNoiseStep = 4'b1011;	// -5
+	2'b10: negNoiseStep = 4'b1010;	// -6
+	2'b11: negNoiseStep = 4'b1001;	// -7
+	endcase
+end
+
+
 /* Decide if we loop ADSR cycle counter when reach 0 or 1 ?
 	0 = Number of cycle + 1 evaluation !
 	1 = Number of cycle exactly.
 */
-parameter		CHANGE_ADSR_AT = 23'd1;
-
 always @(posedge i_clk)
 begin
 	if (n_rst == 0)
@@ -373,7 +386,7 @@ begin
 							reg_SPUEnable		<= i_dataIn[15];
 							reg_SPUNotMuted		<= i_dataIn[14];
 							reg_NoiseFrequShift	<= i_dataIn[13:10];
-							reg_NoiseFrequStep	<= i_negNoiseStep; // See logic with dataIn[9:8];
+							reg_NoiseFrequStep	<= negNoiseStep; // See logic with dataIn[9:8];
 							reg_NoiseStepStore	<= i_dataIn[9:8];
 							reg_ReverbEnable	<= i_dataIn[7];
 							reg_SPUIRQEnable	<= i_dataIn[6];

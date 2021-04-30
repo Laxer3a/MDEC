@@ -8,16 +8,19 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
+
+`include "spu_def.v"
+
 module spu_ADSRUpdate (
 	input					i_validSampleStage2,
 
-	input					reg_SPUEnable,
-	input					curr_KON,
-	input	[14:0]			curr_AdsrVOL,
-	input	[15:0]			curr_AdsrLo,
-	input	[15:0]			curr_AdsrHi,
-	input	[1:0]			curr_AdsrState,
-	input	[22:0]			curr_AdsrCycleCount,
+	input					i_reg_SPUEnable,
+	input					i_curr_KON,
+	input	[14:0]			i_curr_AdsrVOL,
+	input	[15:0]			i_curr_AdsrLo,
+	input	[15:0]			i_curr_AdsrHi,
+	input	[1:0]			i_curr_AdsrState,
+	input	[22:0]			i_curr_AdsrCycleCount,
 	
 	output					o_updateADSRVolReg,
 	output					o_updateADSRState,
@@ -27,17 +30,10 @@ module spu_ADSRUpdate (
 	output 		   [22:0]	o_nextAdsrCycle
 );
 
-// TODO : Common constants
-parameter	CHANGE_ADSR_AT = 23'd1;
-parameter	ADSR_ATTACK		= 2'd0, // May need bit 2 for ADSR_STOPPED ?
-			ADSR_DECAY		= 2'd1,
-			ADSR_SUSTAIN	= 2'd2,
-			ADSR_RELEASE	= 2'd3;
-
 // --------------------------------------------------------------------------------------
 //		Stage 3A : Compute ADSR        	(common : once every 32 cycle)
 // --------------------------------------------------------------------------------------
-wire  [14:0] AdsrVol			= reg_SPUEnable ? curr_AdsrVOL : 15'd0;
+wire  [14:0] AdsrVol			= i_reg_SPUEnable ? i_curr_AdsrVOL : 15'd0;
 // wire  [15:0] curr_AdsrLo		= reg_adsrLo	[currVoice];
 // wire  [15:0] curr_AdsrHi		= reg_adsrHi	[currVoice];
 // wire   [1:0] curr_AdsrState	= reg_adsrState	[currVoice];
@@ -50,22 +46,22 @@ reg signed [3:0]	EnvStep;
 reg [1:0]           computedNextAdsrState;
 reg                 cmpLevel;
 
-wire [4:0]  	susLvl = { 1'b0, curr_AdsrLo[3:0] } + { 5'd1 };
+wire [4:0]  	susLvl = { 1'b0, i_curr_AdsrLo[3:0] } + { 5'd1 };
 wire [15:0]	EnvSusLevel= { susLvl, 11'd0 };
 
 wire updateADSRState;
-wire [1:0] tstState = updateADSRState ? computedNextAdsrState : curr_AdsrState;
+wire [1:0] tstState = updateADSRState ? computedNextAdsrState : i_curr_AdsrState;
 always @(*) begin
-	case (curr_AdsrState)
+	case (i_curr_AdsrState)
 	// ---- Activated only from KON
-	ADSR_ATTACK : computedNextAdsrState = curr_KON ? ADSR_ATTACK : ADSR_DECAY; // A State -> D State if KON cleared, else stay on ATTACK.
+	ADSR_ATTACK : computedNextAdsrState = i_curr_KON ? ADSR_ATTACK : ADSR_DECAY; // A State -> D State if KON cleared, else stay on ATTACK.
 	ADSR_DECAY  : computedNextAdsrState = ADSR_SUSTAIN;
 	ADSR_SUSTAIN: computedNextAdsrState = ADSR_SUSTAIN;
 	// ---- Activated only from KOFF
 	ADSR_RELEASE: computedNextAdsrState = ADSR_RELEASE;
 	endcase
 	
-	case (curr_AdsrState)
+	case (i_curr_AdsrState)
 	ADSR_ATTACK : cmpLevel = 1;
 	ADSR_DECAY  : cmpLevel = 1;
 	ADSR_SUSTAIN: cmpLevel = 0;
@@ -75,23 +71,23 @@ always @(*) begin
 	case (tstState)
 	ADSR_ATTACK: // A State
 	begin
-		EnvExponential	= curr_AdsrLo[15];
-		EnvDirection	= 0;						// INCR
-		EnvShift		= curr_AdsrLo[14:10];			// 0..+1F
-		EnvStep			= { 2'b01, ~curr_AdsrLo[9:8] };	// +7..+4
+		EnvExponential	= i_curr_AdsrLo[15];
+		EnvDirection	= 0;								// INCR
+		EnvShift		= i_curr_AdsrLo[14:10];				// 0..+1F
+		EnvStep			= { 2'b01, ~i_curr_AdsrLo[9:8] };	// +7..+4
 	end
 	ADSR_DECAY: // D State
 	begin
-		EnvExponential	= 1'b1;						// Exponential
-		EnvDirection	= 1;						// DECR
-		EnvShift		= { 1'b0, curr_AdsrLo[7:4] };	// 0..+0F
-		EnvStep			= 4'b1000;					// -8
+		EnvExponential	= 1'b1;								// Exponential
+		EnvDirection	= 1;								// DECR
+		EnvShift		= { 1'b0, i_curr_AdsrLo[7:4] };		// 0..+0F
+		EnvStep			= 4'b1000;							// -8
 	end
 	ADSR_SUSTAIN: // S State
 	begin
-		EnvExponential	= curr_AdsrHi[15];
-		EnvDirection	= curr_AdsrHi[14];				// INCR/DECR
-		EnvShift		= curr_AdsrHi[12:8];				// 0..+1F
+		EnvExponential	= i_curr_AdsrHi[15];
+		EnvDirection	= i_curr_AdsrHi[14];				// INCR/DECR
+		EnvShift		= i_curr_AdsrHi[12:8];				// 0..+1F
 		// +7/+6/+5/+4 if INCREASE
 		//	0 00 : 0111
 		//  0 01 : 0110
@@ -102,13 +98,13 @@ always @(*) begin
 		//  1 01 : 1001 -7
 		//  1 10 : 1010 -6
 		//  1 11 : 1011 -5
-		EnvStep			= { curr_AdsrHi[14] , !curr_AdsrHi[14] , curr_AdsrHi[14] ? curr_AdsrHi[7:6] : ~curr_AdsrHi[7:6] };
+		EnvStep			= { i_curr_AdsrHi[14] , !i_curr_AdsrHi[14] , i_curr_AdsrHi[14] ? i_curr_AdsrHi[7:6] : ~i_curr_AdsrHi[7:6] };
 	end
 	ADSR_RELEASE: // R State	
 	begin
-		EnvExponential	= curr_AdsrHi[5];
+		EnvExponential	= i_curr_AdsrHi[5];
 		EnvDirection	= 1;						// DECR
-		EnvShift		= curr_AdsrHi[4:0];				// 0..+1F
+		EnvShift		= i_curr_AdsrHi[4:0];		// 0..+1F
 		EnvStep			= 4'b1000;					// -8
 	end
 	endcase
@@ -131,10 +127,10 @@ ADSRCycleCountModule ADSRCycleCountInstance
 	.o_AdsrStep				(adsrStep)
 );
 
-wire [22:0] decAdsrCycle    = curr_AdsrCycleCount + { 23{1'b1} } /* Same as AdsrCycleCount - 1 */;
-wire		reachZero		= (curr_AdsrCycleCount == CHANGE_ADSR_AT); // Go to next state when reach 1 or 0 ??? (Take care of KON event setting current voice to 1 or 0 cycle)
-wire		tooBigLvl		= (      AdsrVol ==    15'h7FFF) && (curr_AdsrState == ADSR_ATTACK);
-wire        tooLowLvl		= ({1'b0,AdsrVol} < EnvSusLevel) && (curr_AdsrState == ADSR_DECAY );
+wire [22:0] decAdsrCycle    = i_curr_AdsrCycleCount + { 23{1'b1} } /* Same as AdsrCycleCount - 1 */;
+wire		reachZero		= (i_curr_AdsrCycleCount == CHANGE_ADSR_AT); // Go to next state when reach 1 or 0 ??? (Take care of KON event setting current voice to 1 or 0 cycle)
+wire		tooBigLvl		= (      AdsrVol ==    15'h7FFF) && (i_curr_AdsrState == ADSR_ATTACK);
+wire        tooLowLvl		= ({1'b0,AdsrVol} < EnvSusLevel) && (i_curr_AdsrState == ADSR_DECAY );
 wire [22:0] nextAdsrCycle	= reachZero ? cycleCountStart : decAdsrCycle;
 
 // TODO : On Sustain, should stop adding adsrStep when reachZero
@@ -148,6 +144,6 @@ assign o_nextAdsrCycle		= nextAdsrCycle;
 assign o_updateADSRVolReg	= i_validSampleStage2 & reachZero;
 assign updateADSRState      = o_updateADSRVolReg & ((cmpLevel & (tooBigLvl | tooLowLvl)) | (!cmpLevel));
 assign o_updateADSRState	= updateADSRState;
-assign o_clearKON			= o_updateADSRVolReg & curr_KON;
+assign o_clearKON			= o_updateADSRVolReg & i_curr_KON;
 
 endmodule

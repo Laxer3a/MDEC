@@ -12,6 +12,8 @@ See LICENSE file.
 `ifndef SPU_DEFINITION
 `define SPU_DEFINITION
 
+parameter	CHANGE_ADSR_AT = 23'd1;
+
 parameter	VOICEMD				= 2'd1,
 			FIFO_MD				= 2'd2,
 			REVB_MD				= 2'd3,

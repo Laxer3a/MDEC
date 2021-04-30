@@ -36,8 +36,8 @@ module ADPCMDecoder(
 	input			[3:0]	i_Shift,
 	input			[2:0]	i_Filter,
 	
-	input 			[15:0]	inputRAW,
-	input signed	[ 1:0]	samplePosition,
+	input 			[15:0]	i_inputRAW,
+	input signed	[ 1:0]	i_samplePosition,
 
 	input signed	[15:0]	i_PrevSample0,
 	input signed    [15:0]  i_PrevSample1,
@@ -75,11 +75,11 @@ end
 
 reg [3:0] nibble;
 always @(*) begin
-	case (samplePosition)
-	2'd0	: nibble = inputRAW[ 3: 0];
-	2'd1 	: nibble = inputRAW[ 7: 4];
-	2'd2 	: nibble = inputRAW[11: 8];
-	2'd3 	: nibble = inputRAW[15:12];
+	case (i_samplePosition)
+	2'd0	: nibble = i_inputRAW[ 3: 0];
+	2'd1 	: nibble = i_inputRAW[ 7: 4];
+	2'd2 	: nibble = i_inputRAW[11: 8];
+	2'd3 	: nibble = i_inputRAW[15:12];
 	endcase
 end
 

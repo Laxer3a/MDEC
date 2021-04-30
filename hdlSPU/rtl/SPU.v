@@ -159,52 +159,35 @@ wire internalRead  = SRD  & SPUCS;
 // --------------------------------------------------------------------------------------
 
 reg			reg_SPUIRQSet;
-
 reg [31:0]  reg_tmpAdpcmPrev;
 
-wire [15:0] 		currV_startAddr;
-wire 	 			currV_NON;
-wire [15:0] 		currV_repeatAddr;
-wire [15:0] 		currV_adpcmCurrAdr;
+// Current Voice Registers
+wire 	 			currV_NON,currV_KON,currV_PMON,currV_EON;
+wire [15:0] 		currV_startAddr,currV_repeatAddr,currV_adpcmCurrAdr;
 wire [16:0] 		currV_adpcmPos;
 wire [31:0] 		currV_adpcmPrev;
-wire 				currV_KON;
-wire 				currV_PMON;
-wire 				currV_EON;
-wire signed [14:0] 	currV_VolumeL;
-wire signed [14:0] 	currV_VolumeR;
+wire signed [14:0] 	currV_VolumeL,currV_VolumeR;
 wire [14:0] 		currV_AdsrVol;
-wire [15:0] 		currV_AdsrLo;
-wire [15:0] 		currV_AdsrHi;
+wire [15:0] 		currV_AdsrLo,currV_AdsrHi;
 wire  [1:0] 		currV_AdsrState;
 wire [22:0] 		currV_AdsrCycleCount;
 wire [15:0] 		currV_sampleRate;
-wire [15:0]			dataOutw;	
-wire  [1:0]			reg_SPUTransferMode;
-
-wire			reg_SPUIRQEnable;			//  DAA.6
-wire [15:0]	reg_ramIRQAddr;				// DA4 Sound RAM IRQ Address
-wire [15:0]	reg_mBase;					// 32 bit ?
-wire  [17:0] reverb_CounterWord;
-wire			reg_ReverbEnable;			//  DAA.7
-wire	[3:0]	reg_NoiseFrequShift;		//  DAA.13-10
-wire	[3:0]	reg_NoiseFrequStep;			//  DAA.9-8 -> Modified at setup.
-wire 		reg_SPUEnable;				//  DAA.15
-
-wire			reg_SPUNotMuted;			//  DAA.14
-wire			reg_CDAudioEnabled;			//  DAA.0
-wire			reg_CDAudioReverbEnabled;	//  DAA.2
-wire signed [15:0]	reg_CDVolumeL;		// DB0 CD Audio Input Volume Left  (CD-DA / XA-ADPCM)
-wire signed [15:0]	reg_CDVolumeR;		// DB2 CD Audio Input Volume Right (CD-DA / XA-ADPCM)
-wire signed [15:0]	reg_mainVolLeft;	// D80 Mainvolume Left
-wire signed [15:0]	reg_mainVolRight;	// D82 Mainvolume Left
-wire signed [15:0]	reg_reverbVolLeft;
-wire signed [15:0]	reg_reverbVolRight;
-
-// Reverb mapped registers.
+// 'Enable' registers
+wire 				reg_SPUIRQEnable,reg_ReverbEnable,reg_SPUEnable,reg_SPUNotMuted,reg_CDAudioEnabled,reg_CDAudioReverbEnabled;
+// Mixing Audio Volume Register
+wire signed [15:0]	reg_CDVolumeL,reg_CDVolumeR,reg_mainVolLeft,reg_mainVolRight,reg_reverbVolLeft,reg_reverbVolRight;
+// Reverb registers.
 wire signed [15:0] dAPF1,dAPF2,vIIR,vCOMB1, vCOMB2,vCOMB3,vCOMB4,vWALL, vAPF1,vAPF2,mLSAME,mRSAME;
 wire signed [15:0] mLCOMB1,mRCOMB1,mLCOMB2,mRCOMB2, dLSAME,dRSAME,mLDIFF,mRDIFF, mLCOMB3,mRCOMB3,mLCOMB4,mRCOMB4;
 wire signed [15:0] dLDIFF,dRDIFF,mLAPF1,mRAPF1,mLAPF2,mRAPF2,vLIN,vRIN;
+
+wire [15:0]			dataOutw;
+wire  [1:0]			reg_SPUTransferMode;
+wire [15:0]			reg_ramIRQAddr;
+wire [15:0]			reg_mBase;
+wire  [17:0] 		reverb_CounterWord;
+wire	[3:0]		reg_NoiseFrequShift;
+wire	[3:0]		reg_NoiseFrequStep;
 
 spu_front spu_front_inst (
 	.i_clk					(i_clk				),
@@ -218,7 +201,6 @@ spu_front spu_front_inst (
 
 	.i_currVoice            (currVoice           ),
 
-	.i_negNoiseStep         (negNoiseStep        ),
 	.i_check_Kevent         (check_Kevent        ),
 	.i_clearKON             (clearKON            ),
 	.i_incrXFerAdr          (incrXFerAdr         ),
@@ -336,16 +318,6 @@ spu_front spu_front_inst (
 // -----------------------------------------------------------------
 // REGISTER READ / WRITE SECTION
 // -----------------------------------------------------------------
-reg [3:0] negNoiseStep;
-always @(*) begin
-	case (dataIn[9:8])
-	2'b00: negNoiseStep = 4'b1100;	// -4
-	2'b01: negNoiseStep = 4'b1011;	// -5
-	2'b10: negNoiseStep = 4'b1010;	// -6
-	2'b11: negNoiseStep = 4'b1001;	// -7
-	endcase
-end
-
 wire isD8				= (addr[9:8]==2'b01);
 wire isD80_DFF			= (isD8 && addr[7]);							// Latency 0 : D80~DFF
 wire isChannel			= ((addr[9:8]==2'b00) | (isD8 & !addr[7])); 	// Latency 0 : C00~D7F
@@ -935,8 +907,8 @@ ADPCMDecoder ADPCMDecoderUnit(
 	.i_Shift		(currV_shift),
 	.i_Filter		(currV_filter),
 	
-	.inputRAW		(i_dataInRAM),
-	.samplePosition	(adpcmSubSample),
+	.i_inputRAW		(i_dataInRAM),
+	.i_samplePosition(adpcmSubSample),
 
 	.i_PrevSample0	(reg_tmpAdpcmPrev[15: 0]),
 	.i_PrevSample1	(reg_tmpAdpcmPrev[31:16]),
@@ -997,13 +969,13 @@ wire signed [15:0] ChannelValue			= currV_NON ? noiseLevel : (validSampleStage2 
 spu_ADSRUpdate spu_ADSRUpdate_instance (
 	.i_validSampleStage2	(validSampleStage2),
 
-	.reg_SPUEnable			(reg_SPUEnable),
-	.curr_KON				(currV_KON),
-	.curr_AdsrVOL			(currV_AdsrVol),
-	.curr_AdsrLo			(currV_AdsrLo),
-	.curr_AdsrHi			(currV_AdsrHi),
-	.curr_AdsrState			(currV_AdsrState),
-	.curr_AdsrCycleCount	(currV_AdsrCycleCount),
+	.i_reg_SPUEnable		(reg_SPUEnable),
+	.i_curr_KON				(currV_KON),
+	.i_curr_AdsrVOL			(currV_AdsrVol),
+	.i_curr_AdsrLo			(currV_AdsrLo),
+	.i_curr_AdsrHi			(currV_AdsrHi),
+	.i_curr_AdsrState		(currV_AdsrState),
+	.i_curr_AdsrCycleCount	(currV_AdsrCycleCount),
 	
 	.o_updateADSRState		(updateADSRState),
 	.o_updateADSRVolReg		(updateADSRVolReg),
