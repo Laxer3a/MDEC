@@ -1,3 +1,14 @@
+/* ----------------------------------------------------------------------------------------------------------------------
+
+PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
+
+This PS-FPGA source code is copyright (C) 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+ and a commercial licensing option.
+If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
+
+See LICENSE file.
+---------------------------------------------------------------------------------------------------------------------- */
+
 /***************************************************************************************************************************************
 	Verilog code done by Laxer3A v1.0
  **************************************************************************************************************************************/
@@ -105,25 +116,25 @@ reg signed [15:0] rNEW;
 
 always @(posedge i_clk) begin
 	if (i_go) begin
-		regIdx	= 3'd1;	// Start at 1, stop at 4.
-		acc		= 18'd0;
-		rNEW	= i_sampleNew;
-		rOLD	= i_sampleOld;
-		rOLDER	= i_sampleOlder;
-		rOLDEST	= i_sampleOldest;
+		regIdx	<= 3'd1;	// Start at 1, stop at 4.
+		acc		<= 18'd0;
+		rNEW	<= i_sampleNew;
+		rOLD	<= i_sampleOld;
+		rOLDER	<= i_sampleOlder;
+		rOLDEST	<= i_sampleOldest;
 	end else begin
 		// Because of latency to InterpROM, when regIdx = 1, data is not there yet...
 		// BEFORE regIdx INCREMENT !
 		if (regIdx > 1) begin
-			acc = acc + { cumulativeSample[15], cumulativeSample[15], cumulativeSample};
+			acc <= acc + { cumulativeSample[15], cumulativeSample[15], cumulativeSample};
 		end
 	
 		// Stuck at 6
 		if (regIdx < 7) begin
-			regIdx = regIdx + 1;
+			regIdx <= regIdx + 1;
 		end
 	end
-	Pidx = idx;
+	Pidx <= idx;
 end
 
 wire [7:0] interp = i_interpolator;
