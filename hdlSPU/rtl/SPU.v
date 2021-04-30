@@ -136,12 +136,13 @@ always @(*) begin
 	endcase
 end
 
+wire [15:0] storedCDRomInL,storedCDRomInR,currChannelVxOut;
 always @(*) begin
 	// Garbage in case of read, but ignored...
 	case (SPUMemWRSel[1:0])
 	FIFO_MD		: internal_dataOutRAM = fifoDataOut;
-	VOICEMD		: internal_dataOutRAM = vxOut;
-	CDROMMD		: internal_dataOutRAM = isRight ? reg_CDRomInR : reg_CDRomInL;
+	VOICEMD		: internal_dataOutRAM = currChannelVxOut;
+	CDROMMD		: internal_dataOutRAM = isRight ? storedCDRomInR : storedCDRomInL;
 	default		: internal_dataOutRAM = reverbWriteValue; // REVB_MD
 	endcase
 end
@@ -1517,6 +1518,75 @@ spu_ADSRUpdate spu_ADSRUpdate_instance (
 	4. Detect value threshold and change state.
  */
 
+spu_AudioMixer spu_AudioMixerInstance (
+	.i_clk					(i_clk),
+	.i_rst					(!n_rst),
+	
+	.i_side22Khz			(side22Khz),
+	// Mixing this channel to the output
+	.i_ChannelValue			(ChannelValue),
+	.i_vxOutValid			(validSampleStage2),
+
+	.i_AdsrVol				(currV_AdsrVol),
+	.i_currV_EON			(currV_EON),
+	.i_currV_VolumeL		(currV_VolumeL),
+	.i_currV_VolumeR		(currV_VolumeR),
+
+	.i_ctrlSendOut			(ctrlSendOut),	// When mixing the last sample -> Send out to the audio DAC.
+	.i_clearSum				(clearSum),
+	
+	
+	// Register from outside
+	.i_reg_SPUNotMuted			(reg_SPUNotMuted),
+	.i_reg_CDAudioEnabled		(reg_CDAudioEnabled),
+	.i_reg_CDAudioReverbEnabled	(reg_CDAudioReverbEnabled),
+	.i_reg_CDVolumeL			(reg_CDVolumeL),
+	.i_reg_CDVolumeR			(reg_CDVolumeR),
+	.i_reg_mainVolLeft			(reg_mainVolLeft),
+	.i_reg_mainVolRight			(reg_mainVolRight),
+	.i_reg_reverbVolLeft		(reg_reverbVolLeft),
+	.i_reg_reverbVolRight		(reg_reverbVolRight),
+	.i_reg_ReverbEnable			(reg_ReverbEnable),
+
+/*
+	//-------------------------------------------
+	//  Register Control From Bus
+	//-------------------------------------------
+	input  [4:0]			i_channelAdr,
+	input 					i_writeLVolume,
+	input 					i_writeRVolume,
+	input 					i_readLVolume,
+	input 					i_ReadRVolume,
+	input	[15:0]			i_writeValue,
+	output	[15:0]			o_readValue,
+*/
+	
+	// From CD Rom Drive Audio
+	.i_CDRomInL_valid		(inputL),
+	.i_CDRomInL				(CDRomInL),
+	.i_CDRomInR_valid		(inputR),
+	.i_CDRomInR				(CDRomInR),
+	
+	// Register keeping current loaded CD Audio sample
+	.o_storedCDRomInL		(storedCDRomInL),
+	.o_storedCDRomInR		(storedCDRomInR),
+
+	// Final mix for reverb write back
+	.i_accReverb			(reverbWriteValue),
+	// [TODO] Add signal here I guess ?
+	.o_lineIn				(lineIn),
+	
+	// To DAC, final samples.
+	.o_AOUTL				(AOUTL),
+	.o_AOUTR				(AOUTR),
+	.o_VALIDOUT				(VALIDOUT),
+	
+	.i_storePrevVxOut		(storePrevVxOut),
+	.o_prevVxOut			(prevChannelVxOut),
+	.o_currVxOut			(currChannelVxOut)
+);
+
+`ifdef OLD_LOGIC
 wire signed [15:0] sAdsrVol = {1'b0, currV_AdsrVol};
 wire signed [30:0] tmpVxOut = ChannelValue * sAdsrVol;
 wire signed [15:0] vxOut	 = tmpVxOut[30:15];	// 1.15 bit precision.
@@ -1629,5 +1699,6 @@ clampSRange #(.INW(21),.OUTW(16)) RightClamp(.valueIn(postVolR),.valueOut(outR))
 assign AOUTL		= outL;
 assign AOUTR		= outR;
 assign VALIDOUT		= ctrlSendOut;
+`endif
 
 endmodule
