@@ -45,18 +45,18 @@ InterpROM instanceInterpROM(
 
 always @(posedge i_clk) begin
 	if (i_go) begin
-		regIdx	= 3'd0;	// Start at 1, stop at 7.
-		acc		= 18'd0;
+		regIdx	<= 3'd0;	// Start at 1, stop at 7.
+		acc		<= 18'd0;
 	end else begin
 		// Because of latency to InterpROM, when regIdx = 1, data is not there yet...
 		// BEFORE regIdx INCREMENT !
 		if (regIdx > 0) begin
-			acc = acc + { cumulativeSample[15], cumulativeSample[15], cumulativeSample};
+			acc <= acc + { cumulativeSample[15], cumulativeSample[15], cumulativeSample};
 		end
 	
 		// Stuck at 6
 		if (regIdx < 7) begin
-			regIdx = regIdx + 1;
+			regIdx <= regIdx + 1;
 		end
 	end
 end
