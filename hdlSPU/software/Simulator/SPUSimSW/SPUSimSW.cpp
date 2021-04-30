@@ -459,6 +459,8 @@ int main()
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
 	const bool	useScan					= false;
+//#define SAMPLE_COUNT	(80)
+ #define SAMPLE_COUNT	(88000)
 
 	// ------------------------------------------------------------------
 	// Fake SPU RAM PSX.
@@ -475,8 +477,7 @@ int main()
 
 	// SPU RAM ADR = VALUE !!! LOL.
 	for (int n = 0; n < 262144; n++) {
-		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramL[n] = 0; // n & 0xFF;
-		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramM[n] = 0;
+		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ram[n] = n;
 	}
 
 	// registerVerilatedMemberIntoScanner(mod,pScan);
@@ -586,8 +587,6 @@ int main()
 	bool scanConstraint = false;
 
 	loader("E:\\ff7-101-the-prelude.spudump");
-// #define SAMPLE_COUNT	(19800)
-#define SAMPLE_COUNT	(88000)
 
 #ifdef DUMPWAV
 	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");

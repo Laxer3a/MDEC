@@ -84,8 +84,6 @@ void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan) {
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__i_we,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__i_byteSelect,1,0);
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__readByteSelect_reg,1,0);
-    VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__hig,7,0);
-    VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__low,7,0);
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__readByteSelect_reg1,1,0);
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__readByteSelect_reg2,1,0);
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__readByteSelect_reg3,1,0);
