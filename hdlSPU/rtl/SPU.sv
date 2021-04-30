@@ -27,7 +27,7 @@ See LICENSE file.
 	----- Unmet in games ----
 	TODO : Implement Sweep.	(Per channel, Per Main)
 */
-`include "spu_def.v"
+`include "spu_def.sv"
 
 module SPU(
 	 input			i_clk

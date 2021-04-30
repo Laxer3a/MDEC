@@ -114,7 +114,6 @@ void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan) {
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_SPUNotMuted,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_NoiseFrequShift,3,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_NoiseFrequStep,3,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__negNoiseStep,3,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isD8,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isD80_DFF,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isChannel,0,0);
@@ -138,10 +137,8 @@ void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan) {
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__currV_EON,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__currV_NON,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__currV_AdsrState,1,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__currVoice6Bit,5,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__currVoice,4,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__voiceCounter,4,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isLastCycle,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__ctrl44Khz,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__side22Khz,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__currV_shift,3,0);
@@ -166,13 +163,6 @@ void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan) {
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__updateVoiceADPCMPrev,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isVoice1,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isVoice3,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reverbCnt,7,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__sideAReg,3,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__sideBReg,4,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__minus2,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__selB,1,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__accAdd,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isRight,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isFIFOWR,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__kickFifoRead,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__pipeReadFIFO,0,0);

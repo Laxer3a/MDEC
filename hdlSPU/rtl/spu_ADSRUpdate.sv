@@ -9,7 +9,7 @@ If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot
 See LICENSE file.
 ---------------------------------------------------------------------------------------------------------------------- */
 
-`include "spu_def.v"
+`include "spu_def.sv"
 
 module spu_ADSRUpdate (
 	input					i_validSampleStage2,
