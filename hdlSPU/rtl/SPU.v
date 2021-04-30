@@ -83,12 +83,6 @@ module SPU(
 reg [23:0] debugCnt; always @(posedge i_clk)
 begin debugCnt <= (n_rst == 0) ? 24'd0 : debugCnt + 24'd1; end
 
-/* Decide if we loop ADSR cycle counter when reach 0 or 1 ?
-	0 = Number of cycle + 1 evaluation !
-	1 = Number of cycle exactly.
-*/
-parameter		CHANGE_ADSR_AT = 23'd1;
-
 reg      [2:0]	SPUMemWRSel;
 reg 	[17:0]	internal_adrRAM;
 reg		[15:0]	internal_dataOutRAM;
@@ -100,9 +94,10 @@ assign 			o_dataWriteRAM   = writeSPURAM;
 
 assign			o_dataOutRAM	= internal_dataOutRAM;
 
-reg [8:0] regRingBufferIndex;
 wire [17:0] reverbAdr;
 wire [15:0] reverbWriteValue;
+wire [17:0] reg_dataTransferAddrCurr;
+wire [8:0] regRingBufferIndex;
 always @(*) begin
 	// Write Section
 	case (SPUMemWRSel)
@@ -162,76 +157,181 @@ wire internalRead  = SRD  & SPUCS;
 // --------------------------------------------------------------------------------------
 //		[FRONT END : Registers]
 // --------------------------------------------------------------------------------------
-reg [15:0]	reg_volumeL			[23:0];	// Cn0 Voice Volume Left
-reg [15:0]	reg_volumeR			[23:0];	// Cn2 Voice Volume Right
-reg [15:0]	reg_sampleRate		[23:0];	// Cn4 VxPitch
-reg [15:0]	reg_startAddr		[23:0];	// Cn6 ADPCM Start  Address
-reg [14:0]	reg_currentAdsrVOL	[23:0];	// CnC Voice Current ADSR Volume
-reg [15:0]	reg_repeatAddr		[23:0];	// CnE ADPCM Repeat Address
-reg [15:0]	reg_adsrLo			[23:0];
-reg [15:0]	reg_adsrHi			[23:0];
 
-parameter	ADSR_ATTACK		= 2'd0, // May need bit 2 for ADSR_STOPPED ?
-			ADSR_DECAY		= 2'd1,
-			ADSR_SUSTAIN	= 2'd2,
-			ADSR_RELEASE	= 2'd3;
-reg [ 1:0]	reg_adsrState		[23:0];
-
-reg [31:0]  reg_adpcmPrev		[23:0];	// [NWRITE]
-reg [31:0]  reg_tmpAdpcmPrev;
-reg [16:0]	reg_adpcmPos		[23:0];
-reg [15:0]  reg_adpcmCurrAdr	[23:0];
-reg [22:0]  reg_adsrCycleCount[23:0];
-
-reg [23:0]	reg_ignoreLoadRepeatAddress;
-
-reg signed [15:0]	reg_mainVolLeft;	// D80 Mainvolume Left
-reg signed [15:0]	reg_mainVolRight;	// D82 Mainvolume Left
-reg signed [15:0]	reg_reverbVolLeft;
-reg signed [15:0]	reg_reverbVolRight;
-reg [23:0]	reg_kon;					// D88 Voice Key On  (32 bit W)
-reg [23:0]	reg_koff;					// D8C Voice Key Off (32 bit W)
-reg [23:0]	reg_kEvent;
-reg [23:0]	reg_kMode;
-reg [23:0]	reg_pmon;					// D90 Voice Pitch Modulation Enabled Flags (PMON)
-reg [23:0]	reg_non;					// D94 Voice Noise Enable (32 bit W)
-reg [23:0]	reg_eon;
-reg [23:0]	reg_endx;					// D9C Voice Status (ENDX)
-reg [15:0]	reg_reverb			[31:0];
-reg [15:0]	reg_mBase;					// 32 bit ?
-reg [15:0]	reg_ramIRQAddr;				// DA4 Sound RAM IRQ Address
-reg [15:0]	reg_dataTransferAddr;		// DA6 Sound RAM Data Transfer Address
-reg [17:0]  reg_dataTransferAddrCurr;	// Real Counter.
-
-reg signed [15:0]	reg_CDVolumeL;		// DB0 CD Audio Input Volume Left  (CD-DA / XA-ADPCM)
-reg signed [15:0]	reg_CDVolumeR;		// DB2 CD Audio Input Volume Right (CD-DA / XA-ADPCM)
-reg signed [15:0]	reg_ExtVolumeL;		// DB4 External Input Volume Left
-reg signed [15:0]	reg_ExtVolumeR;		// DB6 External Input Volume Right
-										// DB8 Current Main Volume Left / DBA Right
-										// Exx Voice Current Volume Left / Right (32 bit)
-										
-										// DAA SPU Control Register (SPUCNT)
-reg 		reg_SPUEnable;				//  DAA.15
-reg			reg_SPUNotMuted;			//  DAA.14
-reg	[3:0]	reg_NoiseFrequShift;		//  DAA.13-10
-reg	[3:0]	reg_NoiseFrequStep;			//  DAA.9-8 -> Modified at setup.
-reg [1:0]	reg_NoiseStepStore;
-reg			reg_ReverbEnable;			//  DAA.7
-reg			reg_SPUIRQEnable;			//  DAA.6
-
-parameter	XFER_STOP   = 2'd0,
-			XFER_MANUAL = 2'd1,
-			XFER_DMAWR  = 2'd2,
-			XFER_DMARD  = 2'd3;
-reg	[1:0]	reg_SPUTransferMode;		//  DAA.5-4
-
-reg			reg_ExtReverbEnabled;		//  DAA.3
-reg			reg_CDAudioReverbEnabled;	//  DAA.2
-reg			reg_ExtEnabled;				//  DAA.1
-reg			reg_CDAudioEnabled;			//  DAA.0
-reg	[15:0]	regSoundRAMDataXFerCtrl;	// DAC Sound RAM Data Transfer Control
-										// DAE SPU Status Register (SPUSTAT) (Read only)
 reg			reg_SPUIRQSet;
+
+reg [31:0]  reg_tmpAdpcmPrev;
+
+wire [15:0] 		currV_startAddr;
+wire 	 			currV_NON;
+wire [15:0] 		currV_repeatAddr;
+wire [15:0] 		currV_adpcmCurrAdr;
+wire [16:0] 		currV_adpcmPos;
+wire [31:0] 		currV_adpcmPrev;
+wire 				currV_KON;
+wire 				currV_PMON;
+wire 				currV_EON;
+wire signed [14:0] 	currV_VolumeL;
+wire signed [14:0] 	currV_VolumeR;
+wire [14:0] 		currV_AdsrVol;
+wire [15:0] 		currV_AdsrLo;
+wire [15:0] 		currV_AdsrHi;
+wire  [1:0] 		currV_AdsrState;
+wire [22:0] 		currV_AdsrCycleCount;
+wire [15:0] 		currV_sampleRate;
+wire [15:0]			dataOutw;	
+wire  [1:0]			reg_SPUTransferMode;
+
+wire			reg_SPUIRQEnable;			//  DAA.6
+wire [15:0]	reg_ramIRQAddr;				// DA4 Sound RAM IRQ Address
+wire [15:0]	reg_mBase;					// 32 bit ?
+wire  [17:0] reverb_CounterWord;
+wire			reg_ReverbEnable;			//  DAA.7
+wire	[3:0]	reg_NoiseFrequShift;		//  DAA.13-10
+wire	[3:0]	reg_NoiseFrequStep;			//  DAA.9-8 -> Modified at setup.
+wire 		reg_SPUEnable;				//  DAA.15
+
+wire			reg_SPUNotMuted;			//  DAA.14
+wire			reg_CDAudioEnabled;			//  DAA.0
+wire			reg_CDAudioReverbEnabled;	//  DAA.2
+wire signed [15:0]	reg_CDVolumeL;		// DB0 CD Audio Input Volume Left  (CD-DA / XA-ADPCM)
+wire signed [15:0]	reg_CDVolumeR;		// DB2 CD Audio Input Volume Right (CD-DA / XA-ADPCM)
+wire signed [15:0]	reg_mainVolLeft;	// D80 Mainvolume Left
+wire signed [15:0]	reg_mainVolRight;	// D82 Mainvolume Left
+wire signed [15:0]	reg_reverbVolLeft;
+wire signed [15:0]	reg_reverbVolRight;
+
+// Reverb mapped registers.
+wire signed [15:0] dAPF1,dAPF2,vIIR,vCOMB1, vCOMB2,vCOMB3,vCOMB4,vWALL, vAPF1,vAPF2,mLSAME,mRSAME;
+wire signed [15:0] mLCOMB1,mRCOMB1,mLCOMB2,mRCOMB2, dLSAME,dRSAME,mLDIFF,mRDIFF, mLCOMB3,mRCOMB3,mLCOMB4,mRCOMB4;
+wire signed [15:0] dLDIFF,dRDIFF,mLAPF1,mRAPF1,mLAPF2,mRAPF2,vLIN,vRIN;
+
+sup_tmp_front sup_tmp_front_inst (
+	.i_clk					(i_clk				),
+	.n_rst                  (n_rst               ),
+
+	.SPUCS                  (SPUCS               ),
+	.SRD                    (SRD                 ),
+	.SWRO                   (SWRO                ),
+	.addr			        (addr			     ),
+	.dataIn                 (dataIn              ),
+
+	.currVoice              (currVoice           ),
+
+	.negNoiseStep           (negNoiseStep        ),
+	.check_Kevent           (check_Kevent        ),
+	.clearKON               (clearKON            ),
+	.incrXFerAdr            (incrXFerAdr         ),
+	.ctrlSendOut            (ctrlSendOut         ),
+	.setAsStart             (setAsStart          ),
+	.setEndX                (setEndX             ),
+	.isRepeatADPCMFlag      (isRepeatADPCMFlag   ),
+	.isNotEndADPCMBlock     (isNotEndADPCMBlock  ),
+	.updateVoiceADPCMAdr    (updateVoiceADPCMAdr ),
+	.updateVoiceADPCMPos    (updateVoiceADPCMPos ),
+	.updateVoiceADPCMPrev   (updateVoiceADPCMPrev),
+	.updateADSRVolReg       (updateADSRVolReg    ),
+	.updateADSRState        (updateADSRState     ),
+	.validSampleStage2      (validSampleStage2   ),
+
+	.side22Khz              (side22Khz           ),
+
+	.nextNewBlock           (nextNewBlock        ),
+
+	.nextADPCMPos           (nextADPCMPos        ),
+	.reg_tmpAdpcmPrev       (reg_tmpAdpcmPrev    ),
+	.nextAdsrCycle          (nextAdsrCycle       ),
+	.nextAdsrVol            (nextAdsrVol         ),
+	.nextAdsrState          (nextAdsrState       ),
+	
+	.dataTransferBusy		(dataTransferBusy),
+	.dataTransferWriteReq   (dataTransferWriteReq),
+	.dataTransferReadReq    (dataTransferReadReq),
+	.dataTransferRDReq      (dataTransferRDReq),
+	.reg_SPUIRQSet          (reg_SPUIRQSet),
+	
+	.currV_startAddr		(currV_startAddr	),	
+	.currV_NON		        (currV_NON		     ),
+	.currV_repeatAddr		(currV_repeatAddr	),
+	.currV_adpcmCurrAdr	    (currV_adpcmCurrAdr	 ),
+	.currV_adpcmPos		    (currV_adpcmPos		 ),
+	.currV_adpcmPrev		(currV_adpcmPrev	),
+	.currV_KON	            (currV_KON	         ),
+	.currV_PMON	            (currV_PMON	         ),
+	.currV_EON		        (currV_EON		     ),
+	.currV_VolumeL	        (currV_VolumeL	     ),
+	.currV_VolumeR	        (currV_VolumeR	     ),
+	.currV_AdsrVol	        (currV_AdsrVol	     ),
+	.currV_AdsrLo	        (currV_AdsrLo	     ),
+	.currV_AdsrHi	        (currV_AdsrHi	     ),
+	.currV_AdsrState	    (currV_AdsrState	 ),
+	.currV_AdsrCycleCount   (currV_AdsrCycleCount),
+	.currV_sampleRate       (currV_sampleRate    ),
+	
+	.o_reg_SPUIRQEnable				(reg_SPUIRQEnable),
+	.o_reg_ramIRQAddr               (reg_ramIRQAddr),
+	.o_reg_mBase                    (reg_mBase),
+	.o_reverb_CounterWord           (reverb_CounterWord),
+	.o_reg_ReverbEnable             (reg_ReverbEnable),
+	.o_reg_NoiseFrequShift          (reg_NoiseFrequShift),
+	.o_reg_NoiseFrequStep           (reg_NoiseFrequStep),
+	.o_reg_SPUEnable                (reg_SPUEnable),
+	.o_reg_SPUNotMuted	            (reg_SPUNotMuted),
+	.o_reg_CDAudioEnabled           (reg_CDAudioEnabled),
+	.o_reg_CDAudioReverbEnabled     (reg_CDAudioReverbEnabled),
+	.o_reg_CDVolumeL                (reg_CDVolumeL),
+	.o_reg_CDVolumeR                (reg_CDVolumeR),
+	.o_reg_mainVolLeft              (reg_mainVolLeft),
+	.o_reg_mainVolRight             (reg_mainVolRight),
+	.o_reg_reverbVolLeft            (reg_reverbVolLeft),
+	.o_reg_reverbVolRight	        (reg_reverbVolRight),
+	
+	.o_reg_dataTransferAddrCurr	(reg_dataTransferAddrCurr),
+	.o_regRingBufferIndex		(regRingBufferIndex),
+	.o_reg_SPUTransferMode		(reg_SPUTransferMode),
+	
+	.dAPF1						 (dAPF1),
+	.dAPF2	                     (dAPF2),
+	.vIIR	                     (vIIR),
+	.vCOMB1	                     (vCOMB1),
+
+	.vCOMB2	                     (vCOMB2	),
+	.vCOMB3	                     (vCOMB3	),
+	.vCOMB4	                     (vCOMB4	),
+	.vWALL	                     (vWALL	),
+
+	.vAPF1                       (vAPF1),
+	.vAPF2	                     (vAPF2	),
+	.mLSAME                      (mLSAME),
+	.mRSAME	                     (mRSAME	),
+
+	.mLCOMB1	                 (mLCOMB1),
+	.mRCOMB1	                 (mRCOMB1),
+	.mLCOMB2	                 (mLCOMB2),
+	.mRCOMB2	                 (mRCOMB2),
+
+	.dLSAME	                     (dLSAME	),
+	.dRSAME	                     (dRSAME	),
+	.mLDIFF	                     (mLDIFF	),
+	.mRDIFF	                     (mRDIFF	),
+
+	.mLCOMB3	                 (mLCOMB3),
+	.mRCOMB3	                 (mRCOMB3),
+	.mLCOMB4	                 (mLCOMB4),
+	.mRCOMB4	                 (mRCOMB4),
+
+	.dLDIFF	                     (dLDIFF	),
+	.dRDIFF	                     (dRDIFF	),
+	.mLAPF1	                     (mLAPF1	),
+	.mRAPF1	                     (mRAPF1	),
+
+	.mLAPF2	                     (mLAPF2	),
+	.mRAPF2	                     (mRAPF2	),
+	.vLIN	                     (vLIN	),
+	.vRIN	                     (vRIN	),
+	
+	.o_dataOutw				(dataOutw)
+);
 
 // -----------------------------------------------------------------
 // REGISTER READ / WRITE SECTION
@@ -283,326 +383,12 @@ end
 */
 
 reg updateVoiceADPCMAdr,updateADSRState,updateADSRVolReg,clearKON;
-reg regIsLastADPCMBlk;
-reg reg_isRepeatADPCMFlag;
 wire [22:0] nextAdsrCycle;
 wire  [1:0]	nextAdsrState;
 wire [14:0] nextAdsrVol;
 
 
-always @(posedge i_clk)
-begin
-	if (n_rst == 0)
-	begin
-		reg_mainVolLeft				<= 16'h0;
-		reg_mainVolRight			<= 16'h0;
-		reg_reverbVolLeft			<= 16'h0;
-		reg_reverbVolRight			<= 16'h0;
-		reg_kon						<= 24'h0;
-		reg_koff					<= 24'h0;
-		reg_kEvent					<= 24'h0;
-		reg_kMode					<= 24'h0;
-		reg_pmon					<= 24'h0;
-		reg_non						<= 24'h0;
-		reg_eon						<= 24'h0;
-		reg_mBase					<= 16'h0;
-		reg_ramIRQAddr				<= 16'h0;
-		reg_dataTransferAddr		<= 16'h0;
-		reg_CDVolumeL				<= 16'h0;
-		reg_CDVolumeR				<= 16'h0;
-		reg_ExtVolumeL				<= 16'h0;
-		reg_ExtVolumeR				<= 16'h0;
-		reg_SPUEnable				<= 1'b0;
-		reg_SPUNotMuted				<= 1'b0;
-		reg_NoiseFrequShift			<= 4'b0000;
-		reg_NoiseFrequStep			<= 4'b1100;
-		reg_NoiseStepStore			<= 2'b00;
-		reg_ReverbEnable			<= 1'b0;
-		reg_SPUIRQEnable			<= 1'b0;
-		reg_SPUTransferMode			<= 2'b00;	// STOP Transfer by default.
-		reg_ExtReverbEnabled		<= 1'b0;
-		reg_CDAudioReverbEnabled	<= 1'b0;
-		reg_ExtEnabled				<= 1'b0;
-		reg_CDAudioEnabled			<= 1'b0;
-		regSoundRAMDataXFerCtrl		<= 16'h4;
-		reg_ignoreLoadRepeatAddress	<= 24'd0;
-		reg_endx					<= 24'd0;
-		regRingBufferIndex			<= 9'd0;
-		reverb_CounterWord			<= 18'd0;
-		regIsLastADPCMBlk			<= 1'b0;
-		reg_isRepeatADPCMFlag		<= 1'b0;
-	end else begin
-		if (internalWrite) begin
-			if (isD80_DFF) begin		// D80~DFF
-				// 011xxx.xxxx
-				if (addr[6]==0) begin	// D80~DBF
-					// 0110xx.xxxx
-					case (addr[5:1])	
-					// D8x ---------------
-					// [Address IN WORD, not in BYTE LIKE COMMENTS !!! Take care]
-					5'h00:	reg_mainVolLeft		<= dataIn;			// 1F801D80h - 180h
-					5'h01:	reg_mainVolRight	<= dataIn;			// 1F801D82h - 182h
-					5'h02:	reg_reverbVolLeft	<= dataIn;			// 1F801D84h - 184h
-					5'h03:	reg_reverbVolRight	<= dataIn;			// 1F801D86h - 186h
-					5'h04:	begin
-								reg_kon [15: 0]		<= dataIn;		// 1F801D88h - 188h
-								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] <= 1; reg_kMode [0] <= 1; end
-								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] <= 1; reg_kMode [1] <= 1; end
-								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] <= 1; reg_kMode [2] <= 1; end
-								if (dataIn [3] & (reg_kEvent [ 3]==0)) begin reg_kEvent [3] <= 1; reg_kMode [3] <= 1; end
-								if (dataIn [4] & (reg_kEvent [ 4]==0)) begin reg_kEvent [4] <= 1; reg_kMode [4] <= 1; end
-								if (dataIn [5] & (reg_kEvent [ 5]==0)) begin reg_kEvent [5] <= 1; reg_kMode [5] <= 1; end
-								if (dataIn [6] & (reg_kEvent [ 6]==0)) begin reg_kEvent [6] <= 1; reg_kMode [6] <= 1; end
-								if (dataIn [7] & (reg_kEvent [ 7]==0)) begin reg_kEvent [7] <= 1; reg_kMode [7] <= 1; end
-								if (dataIn [8] & (reg_kEvent [ 8]==0)) begin reg_kEvent [8] <= 1; reg_kMode [8] <= 1; end
-								if (dataIn [9] & (reg_kEvent [ 9]==0)) begin reg_kEvent [9] <= 1; reg_kMode [9] <= 1; end
-								if (dataIn[10] & (reg_kEvent [10]==0)) begin reg_kEvent[10] <= 1; reg_kMode[10] <= 1; end
-								if (dataIn[11] & (reg_kEvent [11]==0)) begin reg_kEvent[11] <= 1; reg_kMode[11] <= 1; end
-								if (dataIn[12] & (reg_kEvent [12]==0)) begin reg_kEvent[12] <= 1; reg_kMode[12] <= 1; end
-								if (dataIn[13] & (reg_kEvent [13]==0)) begin reg_kEvent[13] <= 1; reg_kMode[13] <= 1; end
-								if (dataIn[14] & (reg_kEvent [14]==0)) begin reg_kEvent[14] <= 1; reg_kMode[14] <= 1; end
-								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] <= 1; reg_kMode[15] <= 1; end
-							end
-					5'h05:	begin									// 1F801D8Ah - 18Ah
-								reg_kon [23:16]		<= dataIn[7:0];
-								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] <= 1; reg_kMode[16] <= 1; end
-								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] <= 1; reg_kMode[17] <= 1; end
-								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] <= 1; reg_kMode[18] <= 1; end
-								if (dataIn [3] & (reg_kEvent [19]==0)) begin reg_kEvent[19] <= 1; reg_kMode[19] <= 1; end
-								if (dataIn [4] & (reg_kEvent [20]==0)) begin reg_kEvent[20] <= 1; reg_kMode[20] <= 1; end
-								if (dataIn [5] & (reg_kEvent [21]==0)) begin reg_kEvent[21] <= 1; reg_kMode[21] <= 1; end
-								if (dataIn [6] & (reg_kEvent [22]==0)) begin reg_kEvent[22] <= 1; reg_kMode[22] <= 1; end
-								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] <= 1; reg_kMode[23] <= 1; end
-							end
-					5'h06:	begin									// 1F801D8Ch - 18Ch
-								reg_koff[15: 0]		<= dataIn;			
-								if (dataIn [0] & (reg_kEvent [ 0]==0)) begin reg_kEvent [0] <= 1; reg_kMode [0] <= 0; end
-								if (dataIn [1] & (reg_kEvent [ 1]==0)) begin reg_kEvent [1] <= 1; reg_kMode [1] <= 0; end
-								if (dataIn [2] & (reg_kEvent [ 2]==0)) begin reg_kEvent [2] <= 1; reg_kMode [2] <= 0; end
-								if (dataIn [3] & (reg_kEvent [ 3]==0)) begin reg_kEvent [3] <= 1; reg_kMode [3] <= 0; end
-								if (dataIn [4] & (reg_kEvent [ 4]==0)) begin reg_kEvent [4] <= 1; reg_kMode [4] <= 0; end
-								if (dataIn [5] & (reg_kEvent [ 5]==0)) begin reg_kEvent [5] <= 1; reg_kMode [5] <= 0; end
-								if (dataIn [6] & (reg_kEvent [ 6]==0)) begin reg_kEvent [6] <= 1; reg_kMode [6] <= 0; end
-								if (dataIn [7] & (reg_kEvent [ 7]==0)) begin reg_kEvent [7] <= 1; reg_kMode [7] <= 0; end
-								if (dataIn [8] & (reg_kEvent [ 8]==0)) begin reg_kEvent [8] <= 1; reg_kMode [8] <= 0; end
-								if (dataIn [9] & (reg_kEvent [ 9]==0)) begin reg_kEvent [9] <= 1; reg_kMode [9] <= 0; end
-								if (dataIn[10] & (reg_kEvent [10]==0)) begin reg_kEvent[10] <= 1; reg_kMode[10] <= 0; end
-								if (dataIn[11] & (reg_kEvent [11]==0)) begin reg_kEvent[11] <= 1; reg_kMode[11] <= 0; end
-								if (dataIn[12] & (reg_kEvent [12]==0)) begin reg_kEvent[12] <= 1; reg_kMode[12] <= 0; end
-								if (dataIn[13] & (reg_kEvent [13]==0)) begin reg_kEvent[13] <= 1; reg_kMode[13] <= 0; end
-								if (dataIn[14] & (reg_kEvent [14]==0)) begin reg_kEvent[14] <= 1; reg_kMode[14] <= 0; end
-								if (dataIn[15] & (reg_kEvent [15]==0)) begin reg_kEvent[15] <= 1; reg_kMode[15] <= 0; end
-							end
-					5'h07:	begin									// 1F801D8Eh - 18Eh
-								reg_koff[23:16]		<= dataIn[7:0];		
-								if (dataIn [0] & (reg_kEvent [16]==0)) begin reg_kEvent[16] <= 1; reg_kMode[16] <= 0; end
-								if (dataIn [1] & (reg_kEvent [17]==0)) begin reg_kEvent[17] <= 1; reg_kMode[17] <= 0; end
-								if (dataIn [2] & (reg_kEvent [18]==0)) begin reg_kEvent[18] <= 1; reg_kMode[18] <= 0; end
-								if (dataIn [3] & (reg_kEvent [19]==0)) begin reg_kEvent[19] <= 1; reg_kMode[19] <= 0; end
-								if (dataIn [4] & (reg_kEvent [20]==0)) begin reg_kEvent[20] <= 1; reg_kMode[20] <= 0; end
-								if (dataIn [5] & (reg_kEvent [21]==0)) begin reg_kEvent[21] <= 1; reg_kMode[21] <= 0; end
-								if (dataIn [6] & (reg_kEvent [22]==0)) begin reg_kEvent[22] <= 1; reg_kMode[22] <= 0; end
-								if (dataIn [7] & (reg_kEvent [23]==0)) begin reg_kEvent[23] <= 1; reg_kMode[23] <= 0; end
-							end
-					// D9x ---------------
-					5'h08:	reg_pmon[15: 1]		<= dataIn[15:1];		// 1F801D90h - 190h /* By reset also reg_pmon[0] = 1'b0; */
-					5'h09:	reg_pmon[23:16]		<= dataIn[7:0];		// 1F801D92h - 192h
-					5'h0A:	reg_non [15: 0]		<= dataIn;			// 1F801D94h - 194h
-					5'h0B:	reg_non [23:16]		<= dataIn[7:0];		// 1F801D96h - 196h
-					5'h0C:	reg_eon [15: 0]		<= dataIn;			// 1F801D98h - 198h
-					5'h0D:	reg_eon [23:16]		<= dataIn[7:0];		// 1F801D9Ah - 19Ah
-					// 5'h0E: Do nothing ENDX is READONLY.			// 1F801D9Ch - 19Ch
-					// 5'h0F: Do nothing ENDX is READONLY.			// 1F801D9Eh - 19Eh
-					// DAx ---------------
-					// 5'h10: [1F801DA0] Do nothing... (WEIRD reg)
-					5'h11:	begin
-								reg_mBase			<= dataIn;		// 1F801DA2h - 1A2h
-								reverb_CounterWord	<= 18'd0;
-							end
-					5'h12:	reg_ramIRQAddr		<= dataIn;			// 1F801DA4h - 1A4h
-					5'h13:	begin									// 1F801DA6h - 1A6h
-								// Adress (dataIn) is multiple x8 in byte adress.
-								reg_dataTransferAddr	 <= dataIn;
-								reg_dataTransferAddrCurr <= {dataIn, 2'd0}; // x8 in byte -> 4x in half-word.
-							end
-					5'h14:	begin									// 1F801DA8h - 1A8h
-								// FIFO INPUT implemented, just not done here.
-							end
-					5'h15:	begin // SPU Control register			// 1F801DAAh - 1AAh
-							reg_SPUEnable		<= dataIn[15];
-							reg_SPUNotMuted		<= dataIn[14];
-							reg_NoiseFrequShift	<= dataIn[13:10];
-							reg_NoiseFrequStep	<= negNoiseStep; // See logic with dataIn[9:8];
-							reg_NoiseStepStore	<= dataIn[9:8];
-							reg_ReverbEnable	<= dataIn[7];
-							reg_SPUIRQEnable	<= dataIn[6];
-							reg_SPUTransferMode	<= dataIn[5:4];
-							reg_ExtReverbEnabled		<= dataIn[3];
-							reg_CDAudioReverbEnabled	<= dataIn[2];
-							reg_ExtEnabled		<= dataIn[1];
-							reg_CDAudioEnabled	<= dataIn[0];
-							end
-					5'h16:	regSoundRAMDataXFerCtrl <= dataIn;
-					// 5'h17:	SPUSTAT is READ ONLY.
-					// DBx ---------------
-					5'h18:	reg_CDVolumeL		<= dataIn;
-					5'h19:	reg_CDVolumeR		<= dataIn;
-					5'h1A:	reg_ExtVolumeL		<= dataIn;
-					5'h1B:	reg_ExtVolumeR		<= dataIn;
-					// 5'h1C: Current Main Volume Left
-					// 5'h1D: Current Main Volume Right
-					// 5'h1E: 4B/DF
-					// 5'h1F: 80/21
-					default: ;/* Do nothing */
-					endcase
-				end else begin	// DC0~DFF
-					// 0111xx.xxxx
-					reg_reverb[addr[5:1]] <= dataIn;
-				end
-			end else begin
-				if (isChannel) begin
-					// 00xxxx.xxxx
-					// 010xxx.xxxx
-					if (addr[3:1]==3'b000) begin
-						// 1F801xx0h - Voice 0..23 Volume Left
-						reg_volumeL[channelAdr]	<= dataIn;
-					end
-					if (addr[3:1]==3'b001) begin
-						// 1F801xx2h - Voice 0..23 Volume Right
-						reg_volumeR[channelAdr]	<= dataIn;
-					end
-					if (addr[3:1]==3'b010) begin
-						// 1F801xx4h - Voice 0..23 ADPCM Sample Rate    (R/W) [15:0] (VxPitch)
-						reg_sampleRate[channelAdr]	<= dataIn;
-					end
-					if (addr[3:1]==3'b011) begin
-						// 1F801xx6h - Voice 0..23 ADPCM Start Address
-						reg_startAddr[channelAdr]	<= dataIn;
-					end
-					if (addr[3:1]==3'b100) begin
-						// 1F801xx8h LSB - Voice 0..23 Attack/Decay/Sustain/Release (ADSR) (32bit) [15:0]x2
-						reg_adsrLo[channelAdr]		<= dataIn;
-					end
-					if (addr[3:1]==3'b101) begin
-						// 1F801xx8h (xxA) MSB - Voice 0..23 Attack/Decay/Sustain/Release (ADSR) (32bit) [15:0]x2
-						reg_adsrHi[channelAdr]		<= dataIn;
-					end
-					if (addr[3:1]==3'b110) begin
-						// 1F801xxCh - Voice 0..23 Current ADSR volume (R/W) (0..+7FFFh) (or -8000h..+7FFFh on manual write)
-						reg_currentAdsrVOL[channelAdr] <= dataIn[14:0];
-					end
-					if (addr[3:1]==3'b111) begin
-						reg_ignoreLoadRepeatAddress	[channelAdr] <= 1'b1;
-						reg_repeatAddr				[channelAdr] <= dataIn;
-					end
-				end // else 1xxxxx.xxxx <--- ELSE
-					// Current volume L/R channels. (1F801E00h..1F801E5Fh)
-					// 1E60~1FFFF Unknown/Unused
-			end
-		end // end write
 
-		//
-		// [OUTSIDE OF WRITE]
-		//
-		if (check_Kevent) begin
-			if (reg_kEvent[currVoice]) begin	// KON or KOFF occured to this channel...
-				// Force reset counter to accept new 'state'.
-				reg_adsrCycleCount[currVoice] <= CHANGE_ADSR_AT;
-				if (reg_kMode[currVoice]) begin // Voice start [TODO : have bit that said voice is stopped and check it : reg_endx ?]
-					reg_adsrState	[currVoice] <= ADSR_ATTACK;
-					reg_endx		[currVoice] <= 1'b0;
-					reg_currentAdsrVOL[currVoice] <= 15'd0;
-					reg_adpcmCurrAdr[currVoice] <= currV_startAddr;
-					reg_adpcmPos	[currVoice] <= 17'd0;
-					reg_adpcmPrev	[currVoice] <= 32'd0;
-					
-					if (reg_ignoreLoadRepeatAddress[currVoice] == 1'b0) begin
-						reg_repeatAddr[currVoice] <= currV_startAddr;
-					end
-
-					// Optionnal... can't stay for ever... ? What's the point, else everything ends up 1.
-					// reg_kon			[currVoice] = 1'b0;
-				end else begin
-					reg_adsrState	[currVoice] <= ADSR_RELEASE;
-					reg_koff		[currVoice] <= 1'b0;
-				end
-			end
-			reg_kEvent			[currVoice] <= 1'b0; // Reset Event.
-		end
-		
-		if (clearKON) begin
-			reg_kon[currVoice] <= 1'b0;
-		end
-		
-		
-		if (setAsStart) begin
-			reg_repeatAddr	[currVoice] <= currV_adpcmCurrAdr;
-		end
-		
-		if (setEndX) begin
-			reg_isRepeatADPCMFlag	<= isRepeatADPCMFlag; // Store value for later usage a few cycles later...
-			regIsLastADPCMBlk		<= 1'b1;
-		end else if (isNotEndADPCMBlock) begin
-			regIsLastADPCMBlk		<= 1'b0;
-		end
-		
-		if (updateVoiceADPCMAdr) begin
-			if (regIsLastADPCMBlk && (!currV_NON)) begin		// NON checked here : we don't want RELEASE and ENDX to happen in Noise Mode. -> Garbage ADPCM can modify things.
-				reg_endx		[currVoice] <= 1'b1;
-				if ((!reg_isRepeatADPCMFlag)) begin 	// Voice must be in ADPCM mode to use flag.
-					reg_adsrState	  [currVoice] <= ADSR_RELEASE;
-					reg_currentAdsrVOL[currVoice] <= 15'd0;
-				end
-			end
-			reg_adpcmCurrAdr[currVoice] <= regIsLastADPCMBlk ? currV_repeatAddr : {currV_adpcmCurrAdr + 16'd2};	// Skip 16 byte for next ADPCM block.
-		end
-		
-		if (updateVoiceADPCMPos) begin
-			// If next block, point to the correct SAMPLE and SUB sample position.
-			// else           point to the correct SAMPLE with INDEX and sub sample position.
-			reg_adpcmPos[currVoice]		<= { {nextNewBlock ? 3'd0 : nextADPCMPos[16:14]} , nextADPCMPos[13:0] };
-		end
-
-		if (updateVoiceADPCMPrev) begin
-			reg_adpcmPrev[currVoice]	<= reg_tmpAdpcmPrev;
-		end
-
-		if (incrXFerAdr) begin
-			reg_dataTransferAddrCurr <= reg_dataTransferAddrCurr + 18'd1; // One half-word increment.
-		end
-		
-		if (ctrlSendOut) begin
-			regRingBufferIndex <= regRingBufferIndex + 9'd1;
-		end
-		
-		// Updated each time a new sample is issued over the voice.
-		if (validSampleStage2) begin
-			reg_adsrCycleCount[currVoice]	<= nextAdsrCycle;
-		end
-		// Updated each time a new sample AND counter reach ZERO.
-		if (updateADSRVolReg) begin
-			reg_currentAdsrVOL[currVoice]	<= nextAdsrVol;
-		end
-		if (updateADSRState) begin
-			reg_adsrState[currVoice]		<= nextAdsrState;
-		end
-		if (ctrlSendOut & side22Khz) begin
-			//  if counter == last valid index -> loop to zero.
-			if (reverb_CounterWord == {~reg_mBase,2'b11}) begin
-				// reverb_CounterWord+1   >= 262144 -  reg_mBase
-				// reverb_CounterWord+1-1 >= 262144 -  reg_mBase   -1
-				// reverb_CounterWord     >= 262144 + ~reg_mBase+1 -1
-				// reverb_CounterWord     >=          ~reg_mBase+1 -1  (262144 out of range 17:0, loop counter, not needed), +1-1 simplify.
-				// replace                ==          ~reg_mBase
-				reverb_CounterWord <= 18'd0;
-			end else begin
-				reverb_CounterWord <= reverb_CounterWord + 18'd1;
-			end
-		end
-	end // end reset
-end // end always block
-
-reg [15:0] dataOutw;
 reg [15:0] pipeDataOut;
 always @ (posedge i_clk) 
 begin
@@ -623,161 +409,6 @@ end
 // Pipe read. For now everything answer at the NEXT clock, ONCE.
 // BUT READ SPU IS NOT MODIFYING THE CPU BUS. (dataOut can be SPU VRAM out with DMA too)
 assign dataOutValid	= internalReadPipe/* | readSPU */; 
-
-// Read output
-always @ (*)
-begin
-	if (isD80_DFF) begin			// D80~DFF
-		if (addr[6]==0) begin		// D80~DBF
-			case (addr[5:1])
-			// D8x
-			5'h00:	dataOutw = reg_mainVolLeft;				// 1F801D80h
-			5'h01:	dataOutw = reg_mainVolRight;			// 1F801D82h
-			5'h02:	dataOutw = reg_reverbVolLeft;			// 1F801D84h
-			5'h03:	dataOutw = reg_reverbVolRight;			// 1F801D86h
-			5'h04:	dataOutw = reg_kon [15: 0];				// 1F801D88h
-			5'h05:	dataOutw = { 8'd0, reg_kon [23:16] };	// 1F801D8Ah
-			5'h06:	dataOutw = reg_koff[15: 0];				// 1F801D8Ch
-			5'h07:	dataOutw = { 8'd0, reg_koff[23:16] };	// 1F801D8Eh
-			// D9x
-			5'h08:	dataOutw = reg_pmon[15: 0];				// 1F801D90h Force channel ZERO to have no PMON at WRITE.
-			5'h09:	dataOutw = { 8'd0, reg_pmon[23:16] };
-			5'h0A:	dataOutw = reg_non [15: 0];				// 1F801D94h
-			5'h0B:	dataOutw = { 8'd0, reg_non [23:16] };
-			5'h0C:	dataOutw = reg_eon [15: 0];				// 1F801D98h
-			5'h0D:	dataOutw = { 8'd0, reg_eon [23:16] };
-			5'h0E:	dataOutw = reg_endx[15: 0];				// 1F801D9Ch
-			5'h0F:	dataOutw = { 8'd0, reg_endx[23:16] };
-			// DAx
-			5'h10:	dataOutw = 16'h9D78;					// 1F801DA0h - Some kind of a read-only status register.. or just garbage..0-15
-			5'h11:	dataOutw = reg_mBase;					// 1F801DA2h
-			5'h12:	dataOutw = reg_ramIRQAddr;				// 1F801DA4h
-			5'h13:	dataOutw = reg_dataTransferAddr;		// 1F801DA6h
-			5'h14:	dataOutw = 16'hFF; 						// 1F801DA8h Can't read FIFO.
-			5'h15:	begin 									// 1F801DAAh SPU Control register
-					dataOutw = { 	reg_SPUEnable,
-									reg_SPUNotMuted,
-									reg_NoiseFrequShift,
-									reg_NoiseStepStore /* cant use converted value to reg_NoiseFrequStep*/,
-									reg_ReverbEnable,
-									reg_SPUIRQEnable,
-									reg_SPUTransferMode,
-									reg_ExtReverbEnabled,
-									reg_CDAudioReverbEnabled,
-									reg_ExtEnabled,
-									reg_CDAudioEnabled	
-								};
-					end
-			5'h16:	dataOutw = regSoundRAMDataXFerCtrl;		// 1F801DACh Sound RAM Data Transfer Control
-			5'h17:	dataOutw = {
-									// SPU Status Register (SPUSTAT) Read only.
-									//  15-12 Unknown/Unused (seems to be usually zero)
-									4'd0,
-									//  11    Writing to First/Second half of Capture Buffers (0=First, 1=Second)
-									regRingBufferIndex[8],
-									//  10    Data Transfer Busy Flag          (0=Ready, 1=Busy)
-									dataTransferBusy,
-									//  9     Data Transfer DMA Read Request   (0=No, 1=Yes)
-									dataTransferReadReq,
-									//  8     Data Transfer DMA Write Request  (0=No, 1=Yes)
-									dataTransferWriteReq,
-									//  7     Data Transfer DMA Read/Write Request ;seems to be same as SPUCNT.Bit5
-									dataTransferRDReq,
-									//  6     IRQ9 Flag                        (0=No, 1=Interrupt Request)
-									reg_SPUIRQSet,
-									//  5-0   Current SPU Mode   (same as SPUCNT.Bit5-0, but, applied a bit delayed)
-									reg_SPUTransferMode,
-									reg_ExtReverbEnabled,
-									reg_CDAudioReverbEnabled,
-									reg_ExtEnabled,
-									reg_CDAudioEnabled
-								};
-			// DBx
-			5'h18:	dataOutw = reg_CDVolumeL;
-			5'h19:	dataOutw = reg_CDVolumeR;
-			5'h1A:	dataOutw = reg_ExtVolumeL;
-			5'h1B:	dataOutw = reg_ExtVolumeR;
-			5'h1C:	dataOutw = reg_mainVolLeft;	 // Current Main Volume Left  : cheat
-			5'h1D:	dataOutw = reg_mainVolRight; // Current Main Volume Right : cheat
-			5'h1E: 	dataOutw = 16'h4BDF; // Weird 1DBC
-			5'h1F:	dataOutw = 16'h8021; // Weird 1DBE
-			endcase
-		end else begin				// DC0~DFF
-			dataOutw = reg_reverb[addr[5:1]];
-		end
-	end else if (isChannel) begin	// C00~D7F
-		case (addr[3:1])
-		3'b000:dataOutw = reg_volumeL		[channelAdr];
-		3'b001:dataOutw = reg_volumeR		[channelAdr];
-		3'b010:dataOutw = reg_sampleRate	[channelAdr];
-		3'b011:dataOutw = reg_startAddr		[channelAdr];
-		3'b100:dataOutw = reg_adsrLo		[channelAdr];
-		3'b101:dataOutw = reg_adsrHi		[channelAdr];
-		3'b110:dataOutw = {1'b0,reg_currentAdsrVOL[channelAdr]};
-		3'b111:dataOutw = reg_repeatAddr	[channelAdr];
-		endcase
-	end else begin					// E00-FFF
-		// [1E00~1E7F]
-		// 111|0.0xxx.xxxx
-		if (addr[8:7] == 2'b00) begin
-			// Current volume L/R channels. (1F801E00h..1F801E5Fh)
-			if (addr[6:4] < 3'd6) begin
-				// 96 bytes
-				if (addr[1]) begin
-					dataOutw = reg_volumeR[channelAdr];
-				end else begin
-					dataOutw = reg_volumeL[channelAdr];
-				end
-			end else begin
-				// 32 bytes
-				// >= 1F801E60~EFF
-				case (addr[4:1])			// Hard coded stupid stuff, but never know for backward comp.
-				4'h0 : dataOutw = 16'h7E61;
-				4'h1 : dataOutw = 16'hA996;
-				4'h2 : dataOutw = 16'h4739;
-				4'h3 : dataOutw = 16'hF91E;
-				4'h4 : dataOutw = 16'hE1E1;
-				4'h5 : dataOutw = 16'h80DD; 
-				4'h6 : dataOutw = 16'hE817;
-				4'h7 : dataOutw = 16'h7FFB;
-				4'h8 : dataOutw = 16'hFBBF;
-				4'h9 : dataOutw = 16'h1D6C;
-				4'hA : dataOutw = 16'h8FEC; 
-				4'hB : dataOutw = 16'hF304;
-				4'hC : dataOutw = 16'h0623;
-				4'hD : dataOutw = 16'h8945;
-				4'hE : dataOutw = 16'hC16D;
-				4'hF : dataOutw = 16'h3182;
-				endcase
-			end
-		end else begin
-			// 111|0.1xxx.xxxx
-			// 111|1.0xxx.xxxx
-			// 111|1.1xxx.xxxx
-			// 1E80-1EFF : 128 bytes
-			// 1F00-1FFF : 256 bytes
-			dataOutw = 16'd0;
-		end
-	end
-end
-
-wire  [15:0] currV_sampleRate	= reg_sampleRate[currVoice];
-wire  [15:0] currV_startAddr	= reg_startAddr	[currVoice];
-wire  [15:0] currV_repeatAddr	= reg_repeatAddr[currVoice];
-wire  [16:0] currV_adpcmPos		= reg_adpcmPos	[currVoice];
-wire  [15:0] currV_adpcmCurrAdr	= reg_adpcmCurrAdr[currVoice];
-wire  [31:0] currV_adpcmPrev	= reg_adpcmPrev	[currVoice];
-wire 				currV_KON			= reg_kon [currVoice];
-wire 				currV_PMON			= reg_pmon[currVoice];
-wire				currV_EON			= reg_eon [currVoice];
-wire  signed [14:0] currV_VolumeL		= reg_volumeL	[currVoice][14:0];
-wire  signed [14:0] currV_VolumeR		= reg_volumeR	[currVoice][14:0];
-wire		 		currV_NON			= reg_non [currVoice];
-wire  [14:0] 		currV_AdsrVol		= reg_SPUEnable ? reg_currentAdsrVOL[currVoice] : 15'd0;
-wire  [15:0] 		currV_AdsrLo		= reg_adsrLo	[currVoice];
-wire  [15:0] 		currV_AdsrHi		= reg_adsrHi	[currVoice];
-wire   [1:0] 		currV_AdsrState		= reg_adsrState	[currVoice];
-wire  [22:0] 		currV_AdsrCycleCount= reg_adsrCycleCount[currVoice];
 
 // -----------------------------------------------------------------
 // INTERNAL TIMING & STATE SECTION
@@ -865,57 +496,6 @@ begin
 	end
 end
 
-// 000xx
-wire signed [15:0] dAPF1	= reg_reverb[0];
-wire signed [15:0] dAPF2	= reg_reverb[1];
-wire signed [15:0]  vIIR	= reg_reverb[2];
-wire signed [15:0] vCOMB1	= reg_reverb[3];
-
-// 001xx
-wire signed [15:0] vCOMB2	= reg_reverb[4];
-wire signed [15:0] vCOMB3	= reg_reverb[5];
-wire signed [15:0] vCOMB4	= reg_reverb[6];
-wire signed [15:0] vWALL	= reg_reverb[7];
-
-// 010xx
-wire signed [15:0] vAPF1	= reg_reverb[8];
-wire signed [15:0] vAPF2	= reg_reverb[9];
-wire signed [15:0] mLSAME	= reg_reverb[10];
-wire signed [15:0] mRSAME	= reg_reverb[11];
-
-wire signed [15:0] negvAPF1	= (~vAPF1) + 16'd1;
-wire signed [15:0] negvAPF2	= (~vAPF2) + 16'd1;
-
-// 011xx
-wire signed [15:0] mLCOMB1	= reg_reverb[12];
-wire signed [15:0] mRCOMB1	= reg_reverb[13];
-wire signed [15:0] mLCOMB2	= reg_reverb[14];
-wire signed [15:0] mRCOMB2	= reg_reverb[15];
-
-// 100xx
-wire signed [15:0] dLSAME	= reg_reverb[16];
-wire signed [15:0] dRSAME	= reg_reverb[17];
-wire signed [15:0] mLDIFF	= reg_reverb[18];
-wire signed [15:0] mRDIFF	= reg_reverb[19];
-
-// 101xx
-wire signed [15:0] mLCOMB3	= reg_reverb[20];
-wire signed [15:0] mRCOMB3	= reg_reverb[21];
-wire signed [15:0] mLCOMB4	= reg_reverb[22];
-wire signed [15:0] mRCOMB4	= reg_reverb[23];
-
-// 110xx
-wire signed [15:0] dLDIFF	= reg_reverb[24];
-wire signed [15:0] dRDIFF	= reg_reverb[25];
-wire signed [15:0] mLAPF1	= reg_reverb[26];
-wire signed [15:0] mRAPF1	= reg_reverb[27];
-
-// 111xx
-wire signed [15:0] mLAPF2	= reg_reverb[28];
-wire signed [15:0] mRAPF2	= reg_reverb[29];
-wire signed [15:0] vLIN		= reg_reverb[30];
-wire signed [15:0] vRIN		= reg_reverb[31];
-
 reg  signed [15:0] mulA;
 reg  signed [15:0] mulB;
 wire signed [15:0] lineIn;
@@ -943,7 +523,7 @@ reg		  isRight;
 
                    //15->17 bit +   0/-1 Half Word.(-2 byte)
 wire [17:0] reverbAdrPreRing = {adrB, 2'd0} + {18{minus2}}; // [Read Memory from Reverb Adr stuff]
-reg  [17:0] reverb_CounterWord;
+
 
 ReverbWrapAdr ReverbWrapAdrInst(
 	.i_offsetRegister	(reverbAdrPreRing),	// Word Offset.
@@ -954,6 +534,9 @@ ReverbWrapAdr ReverbWrapAdrInst(
 
 // Value to write to the SPU RAM for reverb data bus.
 assign reverbWriteValue	= accReverb;
+
+wire signed [15:0] negvAPF1	= (~vAPF1) + 16'd1;
+wire signed [15:0] negvAPF2	= (~vAPF2) + 16'd1;
 
 always @(*)
 begin

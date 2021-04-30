@@ -114,15 +114,6 @@ void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan) {
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_SPUNotMuted,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_NoiseFrequShift,3,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_NoiseFrequStep,3,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_NoiseStepStore,1,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_ReverbEnable,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_SPUIRQEnable,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_SPUTransferMode,1,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_ExtReverbEnabled,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_CDAudioReverbEnabled,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_ExtEnabled,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_CDAudioEnabled,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_SPUIRQSet,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__negNoiseStep,3,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isD8,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isD80_DFF,0,0);
@@ -139,8 +130,6 @@ void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan) {
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__updateADSRState,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__updateADSRVolReg,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__clearKON,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__regIsLastADPCMBlk,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_isRepeatADPCMFlag,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__nextAdsrState,1,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__internalReadPipe,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__incrXFerAdr,0,0);
