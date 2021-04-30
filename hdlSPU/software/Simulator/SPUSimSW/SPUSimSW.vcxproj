@@ -159,6 +159,7 @@
     <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF__Syms.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF__Trace.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF__Trace__Slow.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF___024unit.cpp" />
     <ClCompile Include="C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\home\rpiquois\verilator\include\verilated_vcd_c.cpp" />
     <ClCompile Include="C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include\verilated.cpp" />
     <ClCompile Include="SPUSimSW.cpp" />

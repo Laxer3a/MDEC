@@ -27,6 +27,7 @@ See LICENSE file.
 	----- Unmet in games ----
 	TODO : Implement Sweep.	(Per channel, Per Main)
 */
+`include "spu_def.v"
 
 module SPU(
 	 input			i_clk
@@ -98,26 +99,6 @@ assign 			o_dataReadRAM    = (!writeSPURAM) & (SPUMemWRSel[0] | SPUMemWRSel[1]);
 assign 			o_dataWriteRAM   = writeSPURAM;
 
 assign			o_dataOutRAM	= internal_dataOutRAM;
-
-parameter	VOICEMD				= 2'd1,
-			FIFO_MD				= 2'd2,
-			REVB_MD				= 2'd3,
-			CDROMMD				= 2'd0;
-//
-//                                   +--------- Write (1) / Read (0)
-//                                   |++------  0:CD, 1:Voice, 2:Fifo, 3:Reverb for read or writeback.
-//                                   |||
-//                                   |||
-//                                   |||
-parameter	VOICE_RD			= 3'b001,
-			FIFO_RD				= 3'b010,
-			REVERB_READ			= 3'b011,
-			NO_SPU_READ			= 3'b000,
-			//---------------------------
-			VOICE_WR			= 3'b101,
-			FIFO_WRITE			= 3'b110,
-			REVERB_WRITE		= 3'b111,
-			CD_WR				= 3'b100;
 
 reg [8:0] regRingBufferIndex;
 wire [17:0] reverbAdr;
@@ -960,70 +941,6 @@ reg [1:0] selB;
 reg       accAdd;
 reg		  isRight;
 
-parameter 	SA_VWALL	=	4'h0,
-			SA_VIIR		=	4'h1,
-			SA_ZERO		=	4'h2,
-			SA_ONE		=	4'h3,
-			SA_COMB1	=	4'h4,
-			SA_COMB2	=	4'h5,
-			SA_COMB3	=	4'h6,
-			SA_COMB4	=	4'h7,
-			SA_VAPF1	=	4'h8,
-			SA_VAPF2	=	4'h9,
-			SA_NVAPF1	=	4'hA,
-			SA_NVAPF2	=	4'hB,
-			SA_NEG_ONE	=	4'hC,
-			SA_VIN		=	4'hD;
-			
-parameter 	SB_DLSAME	=	5'h0,
-			SB_DRSAME	=	5'h1,
-			SB_MLSAME	=	5'h2,
-			SB_MRSAME	=	5'h3,
-
-			SB_DLDIFF	=	5'h4,
-			SB_DRDIFF	=	5'h5,
-			SB_MLDIFF	=	5'h6,
-			SB_MRDIFF	=	5'h7,
-
-			SB_MLCOMB1	=	5'h8,
-			SB_MRCOMB1	=	5'h9,
-			SB_MLCOMB2	=	5'hA,
-			SB_MRCOMB2	=	5'hB,
-
-			SB_MLCOMB3	=	5'hC,
-			SB_MRCOMB3	=	5'hD,
-			SB_MLCOMB4	=	5'hE,
-			SB_MRCOMB4	=	5'hF,
-
-			SB_MLAPF1_ADPF1 =	5'h10,
-			SB_MRAPF1_ADPF1 =	5'h11,
-			SB_MLAPF2_ADPF2 =	5'h12,
-			SB_MRAPF2_ADPF2 =	5'h13,
-			
-			SB_MLAPF1 =	5'h14,
-			SB_MRAPF1 =	5'h15,
-			SB_MLAPF2 =	5'h16,
-			SB_MRAPF2 =	5'h17,
-			
-			SB_FAKEREAD 	  =	5'h18;
-
-parameter 	SB_DxSAME		=	4'h0,
-			SB_MxSAME		=	4'h1,
-			SB_DxDIFF		=	4'h2,
-			SB_MxDIFF		=	4'h3,
-			SB_MxCOMB1		=	4'h4,
-			SB_MxCOMB2		=	4'h5,
-			SB_MxCOMB3		=	4'h6,
-			SB_MxCOMB4		=	4'h7,
-			SB_MxAPF1_ADPF1 =	4'h8,
-			SB_MxAPF2_ADPF2 =	4'h9,
-			SB_MxAPF1 		=	4'hA,
-			SB_MxAPF2		=	4'hB;
-			
-parameter	SEL_IN	  = 2'd0,
-			SEL_RAM	  = 2'd1,
-			SEL_ACC	  = 2'd2;
-
                    //15->17 bit +   0/-1 Half Word.(-2 byte)
 wire [17:0] reverbAdrPreRing = {adrB, 2'd0} + {18{minus2}}; // [Read Memory from Reverb Adr stuff]
 reg  [17:0] reverb_CounterWord;
@@ -1585,120 +1502,5 @@ spu_AudioMixer spu_AudioMixerInstance (
 	.o_prevVxOut			(prevChannelVxOut),
 	.o_currVxOut			(currChannelVxOut)
 );
-
-`ifdef OLD_LOGIC
-wire signed [15:0] sAdsrVol = {1'b0, currV_AdsrVol};
-wire signed [30:0] tmpVxOut = ChannelValue * sAdsrVol;
-wire signed [15:0] vxOut	 = tmpVxOut[30:15];	// 1.15 bit precision.
-
-reg signed [15:0] PvxOut;
-reg PValidSample;
-always @(posedge i_clk) begin
-	if (storePrevVxOut) begin
-		prevChannelVxOut <= vxOut;
-	end
-	PvxOut			<= validSampleStage2 ? vxOut : 16'd0; // [TODO DEBUG LOGIC MUX -> REMOVE]
-	PValidSample	<= validSampleStage2;
-end
-
-// --------------------------------------------------------------------------------------
-//		Channel volume / Support Sweep (16 cycle)
-// --------------------------------------------------------------------------------------
-
-wire signed [30:0] applyLVol = currV_VolumeL * PvxOut;
-wire signed [30:0] applyRVol = currV_VolumeR * PvxOut;
-
-// --------------------------------------------------------------------------------------
-//		Stage Accumulate all voices    (768/16/32)
-// --------------------------------------------------------------------------------------
-reg signed [20:0] sumL,sumR;
-reg signed [20:0] sumReverb;
-wire signed [15:0] reverbApply = side22Khz ? applyRVol[30:15] : applyLVol[30:15];
-always @(posedge i_clk) begin
-	if (PValidSample) begin
-		sumL <= sumL + { {5{applyLVol[30]}},applyLVol[30:15]};
-		sumR <= sumR + { {5{applyRVol[30]}},applyRVol[30:15]};
-		if (currV_EON) begin
-			sumReverb <= sumReverb + { {5{reverbApply[15]}}, reverbApply };
-		end
-	end else begin
-		if (clearSum) begin
-			sumL		<= 21'd0;
-			sumR		<= 21'd0;
-			sumReverb	<= 21'd0;
-		end
-	end
-end
-
-// Because we scan per channel.
-reg  signed [15:0] reg_CDRomInL,reg_CDRomInR;
-// Select correct volume based on 22 Khz switch bit.
-wire signed [15:0] volume			= side22Khz ? reg_reverbVolRight : reg_reverbVolLeft;
-wire signed [31:0] valueReverb      = accReverb * volume; 
-wire signed [15:0] valueReverbFinal = reg_ReverbEnable ? valueReverb[30:15] : 16'd0;
-reg  signed [15:0] regValueReverbLeft,regValueReverbRight;
-
-always @(posedge i_clk) begin
-	if (inputL) begin
-		reg_CDRomInL <= CDRomInL; 
-	end
-	if (inputR) begin
-		reg_CDRomInR <= CDRomInR;
-	end
-
-	if (ctrlSendOut) begin
-		if (side22Khz) begin
-			// Right Side
-			regValueReverbRight <= valueReverbFinal;
-		end else begin
-			// Left Side
-			regValueReverbLeft  <= valueReverbFinal;
-		end
-	end
-end
-
-wire signed [31:0] tmpCDRomL = reg_CDRomInL * reg_CDVolumeL;
-wire signed [31:0] tmpCDRomR = reg_CDRomInR * reg_CDVolumeR;
-wire signed [15:0] CD_addL   = tmpCDRomL[30:15];
-wire signed [15:0] CD_addR   = tmpCDRomR[30:15];
-
-wire signed [15:0] CdSideL	= reg_CDAudioEnabled	? CD_addL : 16'd0;
-wire signed [15:0] CdSideR	= reg_CDAudioEnabled	? CD_addR : 16'd0;
-// wire signed [15:0] ExtSide = reg_ExtEnabled		? (extInput * extLRVolume) : 16'd0; // Volume R + L
-
-// --------------------------------------------------------------------------------------
-//		Reverb Input (1536 / 768 / 16)
-// --------------------------------------------------------------------------------------
-// Get CD Data post-volume for REVERB : Enabled ? If so, which side ?
-wire signed [15:0] cdReverbInput = reg_CDAudioReverbEnabled ? 16'd0 : (side22Khz ? CdSideR : CdSideL);
-// Sum CD Reverb and Voice Reverb.
-wire signed [20:0] reverbFull	 = sumReverb + {{5{cdReverbInput[15]}},cdReverbInput};
-// [Assign clamped value to Reverb INPUT]
-clampSRange #(.INW(21),.OUTW(16)) Reverb_Clamp(.valueIn(reverbFull),.valueOut(lineIn));
-
-// --------------------------------------------------------------------------------------
-//		Mix
-// --------------------------------------------------------------------------------------
-// According to spec : impact only MAIN, not CD
-wire signed [14:0] volL        = reg_SPUNotMuted ? reg_mainVolLeft [14:0] : 15'd0;
-wire signed [14:0] volR        = reg_SPUNotMuted ? reg_mainVolRight[14:0] : 15'd0;
-wire signed [35:0] sumPostVolL = sumL * volL;
-wire signed [35:0] sumPostVolR = sumR * volR;
-
-// Mix = Accumulate + CdSide + RevertOutput
-// 16 bit signed x 5 bit (64 channel max)
-wire signed [16:0] CDAndReverbL= CdSideL + regValueReverbLeft ;
-wire signed [16:0] CDAndReverbR= CdSideR + regValueReverbRight;
-wire signed [20:0] postVolL    = sumPostVolL[34:14] + {{4{CDAndReverbL[16]}} ,CDAndReverbL};
-wire signed [20:0] postVolR    = sumPostVolR[34:14] + {{4{CDAndReverbR[16]}} ,CDAndReverbR};
-
-wire signed [15:0] outL,outR;
-clampSRange #(.INW(21),.OUTW(16)) Left_Clamp(.valueIn(postVolL),.valueOut(outL));
-clampSRange #(.INW(21),.OUTW(16)) RightClamp(.valueIn(postVolR),.valueOut(outR));
-
-assign AOUTL		= outL;
-assign AOUTR		= outR;
-assign VALIDOUT		= ctrlSendOut;
-`endif
 
 endmodule
