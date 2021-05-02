@@ -89,15 +89,14 @@ reg		[15:0]	internal_dataOutRAM;
 
 wire writeSPURAM;
 assign			o_adrRAM		= internal_adrRAM;
-assign 			o_dataReadRAM    = (!writeSPURAM) & (SPUMemWRSel[0] | SPUMemWRSel[1]); // Avoid doing READ when not needed.
-assign 			o_dataWriteRAM   = writeSPURAM;
-
+assign 			o_dataReadRAM   = (!writeSPURAM) & (SPUMemWRSel[0] | SPUMemWRSel[1]); // Avoid doing READ when not needed.
+assign 			o_dataWriteRAM  = writeSPURAM;
 assign			o_dataOutRAM	= internal_dataOutRAM;
 
 wire [17:0] reverbAdr;
 wire [15:0] reverbWriteValue;
 wire [17:0] reg_dataTransferAddrCurr;
-wire [8:0] regRingBufferIndex;
+wire  [8:0] regRingBufferIndex;
 wire isRight;
 always @(*) begin
 	// Write Section
@@ -178,9 +177,9 @@ wire 				reg_SPUIRQEnable,reg_ReverbEnable,reg_SPUEnable,reg_SPUNotMuted,reg_CDA
 // Mixing Audio Volume Register
 wire signed [15:0]	reg_CDVolumeL,reg_CDVolumeR,reg_mainVolLeft,reg_mainVolRight,reg_reverbVolLeft,reg_reverbVolRight;
 // Reverb registers.
-wire signed [15:0] dAPF1,dAPF2,vIIR,vCOMB1, vCOMB2,vCOMB3,vCOMB4,vWALL, vAPF1,vAPF2,mLSAME,mRSAME;
-wire signed [15:0] mLCOMB1,mRCOMB1,mLCOMB2,mRCOMB2, dLSAME,dRSAME,mLDIFF,mRDIFF, mLCOMB3,mRCOMB3,mLCOMB4,mRCOMB4;
-wire signed [15:0] dLDIFF,dRDIFF,mLAPF1,mRAPF1,mLAPF2,mRAPF2,vLIN,vRIN;
+wire signed [15:0]  dAPF1,dAPF2,vIIR,vCOMB1, vCOMB2,vCOMB3,vCOMB4,vWALL, vAPF1,vAPF2,mLSAME,mRSAME;
+wire signed [15:0]  mLCOMB1,mRCOMB1,mLCOMB2,mRCOMB2, dLSAME,dRSAME,mLDIFF,mRDIFF, mLCOMB3,mRCOMB3,mLCOMB4,mRCOMB4;
+wire signed [15:0]  dLDIFF,dRDIFF,mLAPF1,mRAPF1,mLAPF2,mRAPF2,vLIN,vRIN;
 
 wire [15:0]			dataOutw;
 wire  [1:0]			reg_SPUTransferMode;
@@ -343,24 +342,11 @@ wire dataTransferRDReq		= reg_SPUTransferMode[1];
 //  --> PROTECTED FOR EDGE TRANSITION : WRITE during multiple cycle else would perform multiple WRITE of the same value !!!!
 // Implicit in writeFIFO, not used : wire isCPUXFer = (reg_SPUTransferMode == XFER_MANUAL);
 wire writeFIFO = (internalWrite & isD80_DFF & (!addr[6]) & (addr[5:1] == 5'h14)) | (isDMAXferWR & SPUDACK);
-/*
-reg PInternalWrite;
-always @(posedge i_clk)
-begin
-	if (n_rst == 0) begin
-		PInternalWrite <= 1'b0;
-	end else begin
-		PInternalWrite <= internalWrite;
-	end
-end
-*/
 
 reg updateVoiceADPCMAdr,updateADSRState,updateADSRVolReg,clearKON;
 wire [22:0] nextAdsrCycle;
 wire  [1:0]	nextAdsrState;
 wire [14:0] nextAdsrVol;
-
-
 
 reg [15:0] pipeDataOut;
 always @ (posedge i_clk) 
