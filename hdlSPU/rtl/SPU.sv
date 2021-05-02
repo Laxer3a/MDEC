@@ -83,7 +83,7 @@ module SPU(
 reg [23:0] debugCnt; always @(posedge i_clk)
 begin debugCnt <= (n_rst == 0) ? 24'd0 : debugCnt + 24'd1; end
 
-reg      [2:0]	SPUMemWRSel;
+wire    [2:0]	SPUMemWRSel;
 reg 	[17:0]	internal_adrRAM;
 reg		[15:0]	internal_dataOutRAM;
 
@@ -470,7 +470,7 @@ wire reverbInactive = (currVoice[4:3] != 2'd3);
 // REQ in WRITE MODE IS KEEPING REQUESTING UNTIL FIFO IS FULL.
 assign SPUDREQ = (isDMAXferRD & readSPU) | (isDMAXferWR && !isFIFOFull);
 
-wire [2:0] ReverbMemWRSel;
+wire [2:0] ReverbMemWRSel,voiceSPUMemWRSel;
 wire signed [15:0] lineIn;
 
 spu_ReverbCompute spu_ReverbCompute_inst(
@@ -538,146 +538,38 @@ spu_ReverbCompute spu_ReverbCompute_inst(
 	.o_ctrlSendOut			(ctrlSendOut)
 );
 
+spu_voiceStates spu_voiceStates_inst(
+	.i_isDMAXferRD			(isDMAXferRD		 ),
+	.i_isVoice1             (isVoice1            ),
+	.i_isVoice3             (isVoice3            ),
+	.i_nextNewBlock         (nextNewBlock        ),
+	.i_nextNewLine          (nextNewLine         ),
+	.i_reverbInactive       (reverbInactive      ),
+	.i_voiceCounter         (voiceCounter        ),
+	.i_dataInRAM            (i_dataInRAM         ),
+	.i_currVoice            (currVoice           ),
 
-always @(*)
-begin
-	loadPrev			= 0;
-	updatePrev			= 0;
-	check_Kevent		= 0;
-	storePrevVxOut		= 0;
-	clearSum			= 0;
-	setEndX				= 0;
-	setAsStart			= 0;
-	zeroIndex			= 0;
-	SPUMemWRSel			= NO_SPU_READ;	// Default : NO READ/WRITE SIGNALS
-	updateVoiceADPCMAdr	= 0;
-	updateVoiceADPCMPos = 0;
-	updateVoiceADPCMPrev= 0;
-	adpcmSubSample		= 0;
-	isNotEndADPCMBlock	= 0;
-	isRepeatADPCMFlag	= 0;
-	readSPU				= 0;
+	.o_loadPrev			    (loadPrev			 ),
+	.o_updatePrev			(updatePrev			 ),
+	.o_check_Kevent		    (check_Kevent		 ),
+	.o_storePrevVxOut		(storePrevVxOut		 ),
+	.o_clearSum			    (clearSum			 ),
+	.o_setEndX				(setEndX			 ),
+	.o_setAsStart			(setAsStart			 ),
+	.o_zeroIndex			(zeroIndex			 ),
+	.o_SPUMemWRSel			(voiceSPUMemWRSel	 ),
+	.o_updateVoiceADPCMAdr	(updateVoiceADPCMAdr ),
+	.o_updateVoiceADPCMPos  (updateVoiceADPCMPos ),
+	.o_updateVoiceADPCMPrev (updateVoiceADPCMPrev),
+	.o_adpcmSubSample		(adpcmSubSample		 ),
+	.o_isNotEndADPCMBlock	(isNotEndADPCMBlock	 ),
+	.o_isRepeatADPCMFlag	(isRepeatADPCMFlag	 ),
+	.o_readSPU              (readSPU             ),
+	.o_kickFifoRead         (kickFifoRead        )
+);
 
-	// Keep data in the reverb loop by default...
-	kickFifoRead		= 0;
-	
-	if (currVoice[4:3] != 2'd3) begin // [Channel 0..23 Timing are VOICES in original SPU]
-		case (voiceCounter)
-		5'd0:
-		begin
-			// Cycle 0 : currVoice register output updated.
-			check_Kevent		= 1;
-		end
-		5'd1:
-		begin
-			// If check_Kevent --> Here, updated currV_adpcmCurrAdr
-			SPUMemWRSel			= VOICE_RD;
-			zeroIndex			= 1;
-			
-			// Need to preload header to setup Status stuff...
-			// Upgrade address counter if needed.
-		end
-		// 2/3/4
-		5'd5:
-		begin
-			// Here Header info is loaded and processed if necessary.
-			loadPrev			= 1;
-			setEndX				= i_dataInRAM[ 8]; // 1 : Register flag 'ended', mark block as 'last'
-			isNotEndADPCMBlock	= !i_dataInRAM[8]; //							 mark block as 'normal'
-			isRepeatADPCMFlag	= i_dataInRAM[ 9];
-			setAsStart			= i_dataInRAM[10]; // 4 : Register block as loop start.
-			
-			SPUMemWRSel			= VOICE_RD; // Sample 0
-			// Load correct Sample block based on current sample position and base block adress.
-		end
-		// 6/7/8
-		5'd9:
-		begin
-			// For each sample 0..3 ( currV_adpcmPos[13:12] )
-			// Check if we match currV_adpcmPos[13:12]
-			// -> Push sample to gaussian interpolator.
-			// At sample 3
-
-			// [Do nothing on memory side for now... Use for XFER]
-			
-			updatePrev			= 1;
-			adpcmSubSample		= 0;
-		end
-		5'd10:
-		begin
-			updatePrev			= 1;
-			adpcmSubSample		= 1;
-		end
-		5'd11:
-		begin
-			updatePrev			= 1;
-			adpcmSubSample		= 2;
-		end
-		5'd12:
-		begin
-			updatePrev			= 1;
-			adpcmSubSample		= 3;
-			// Before the first sample of the first channel is sent, we reset the accumulators.
-			// We put it here, but it can be moved around if needed,
-			// it must just take in account the last sample of channel 23 pipeline latency and start of channel 0 when looping.
-			clearSum			= (currVoice == 5'd0);
-		end
-		
-		5'd13:
-		begin
-			kickFifoRead		= 1;
-		end
-		//
-		// The interpolator takes 5 CYCLE to output, prefer to maintain channel active for that amount of cycle....
-		//
-		5'd14:
-		begin
-			// SPUMemWRSel			= FIFO_WRITE; // Allow only ONCE XFer per voice...
-			SPUMemWRSel = isDMAXferRD ? FIFO_RD : FIFO_WRITE; // Allow only ONCE XFer per voice...
-		end
-		5'd15:
-		begin
-			// [XFER WAIT 1]
-		end
-		5'd16:
-		begin
-			// [XFER WAIT 2]
-		end
-		5'd17:
-			// [XFER WAIT 3]
-		begin
-		end
-		5'd18:
-		begin
-			// Will increment the counter... ?
-			// Will only accept to go to the next value if ACK is reading/accepting the value...
-			readSPU			= isDMAXferRD;
-			
-			storePrevVxOut	= 1;
-			// -> If NEXT sample is OUTSIDE AND CONTINUE, SAVE sample2/sample3 (previous needed for decoding)
-			//       NEXT sample is OUTSIDE AND JUMP, set 0/0.
-			// 
-			if (isVoice1 | isVoice3) begin
-				SPUMemWRSel			= VOICE_WR;
-			end // else use FIFO to purge...
-
-			// --------------------------------
-			// ADPCM Line/Block Management
-			// --------------------------------
-			updateVoiceADPCMAdr = nextNewBlock;
-			updateVoiceADPCMPos = 1;
-			updateVoiceADPCMPrev= nextNewLine;	// Store PREV ADPCM when we move to the next 16 bit only.(different line in same ADPCM block or new ADPCM block)
-		end
-		default:
-		begin
-			// Do nothing.
-		end
-		endcase
-	end else begin  // [Channel 24..31 x 24 cycle = REVERB, FIFO Transfer, WRITE BACK CD/VOICES]
-		// Come from Reverb State machine.
-		SPUMemWRSel = ReverbMemWRSel;
-	end
-end
+// Select between the two state machines.
+assign SPUMemWRSel = reverbInactive ? voiceSPUMemWRSel : ReverbMemWRSel;
 
 // Allow transfer from FIFO any cycle where RAM not busy...
 wire isFIFOWR       = (SPUMemWRSel==FIFO_WRITE);

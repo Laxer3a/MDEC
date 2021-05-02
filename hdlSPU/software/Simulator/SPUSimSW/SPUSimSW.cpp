@@ -463,7 +463,7 @@ int main()
 	// ------------------------------------------------------------------
 	const bool	useScan					= false;
 //#define SAMPLE_COUNT	(80)
- #define SAMPLE_COUNT	(880000)
+ #define SAMPLE_COUNT	(88000)
 
 	// ------------------------------------------------------------------
 	// Fake SPU RAM PSX.
