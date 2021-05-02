@@ -2041,9 +2041,6 @@ void GPURdrCtx::RenderLine(Vertex* pVertex, u8 v0, u8 v1) {
 	bool itr = this->interlaced;
 
 	isLine = true;
-	if (p.x == 16 && p.y == 100) {
-		printf("HERE");
-	}
 
 	while (true) {
 		bool isOdd = p.y & 1 ? true : false;
@@ -3194,22 +3191,22 @@ nextCommand:
 			if (vtxCount == 0) {
 				continueLoop = true;
 			} else {
-				bool render = true;
-				continueLoop = isMultiCmd;
+				continueLoop = false; // Two vertices by default
+
+				// Override if multicommand.
 				if (isMultiCmd) {
-					if (isPerVtxCol) {
-						continueLoop = ((operand >> 24) != 0x55);
-					} else {
-						continueLoop = (topV != 0x55);
-					}
-					render = continueLoop;
+					u32 endOp = *pStream; // No ++ !!!!
+					continueLoop = ((endOp & 0x50005000) != 0x50005000);
 					// Trick
 					vtxCount--;
+
+					// If we read a terminator, skip it for next command.
+					if (!continueLoop) {
+						pStream++;
+					}
 				}
 
-				if (render) {
-					RenderLine(vtx,0,1);
-				}
+				RenderLine(vtx,0,1);
 				vtx[0].x = vtx[1].x;
 				vtx[0].y = vtx[1].y;
 			}
