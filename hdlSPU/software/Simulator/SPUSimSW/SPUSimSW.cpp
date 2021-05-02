@@ -416,6 +416,9 @@ void interpreter(int counter) {
 	}
 }
 
+extern void test_spu_counter();
+extern void testBresenhamCounter_HW();
+
 int main()
 {
 
@@ -460,7 +463,7 @@ int main()
 	// ------------------------------------------------------------------
 	const bool	useScan					= false;
 //#define SAMPLE_COUNT	(80)
- #define SAMPLE_COUNT	(88000)
+ #define SAMPLE_COUNT	(880000)
 
 	// ------------------------------------------------------------------
 	// Fake SPU RAM PSX.
@@ -581,7 +584,7 @@ int main()
 	// ------------------------------------------------------------------
 	// MAIN LOOP
 	// ------------------------------------------------------------------
-	int waitCount = 0;
+	u64 waitCount = 0;
 // 	int scanFrom = 768 * 270;
 
 	bool scanConstraint = false;

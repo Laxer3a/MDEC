@@ -65,6 +65,8 @@ module spu_ReverbCompute(
 	input signed [15:0] mRAPF2,
 	input signed [15:0] vLIN,
 	input signed [15:0] vRIN,
+
+	output 			o_freezableState,
 	
 	output 	[17:0]	o_reverbAdr,
 	output	[15:0]	o_reverbWriteValue,
@@ -83,6 +85,7 @@ reg	[1:0]	selB;
 reg			ctrlSendOut;
 reg [2:0]	SPUMemWRSel;
 reg			isRight;		// When doing write back CD. Left or Right ?
+
 
 reg [7:0] reverbCnt;
 always @(posedge i_clk)
@@ -194,7 +197,7 @@ end
 
 // alias
 wire side22Khz = i_side22Khz;
-
+reg freezableState;
 always @(*) begin
 	// Keep data in the reverb loop by default... (Accumulator + mul by zero)
 	sideAReg	= SA_ZERO;
@@ -204,8 +207,14 @@ always @(*) begin
 	accAdd		= 1;
 	isRight		= 0;
 	ctrlSendOut = 0;
+	
+	freezableState = 0;
 
 	SPUMemWRSel	= NO_SPU_READ;	// Default : NO READ/WRITE SIGNALS
+
+	//
+	// [192 Cycle]
+	//
 
 	if (!i_reverbInactive) begin
 		case (reverbCnt)
@@ -344,6 +353,10 @@ always @(*) begin
 		begin
 			ctrlSendOut			= 1;
 		end
+		8'd128:
+		begin
+			freezableState		= 1;
+		end
 		default: // [DEFAULT KEEP REVERB INFORMATION ALIVE FOR NEXT CYCLE]
 		begin sideAReg = SA_ZERO;	sideBReg = SB_FAKEREAD;					minus2 = 0; selB = SEL_ACC;	accAdd = 1; end
 		endcase
@@ -353,5 +366,6 @@ end
 assign o_SPUMemWRSel	= SPUMemWRSel;
 assign o_SPUMemWRRight	= isRight;
 assign o_ctrlSendOut	= ctrlSendOut;
+assign o_freezableState = (!i_reverbInactive) & freezableState;
 
 endmodule

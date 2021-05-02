@@ -391,12 +391,25 @@ wire [4:0] voiceCounter;
 wire		side22Khz;
 wire		ctrl44Khz;
 
+wire		clockEnableDivider;
+wire		freezableState;
+
+bresenhamCounter
+#(	.REALCOUNTERFREQU		(200),	// 40   Mhz / 200000
+	.SLOWERIMAGINARYFREQU	(169),	// 33.8 Mhz / 200000
+	.BITSIZE				(9)
+) bresenhamCounter_instance (
+	.i_clk		(i_clk),
+	.i_rst		(!n_rst),
+	.o_enable	(clockEnableDivider)
+);
+
 spu_counter spu_counter_inst(
 	.i_clk				(i_clk),
 	.n_rst				(n_rst),
 	
-	// TODO : State machine may/should provide safe state to spill onClock internal counter.
-	.i_onClock			(/*Future stuff*/),
+	.i_onClock			(1'b1/*clockEnableDivider*/),	// Always Enabled for now, bresenham counter ignored.
+	.i_safeStopState	(1'b0/*freezableState*/),
 	
 	.o_ctrl44Khz		(ctrl44Khz),
 	.o_side22Khz		(side22Khz),
@@ -514,6 +527,8 @@ spu_ReverbCompute spu_ReverbCompute_inst(
 	.vRIN					(vRIN	),
 	
 	.i_lineIn				(lineIn),
+	
+	.o_freezableState		(freezableState),
 	
 	.o_reverbAdr			(reverbAdr),
 	.o_reverbWriteValue		(reverbWriteValue),
