@@ -3196,13 +3196,13 @@ nextCommand:
 				// Override if multicommand.
 				if (isMultiCmd) {
 					u32 endOp = *pStream; // No ++ !!!!
-					continueLoop = ((endOp & 0x50005000) != 0x50005000);
+					continueLoop = ((endOp & 0xF000F000) != 0x50005000);
 					// Trick
 					vtxCount--;
 
 					// If we read a terminator, skip it for next command.
 					if (!continueLoop) {
-						pStream++;
+						pStream++; pTimeStamps++;
 					}
 				}
 
