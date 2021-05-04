@@ -675,6 +675,8 @@ void GPURdrCtx::pixelPipeline(s16 x, s16 y, Interpolator& interp) {
 	int cG = interp.ginterp;
 	int cB = interp.binterp;
 
+	printf("%i,%i->%i,%i,%i\n",x,y,cR,cG,cB);
+
 	bool transp = false;
 	bool allowBlend;
 
@@ -2995,6 +2997,8 @@ nextCommand:
 	int		vtxCountMax	= 0;
 	u32		operand			= command;
 
+	bool	firstVertexLine = true;
+
 	// ---------- For rendering ------------------
 	rtIsTexModRGB	  = !((command >> 24) & 1);	// Textured Tri or Rect only. 
 	rtIsTextured	  =   (command >> 26) & 1;
@@ -3188,8 +3192,9 @@ nextCommand:
 
 			break;
 		case PRIM_LINE:
-			if (vtxCount == 0) {
+			if (firstVertexLine) {
 				continueLoop = true;
+				firstVertexLine  = false;
 			} else {
 				continueLoop = false; // Two vertices by default
 
@@ -3197,8 +3202,8 @@ nextCommand:
 				if (isMultiCmd) {
 					u32 endOp = *pStream; // No ++ !!!!
 					continueLoop = ((endOp & 0xF000F000) != 0x50005000);
-					// Trick
-					vtxCount--;
+					if (vtxCount == 0) { vtxCount = 1; } else { vtxCount = 0; }
+					vtxCount--; // Trick because of ++ counter at the end of the loop.
 
 					// If we read a terminator, skip it for next command.
 					if (!continueLoop) {
@@ -3207,12 +3212,10 @@ nextCommand:
 				}
 
 				RenderLine(vtx,0,1);
-				vtx[0].x = vtx[1].x;
-				vtx[0].y = vtx[1].y;
 			}
 
 			if (!continueLoop) {
-				vtxCount = 0;
+				vtxCount = -1; // Trick because of ++ counter at the end of the loop.
 			}
 			break;
 		case PRIM_RECT:

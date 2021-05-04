@@ -191,7 +191,7 @@ module gpu_setupunit(
 	// Test Current Pixel Pair against [Drawing Area]
 	// [NEEDED FOR LINES] : Line are scanned independantly from draw area.
 	wire				isTopInside 		= pixelY  >= extDAY0;
-	wire				isBottomInside		= pixelY   < extDAY1;
+	wire				isBottomInside		= pixelY  <= extDAY1;
 	wire				isTopInsideBBox		= pixelY  >= minTriDAY0; // PIXEL IS EXCLUSIVE
 	wire				isBottomInsideBBox	= pixelY  <= maxTriDAY1; // PIXEL IS INCLUSIVE
 
@@ -231,11 +231,20 @@ module gpu_setupunit(
 	assign				maxXTri = RegX2 > maxX0X1 ? RegX2 : maxX0X1;
 	wire signed [11:0]	maxYTri = RegY2 > maxY0Y1 ? RegY2 : maxY0Y1;
 
-	// Primitive Size
+	// Primitive Size (Triangle)
 	wire signed [11:0] distXBBox = maxXTri - minXTri;
 	wire signed [11:0] distYBBox = maxYTri - minYTri;
+
+	// Primitive Size (Line)
+	wire signed [11:0] distXBBoxLine = maxX0X1 - minX0X1;
+	wire signed [11:0] distYBBoxLine = maxY0Y1 - minY0Y1;
+	
+	//
 	wire invalidXAxis  = distXBBox >= 12'd1024;
 	wire invalidYAxis  = distYBBox >= 12'd512;
+
+	wire invalidXAxisLine  = distXBBoxLine >= 12'd1024;
+	wire invalidYAxisLine  = distYBBoxLine >= 12'd512;
 	
 	// Bounding box vs Draw Area.
 	wire earlyTriangleReject = invalidXAxis | invalidYAxis | earlyTriRejectLeft | earlyTriRejectRight | earlyTriRejectTop | earlyTriRejectBottom;
@@ -250,7 +259,7 @@ module gpu_setupunit(
 	wire				earlyLineRejectTop   = maxY0Y1 < extDAY0;
 	wire				earlyLineRejectRight = minX0X1 > extDAX1;
 	wire				earlyLineRejectBottom= minY0Y1 > extDAY1;
-	wire				earlyLineReject      = invalidXAxis | invalidYAxis | earlyLineRejectLeft | earlyLineRejectTop | earlyLineRejectRight | earlyLineRejectBottom;
+	wire				earlyLineReject      = invalidXAxisLine | invalidYAxisLine | earlyLineRejectLeft | earlyLineRejectTop | earlyLineRejectRight | earlyLineRejectBottom;
 
 	// Thanks to earlyTriangleReject, we know the box are intersecting.
 	// We know that Box is properly oriented (Min < Max), we assume that DrawArea X0 < X1 too.
@@ -312,7 +321,7 @@ module gpu_setupunit(
 	wire signed [11:0]	negb	= -b;
 	wire signed [11:0]	nega	= -a;
 
-	reg signed [11:0]	ra,rd,rnegb,rnegc;
+	reg  signed [11:0]	ra,rd,rnegb,rnegc;
 	
 	// Pipeline to do a,d,b,negc...
 	wire signed [21:0]	/*P*/ DET1	= a * d;
