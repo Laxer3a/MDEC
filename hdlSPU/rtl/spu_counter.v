@@ -23,8 +23,6 @@ wire isLastCycle = (voiceCounter == 5'd23);
 // Use 1023 cycles max for 768 cycles. (Allows max ~78 Mhz clock for a 33.8 Mhz Clock played)
 reg  [9:0]	stopCounter;
 
-reg         prevSafeStopState;
-
 wire exitSafeState = i_safeStopState && (stopCounter == 0) && i_onClock;
 
 always @(posedge i_clk)
@@ -48,7 +46,6 @@ begin
 				voiceCounter 	<= voiceCounter + 5'd1; 
 			end
 		end
-		prevSafeStopState	<= i_safeStopState;
 	end
 end
 

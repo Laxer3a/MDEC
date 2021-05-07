@@ -320,8 +320,6 @@ spu_front spu_front_inst (
 // -----------------------------------------------------------------
 wire isD8				= (addr[9:8]==2'b01);
 wire isD80_DFF			= (isD8 && addr[7]);							// Latency 0 : D80~DFF
-wire isChannel			= ((addr[9:8]==2'b00) | (isD8 & !addr[7])); 	// Latency 0 : C00~D7F
-wire [4:0] channelAdr	= addr[8:4];
 
 // Detect write transition
 wire isDMAXferWR    = (reg_SPUTransferMode == XFER_DMAWR);

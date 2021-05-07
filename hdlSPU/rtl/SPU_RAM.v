@@ -53,14 +53,12 @@ module SPU_RAM
 	reg readByteSelect_reg;
 	reg readByteSelect_reg1;
 	reg readByteSelect_reg2;
-	reg readByteSelect_reg3;
 	always @ (posedge i_clk)
 	begin
 		// Pipeline +3 cycles for data valid.
 		readByteSelect_reg	<= i_re;
 		readByteSelect_reg1 <= readByteSelect_reg;
 		readByteSelect_reg2 <= readByteSelect_reg1;
-		readByteSelect_reg3 <= readByteSelect_reg2;
 
 		// Update pipeline value along the line if VALID only.
 		if (readByteSelect_reg)

@@ -220,5 +220,6 @@ assign o_AOUTR		= outR;
 assign o_VALIDOUT	= i_ctrlSendOut;
 assign o_storedCDRomInL	= reg_CDRomInL;
 assign o_storedCDRomInR	= reg_CDRomInR;
+assign o_currVxOut	= vxOut;
 
 endmodule
