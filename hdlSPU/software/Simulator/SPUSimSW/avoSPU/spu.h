@@ -28,6 +28,45 @@ struct CDRom {
 	int		writeRight;
 };
 
+struct FIFO {
+	FIFO():read(0),write(0),fifoSize(0) {}
+
+	void		setSize(int size) {fifoSize = size; }
+
+	inline
+	bool		isEmpty	() { return read == write; }
+
+	inline
+	bool		isFull	() {
+		uint32_t nextW = write+1;
+		if (nextW == fifoSize) { nextW = 0; }
+		return (nextW == read);
+	}
+
+	void		push	(uint32_t p) {
+		if (!isFull()) {
+			uint32_t nextW = write+1;
+			if (nextW == fifoSize) { nextW = 0; }
+			FIFOa[write] = p;
+			write = nextW;
+		}
+	}
+
+	uint32_t	pop		() {
+		uint32_t nextR = !isEmpty() ? read+1 : read;
+		if (nextR == fifoSize) { nextR = 0; }
+		uint32_t result = FIFOa[read];
+		read = nextR;
+		return result;
+	}
+
+	// Default max size is 16384
+	uint32_t FIFOa[16384];
+
+	int		read;
+	int		write;
+	int		fifoSize;
+};
 
 struct SPU {
     static const uint32_t BASE_ADDRESS = 0x1f801c00;
@@ -82,7 +121,7 @@ struct SPU {
     void writeVoice(uint32_t address, uint8_t data);
 
     SPU();
-    void step(CDRom* cdrom);
+    void step(CDRom* cdrom, Sample& audioOutLeft, Sample& audioOutRight);
     uint8_t read(uint32_t address);
     void write(uint32_t address, uint8_t data);
 

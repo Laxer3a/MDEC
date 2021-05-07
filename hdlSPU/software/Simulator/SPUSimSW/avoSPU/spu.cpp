@@ -15,11 +15,13 @@ SPU::SPU() {
     captureBufferIndex = 0;
 }
 
-void SPU::step(CDRom* cdrom) {
+void SPU::step(CDRom* cdrom, Sample& audioOutLeft, Sample& audioOutRight) {
     Sample sumLeft = 0, sumReverbLeft = 0;
     Sample sumRight = 0, sumReverbRight = 0;
 
-    noise.doNoise(control.noiseFrequencyStep, control.noiseFrequencyShift);
+	uint16_t ctrl_noise_freq   = getCycle(addr,timing); // control.noiseFrequencyStep;
+	uint16_t ctrl_noise_freqSh = getCycle(addr,timing); // control.noiseFrequencyShift
+    noise.doNoise(ctrl_noise_freq, ctrl_noise_freqSh);
 
     for (int v = 0; v < VOICE_COUNT; v++) {
         Voice& voice = voices[v];
@@ -34,17 +36,17 @@ void SPU::step(CDRom* cdrom) {
 
         voice.processEnvelope();
 
-        uint32_t step = voice.sampleRate._reg;
-        if (voice.pitchModulation && v > 0) {
-            int32_t factor = voices[v - 1].sample + 0x8000;
+        uint32_t step = getCycle(addr,timing); // voice.sampleRate._reg
+        if (/*voice.pitchModulation*/getCycle(addr,timing) && v > 0) {
+            int32_t factor = getCycle(addr,timing) /*voices[v - 1].sample*/ + 0x8000;
             step = (step * factor) >> 15;
             step &= 0xffff;
         }
         if (step > 0x3fff) step = 0x4000;
 
         Sample sample;
-        if (voice.mode == Voice::Mode::Noise) {
-            sample = noise.getNoiseLevel();
+        if (getCycle(addr,timing) /*voice.mode*/ == Voice::Mode::Noise) {
+            sample = getCycle(addr,timing) /*noise.getNoiseLevel()*/;
         } else {
             sample = interpolate(voice, voice.counter.sample, voice.counter.index);
         }
@@ -61,7 +63,8 @@ void SPU::step(CDRom* cdrom) {
             }
         }
 
-        voice.counter._reg += step;
+		uint16_t vcounter = getCycle(addr,timing)/*voice.counter._reg*/;
+        voice.counter._reg = vcounter + step;
         if (voice.counter.sample >= 28) {
             // Overflow, parse next ADPCM block
             voice.counter.sample -= 28;
@@ -108,10 +111,15 @@ void SPU::step(CDRom* cdrom) {
     sumLeft += reverbLeft;
     sumRight += reverbRight;
 
-    sumLeft *= std::min<int16_t>(0x3fff, mainVolume.getLeft()) * 2;
+    sumLeft  *= std::min<int16_t>(0x3fff, mainVolume.getLeft() ) * 2;
     sumRight *= std::min<int16_t>(0x3fff, mainVolume.getRight()) * 2;
 
-    audioBuffer[audioBufferPos] = sumLeft;
+	// Write to the test port audio out.
+	audioOutLeft  = sumLeft;
+	audioOutRight = sumRight;
+
+/*  ORIGINAL AUDIO OUT
+    audioBuffer[audioBufferPos]     = sumLeft;
     audioBuffer[audioBufferPos + 1] = sumRight;
 
     audioBufferPos += 2;
@@ -122,9 +130,10 @@ void SPU::step(CDRom* cdrom) {
         audioBufferPos = 0;
         bufferReady = true;
     }
+*/
 
     const uint32_t cdLeftAddress = 0x000 + captureBufferIndex;
-    const uint32_t cdRightAddress = 0x400 + captureBufferIndex;
+    const uint32_t cdRightAddress= 0x400 + captureBufferIndex;
     const uint32_t voice1Address = 0x800 + captureBufferIndex;
     const uint32_t voice3Address = 0xC00 + captureBufferIndex;
 
