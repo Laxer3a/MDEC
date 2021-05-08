@@ -14,6 +14,8 @@ See LICENSE file.
 
 #define DUMPWAV
 
+#include <verilated_vcd_c.h>
+
 #include <inttypes.h>
 typedef struct wavfile_header_s {
 	char ChunkID[4];   /*  4   */
@@ -281,7 +283,7 @@ void W(int addr, int data) {
 //	mod->SPUDACK = 0;
 //	mod->SRD     = 0;
 	mod->SWRO    = 1;
-	printf("WRITE [%08x] = %04x\n",addr,data);
+//	printf("WRITE [%08x] = %04x\n",addr,data);
 	mod->addr    = addr - 0x1f801c00; // 10 bit.
 	mod->dataIn	 = data;
 }
@@ -328,7 +330,7 @@ void interpreter(int counter) {
 				if (opcode == 'X') {
 					// if (ptrData>1) return;
 				}else if (opcode == 'V') {
-					printf("VSYNC WAIT STARTED @clk %i\n",counter);
+//					printf("VSYNC WAIT STARTED @clk %i\n",counter);
 					pState = WAIT_VSYNC;
 				}else if (opcode == 'W') {
 					uint32_t addr = 0;
@@ -345,7 +347,7 @@ void interpreter(int counter) {
 						// 5-4   Sound RAM Transfer Mode (0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread))
 						int mode = (data>>4) & 3;
 						lastSPUSetup = data & (~(3<<4)); // Setup without transfer mode.
-						printf("  Transfer mode:%i (0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread)\n",mode);
+//						printf("  Transfer mode:%i (0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread)\n",mode);
 					}
 					W(addr, data);
 				}else if (opcode == 'F') {
@@ -356,7 +358,7 @@ void interpreter(int counter) {
 					uploadSize = size;
 					uploadPtr  = 0;
 					bytesWritten = 0;
-					printf("UPLOAD START @clk %i\n",counter);
+//					printf("UPLOAD START @clk %i\n",counter);
 					pState = UPLOAD_DATA;
 				} else {
 					printf("Unknown opcode %c (%d) @ 0x%x, breaking\n", opcode, opcode, ptrData-1);
@@ -375,7 +377,7 @@ void interpreter(int counter) {
 
 				bytesWritten += 2;
 				if (bytesWritten % 32 == 0 || (uploadPtr == uploadSize)) { // 32 item or block is smaller than 32
-					printf("UPLOAD PAUSE @clk %i\n",counter);
+//					printf("UPLOAD PAUSE @clk %i\n",counter);
 					pState = UPLOAD_WRITEMODE;
 				}
 			}
@@ -393,7 +395,7 @@ void interpreter(int counter) {
 			break;
 		case UPLOAD_DIGEST2:
 			if ((mod->dataOut & (1<<10)) == 0) { // PREVIOUS READ RESULT
-				printf("UPLOAD CONTINUE @clk %i\n",counter);
+//				printf("UPLOAD CONTINUE @clk %i\n",counter);
 				if (uploadPtr < uploadSize) {
 					// Still block to do...
 					pState = UPLOAD_DATA;
@@ -421,6 +423,9 @@ void interpreter(int counter) {
 		vsyncCounter = 0;
 	}
 }
+
+extern void test_spu_counter();
+extern void testBresenhamCounter_HW();
 
 int main()
 {
@@ -464,10 +469,9 @@ int main()
 	// ------------------------------------------------------------------
 	// SETUP : Export VCD Log for GTKWave ?
 	// ------------------------------------------------------------------
-	const bool	useScan					= true;
-	const int   useScanRange			= false;
-	const int	scanStartCycle			= 30;
-	const int	scanEndCycle			= 50;
+	const bool	useScan					= false;
+//#define SAMPLE_COUNT	(80)
+ #define SAMPLE_COUNT	(440000)
 
 	// ------------------------------------------------------------------
 	// Fake SPU RAM PSX.
@@ -484,15 +488,22 @@ int main()
 
 	// SPU RAM ADR = VALUE !!! LOL.
 	for (int n = 0; n < 262144; n++) {
-		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramL[n] = 0; // n & 0xFF;
-		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ramM[n] = 0;
+		mod->SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__ram[n] = n;
 	}
 
-	registerVerilatedMemberIntoScanner(mod,pScan);
-
+	// registerVerilatedMemberIntoScanner(mod,pScan);
 	// Associate my VCD Scanner to the verilated object.
+	VerilatedVcdC   tfp;
 	if (useScan) {
-		pScan->addPlugin(new ValueChangeDump_Plugin("spuLogREAD.vcd"));
+		registerVerilatedMemberIntoScanner(mod, pScan);
+
+		pScan->addPlugin(new ValueChangeDump_Plugin("spu_custom_waves_post.vcd"));
+
+		Verilated::traceEverOn(true);
+		VL_PRINTF("Enabling GTKWave Trace Output...\n");
+
+		mod->trace (&tfp, 99);
+		tfp.open ("spu_waves.vcd");
 	}
 
 	// ------------------------------------------------------------------
@@ -581,13 +592,12 @@ int main()
 	// ------------------------------------------------------------------
 	// MAIN LOOP
 	// ------------------------------------------------------------------
-	int waitCount = 0;
+	u64 waitCount = 0;
 // 	int scanFrom = 768 * 270;
 
 	bool scanConstraint = false;
 
 	loader("E:\\ff7-101-the-prelude.spudump");
-#define SAMPLE_COUNT	(10)
 
 #ifdef DUMPWAV
 	FILE* dumpWav = fopen("e:\\testSimSingleB.wav", "wb");
@@ -595,6 +605,7 @@ int main()
 #endif
 
 	int StartRecord = 0;
+	bool dolog = false;
 
 	while ((waitCount < 768* SAMPLE_COUNT)					// If GPU stay in default command wait mode for more than 20 cycle, we stop simulation...
 		//	&& (clockCnt < (350*2))			// ADDITION TEST IF GPU GET STUCK TO EXIT : GLOBAL COUNTER.
@@ -618,6 +629,12 @@ int main()
 
 		mod->i_clk    = 1;
 		mod->eval();
+
+		if (useScan && dolog) {
+			pScan->eval(clockCnt);
+			tfp.dump(clockCnt);
+		}
+		clockCnt++;
 
 		scanConstraint = waitCount >= StartRecord; // mod->SPU_IF__DOT__SPU_instance__DOT__currVoice >= 24 /* (waitCount > scanFrom)*/
 					  /* && (mod->SPU__DOT__PValidSample) */;
@@ -655,6 +672,9 @@ int main()
 			PCM16_stereo_t buffer_p;
 			buffer_p.left  = mod->AOUTL;
 			buffer_p.right = mod->AOUTR;
+			if (buffer_p.left || buffer_p.right) {
+				dolog = true;
+			}
 			// printf("%x\n", mod->SPU__DOT__reg_adpcmCurrAdr[0]);
 			int ret = fwrite(&buffer_p, sizeof(PCM16_stereo_t), 1, dumpWav);
 		}
@@ -684,11 +704,6 @@ int main()
 
 // Generate VCD if needed
 
-		if (useScan && scanConstraint) {
-			pScan->eval(clockCnt);
-			clockCnt++;
-		}
-
 		//-------------------------------------------------------------------------------------
 		// SIMULATED VRAM READ/WRITE
 		// Very basic and stupid protocol :
@@ -699,10 +714,12 @@ int main()
 
 		mod->i_clk = 0;
 		mod->eval();
-		if (useScan && scanConstraint) {
+
+		if (useScan && dolog) {
 			pScan->eval(clockCnt);
-			clockCnt++;
+			tfp.dump(clockCnt);
 		}
+		clockCnt++;
 
 #if 0
 		int revCounter = mod->SPU_IF__DOT__SPU_instance__DOT__reverbCnt;
@@ -1051,7 +1068,7 @@ void validateUpload(VSPU_IF* mod, bool useCPU, VCScanner* pScan, int* time) {
 				// Wait...
 //				printf("%i",status);
 			} else {
-				printf("%x\n",(0x2000 + n));
+//				printf("%x\n",(0x2000 + n));
 				for (int p=0; p<32; p++) {
 					writeReg(0x1F801DA8,0x2000+n, pScan, time);					// start adr
 					n++;
@@ -1096,24 +1113,20 @@ void validateDownload(VSPU_IF* mod, VCScanner* pScan, int* time) {
 	for (n=0; n < 0x1000; ) {
 		bool hadReq = (mod->SPUDREQ == 1);
 		if (hadReq) {
-			printf("%i->%i\n",0x2000+n, mod->dataOut);
+//			printf("%i->%i\n",0x2000+n, mod->dataOut);
 			n++;
 		} else {
 			mod->dataIn  = 0;
 		}
 
 		mod->i_clk = 0; mod->eval();
-		pScan->eval(*time); *time = *time +1;
+//		pScan->eval(*time); *time = *time +1;
 
 		mod->i_clk = 1; mod->eval();
-		pScan->eval(*time); *time = *time +1;
+//		pScan->eval(*time); *time = *time +1;
 
 		mod->SPUDACK = (hadReq) ? 1 : 0;
 	}
-
-	pScan->shutdown();
-
-
 }
 
 void processUpload(VSPU_IF* mod) {

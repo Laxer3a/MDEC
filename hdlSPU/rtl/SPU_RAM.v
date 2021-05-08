@@ -2,7 +2,7 @@
 
 PS-FPGA Licenses (DUAL License GPLv2 and commercial license)
 
-This PS-FPGA source code is copyright © 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
+This PS-FPGA source code is copyright (C) 2019 Romain PIQUOIS and licensed under the GNU General Public License v2.0, 
  and a commercial licensing option.
 If you wish to use the source code from PS-FPGA, email laxer3a [at] hotmail [dot] com for commercial licensing.
 
@@ -28,54 +28,45 @@ module SPU_RAM
 );
 
 	// Declare the RAM variable
-	reg [7:0] ramL[262143:0];
-	reg [7:0] ramM[262143:0];
+	reg [15:0] ram[262143:0];
 	
 	// Variable to hold the registered read address
 	reg [17:0] addr_reg;
-	reg [1:0]  readByteSelect_reg;
 	
 	always @ (posedge i_clk)
 	begin
-	// Write
+		// Write
 		if (i_we)
 		begin
-			if (i_byteSelect[0]) ramL[i_wordAddr] <= i_data[ 7:0];
-			if (i_byteSelect[1]) ramM[i_wordAddr] <= i_data[15:8];
+			ram[i_wordAddr] <= i_data[15:0];
 		end
 		
-		addr_reg			<= i_wordAddr;
-		readByteSelect_reg	<= i_byteSelect & {i_re,i_re};
+		addr_reg <= i_wordAddr;
 	end
 	
 	// DEAD if not valid or correct value (1 cycle after READ signal)
-	wire [7:0] hig = readByteSelect_reg[1] ? ramM[addr_reg] : 8'hDE;
-	wire [7:0] low = readByteSelect_reg[0] ? ramL[addr_reg] : 8'hAD;
+	wire [15:0] readV = ram[addr_reg];
 
 	reg [15:0] data1;
 	reg [15:0] data2;
 	reg [15:0] data3;
-	reg [1:0]  readByteSelect_reg1;
-	reg [1:0]  readByteSelect_reg2;
-	reg [1:0]  readByteSelect_reg3;
+	reg readByteSelect_reg;
+	reg readByteSelect_reg1;
+	reg readByteSelect_reg2;
 	always @ (posedge i_clk)
 	begin
 		// Pipeline +3 cycles for data valid.
+		readByteSelect_reg	<= i_re;
 		readByteSelect_reg1 <= readByteSelect_reg;
 		readByteSelect_reg2 <= readByteSelect_reg1;
-		readByteSelect_reg3 <= readByteSelect_reg2;
 
 		// Update pipeline value along the line if VALID only.
-		if (readByteSelect_reg1[0]) begin
-			data1 <= { hig,low };
-		end
-
-		if (readByteSelect_reg2[0]) begin
+		if (readByteSelect_reg)
+			data1 <= readV;
+		if (readByteSelect_reg1)
 			data2 <= data1;
-		end
-		if (readByteSelect_reg3[0]) begin
+		if (readByteSelect_reg2)
 			data3 <= data2;
-		end
 	end
 	assign o_q = data3;
 endmodule

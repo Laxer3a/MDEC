@@ -91,7 +91,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>./;C:\Verilator\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>./;C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -107,7 +107,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>./;C:\Verilator\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>./;C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -125,7 +125,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>./;C:\Verilator\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>./;C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -145,7 +145,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>./;C:\Verilator\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>./;C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -155,10 +155,33 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VbresenhamCounter.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VbresenhamCounter__Syms.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VbresenhamCounter__Trace.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VbresenhamCounter__Trace__Slow.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_counter.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_counter__Syms.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_counter__Trace.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_counter__Trace__Slow.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF__Syms.cpp" />
-    <ClCompile Include="C:\Verilator\verilator\include\verilated.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF__Trace.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF__Trace__Slow.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VSPU_IF___024unit.cpp" />
+    <ClCompile Include="avoSPU\adpcm.cpp" />
+    <ClCompile Include="avoSPU\adsr.cpp" />
+    <ClCompile Include="avoSPU\interpolation.cpp" />
+    <ClCompile Include="avoSPU\noise.cpp" />
+    <ClCompile Include="avoSPU\reverb.cpp" />
+    <ClCompile Include="avoSPU\spu.cpp" />
+    <ClCompile Include="avoSPU\swWrapper.cpp" />
+    <ClCompile Include="avoSPU\tables.cpp" />
+    <ClCompile Include="avoSPU\voice.cpp" />
+    <ClCompile Include="bresenhamCounter.cpp" />
+    <ClCompile Include="C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\home\rpiquois\verilator\include\verilated_vcd_c.cpp" />
+    <ClCompile Include="C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include\verilated.cpp" />
     <ClCompile Include="SPUSimSW.cpp" />
+    <ClCompile Include="test_spu_counter.cpp" />
     <ClCompile Include="VerilatedIntoVCD.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
