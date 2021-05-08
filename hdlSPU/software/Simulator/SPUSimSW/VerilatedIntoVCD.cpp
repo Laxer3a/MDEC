@@ -86,7 +86,6 @@ void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan) {
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__readByteSelect_reg,1,0);
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__readByteSelect_reg1,1,0);
     VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__readByteSelect_reg2,1,0);
-    VL_SIG8(SPU_IF__DOT__SPU_RAM_FPGAInternal__DOT__readByteSelect_reg3,1,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__i_clk,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__n_rst,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__SPUCS,0,0);
@@ -116,8 +115,6 @@ void registerVerilatedMemberIntoScanner(VSPU_IF* mod, VCScanner* pScan) {
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__reg_NoiseFrequStep,3,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isD8,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isD80_DFF,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isChannel,0,0);
-    VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__channelAdr,4,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isDMAXferWR,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__isDMAXferRD,0,0);
     VL_SIG8(SPU_IF__DOT__SPU_instance__DOT__dataTransferBusy,0,0);

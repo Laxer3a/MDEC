@@ -18,7 +18,7 @@ SPU::SPU() {
 void SPU::step(CDRom* cdrom, Sample& audioOutLeft, Sample& audioOutRight) {
     Sample sumLeft = 0, sumReverbLeft = 0;
     Sample sumRight = 0, sumReverbRight = 0;
-
+#if 0
 	uint16_t ctrl_noise_freq   = getCycle(addr,timing); // control.noiseFrequencyStep;
 	uint16_t ctrl_noise_freqSh = getCycle(addr,timing); // control.noiseFrequencyShift
     noise.doNoise(ctrl_noise_freq, ctrl_noise_freqSh);
@@ -143,6 +143,8 @@ void SPU::step(CDRom* cdrom, Sample& audioOutLeft, Sample& audioOutRight) {
     memoryWrite16(cdRightAddress, cdRight);
     memoryWrite16(voice1Address, voices[1].sample);
     memoryWrite16(voice3Address, voices[3].sample);
+#endif
+
 }
 
 uint8_t SPU::readVoice(uint32_t address) const {
