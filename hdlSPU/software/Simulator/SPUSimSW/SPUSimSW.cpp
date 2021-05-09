@@ -426,6 +426,9 @@ void interpreter(int counter) {
 
 extern void test_spu_counter();
 extern void testBresenhamCounter_HW();
+extern void test_ADPCMDecoder();
+extern void test_VoicProcessEnvellope();
+extern void test_ReverbWrapAddress();
 
 int main()
 {

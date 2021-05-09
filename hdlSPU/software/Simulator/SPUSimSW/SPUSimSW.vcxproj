@@ -155,10 +155,23 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\rtl\obj_dir\VADPCMDecoder.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VADPCMDecoder__Syms.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VADPCMDecoder__Trace.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VADPCMDecoder__Trace__Slow.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VbresenhamCounter.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VbresenhamCounter__Syms.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VbresenhamCounter__Trace.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\VbresenhamCounter__Trace__Slow.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VReverbWrapAdr.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VReverbWrapAdr__Syms.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VReverbWrapAdr__Trace.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\VReverbWrapAdr__Trace__Slow.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_ADSRUpdate.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_ADSRUpdate__Syms.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_ADSRUpdate__Trace.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_ADSRUpdate__Trace__Slow.cpp" />
+    <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_ADSRUpdate___024unit.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_counter.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_counter__Syms.cpp" />
     <ClCompile Include="..\..\..\rtl\obj_dir\Vspu_counter__Trace.cpp" />
@@ -181,8 +194,16 @@
     <ClCompile Include="C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\home\rpiquois\verilator\include\verilated_vcd_c.cpp" />
     <ClCompile Include="C:\Users\laxer3a\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs\usr\share\verilator\include\verilated.cpp" />
     <ClCompile Include="SPUSimSW.cpp" />
+    <ClCompile Include="testADPCMDecoder.cpp" />
+    <ClCompile Include="testReverbWrapAddress.cpp" />
+    <ClCompile Include="testVoiceProcessEnvellope.cpp" />
     <ClCompile Include="test_spu_counter.cpp" />
     <ClCompile Include="VerilatedIntoVCD.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\rtl\obj_dir\Vspu_ADSRUpdate.h" />
+    <ClInclude Include="..\..\..\rtl\obj_dir\Vspu_ADSRUpdate__Syms.h" />
+    <ClInclude Include="..\..\..\rtl\obj_dir\Vspu_ADSRUpdate___024unit.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

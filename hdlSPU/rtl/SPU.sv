@@ -681,7 +681,9 @@ spu_ADSRUpdate spu_ADSRUpdate_instance (
 	4. Detect value threshold and change state.
  */
 
-spu_AudioMixer spu_AudioMixerInstance (
+wire signed	[20:0] sumLeft,sumRight,sumReverb;
+
+spu_AudioAccumulator spu_AudioAccumulatorInstance (
 	.i_clk					(i_clk),
 	.i_rst					(!n_rst),
 	
@@ -697,7 +699,25 @@ spu_AudioMixer spu_AudioMixerInstance (
 
 	.i_ctrlSendOut			(ctrlSendOut),	// When mixing the last sample -> Send out to the audio DAC.
 	.i_clearSum				(clearSum),
+		
+	.i_storePrevVxOut		(storePrevVxOut),
+	.o_prevVxOut			(prevChannelVxOut),
+	.o_currVxOut			(currChannelVxOut),
+	.o_sumLeft				(sumLeft),
+	.o_sumRight				(sumRight),
+	.o_sumReverb			(sumReverb)
+);
+
+spu_AudioMixer spu_AudioMixerInstance (
+	.i_clk					(i_clk),
+	.i_rst					(!n_rst),
+
+	.i_sumLeft				(sumLeft),
+	.i_sumRight				(sumRight),
+	.i_sumReverb			(sumReverb),
 	
+	.i_side22Khz			(side22Khz),
+	.i_ctrlSendOut			(ctrlSendOut),	// When mixing the last sample -> Send out to the audio DAC.
 	
 	// Register from outside
 	.i_reg_SPUNotMuted			(reg_SPUNotMuted),
@@ -729,11 +749,7 @@ spu_AudioMixer spu_AudioMixerInstance (
 	// To DAC, final samples.
 	.o_AOUTL				(AOUTL),
 	.o_AOUTR				(AOUTR),
-	.o_VALIDOUT				(VALIDOUT),
-	
-	.i_storePrevVxOut		(storePrevVxOut),
-	.o_prevVxOut			(prevChannelVxOut),
-	.o_currVxOut			(currChannelVxOut)
+	.o_VALIDOUT				(VALIDOUT)
 );
 
 endmodule
